@@ -20,5 +20,11 @@ export default defineConfig({
     hmr: {
       port: 5173,
     },
+    cors: {
+      origin: true, // Allow any origin
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+      allowedHeaders: ["Content-Type", "Authorization", "x-requested-with", "Accept", "Origin", "Cache-Control"],
+      credentials: true,
+    },
   },
 });
