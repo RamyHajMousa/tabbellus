@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { useSpaces } from '@/hooks/useSpaces'; // Fixed import path
+import { useSpaces } from './useSpaces';
 import { db, type Space } from '@/lib/db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useToast } from '@/components/ui/Toaster'; // Correct import
+import { useToast } from '@/components/ui/Toaster';
 import { Virtuoso } from 'react-virtuoso';
 import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Globe } from 'lucide-react';
 import { spaceService } from '@/lib/spaceService';
