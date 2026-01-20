@@ -56,6 +56,13 @@ class SpaceService {
             throw new Error('Failed to save space. Storage might be full.');
         }
     }
+    async restoreSpace(spaceId: number): Promise<void> {
+        const tabs = await db.tabs.where({ spaceId }).sortBy('order');
+        if (tabs.length === 0) return;
+
+        const urls = tabs.map(t => t.url);
+        await chrome.windows.create({ url: urls, focused: true });
+    }
 }
 
 // Singleton Export

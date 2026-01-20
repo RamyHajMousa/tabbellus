@@ -4,6 +4,7 @@ export interface Space {
     id?: number;
     name: string;
     createdAt: number;
+    deletedAt?: number; // Soft delete timestamp
 }
 
 export interface Tab {
@@ -30,13 +31,32 @@ export class TabBellusDB extends Dexie {
 
     constructor() {
         super('TabBellusDB');
-        this.version(1).stores({
-            spaces: '++id, name, createdAt',
+        this.version(2).stores({
+            spaces: '++id, name, createdAt, deletedAt',
             tabs: '++id, spaceId, url, order, [spaceId+order]',
             readLater: '++id, url, addedAt, status'
         });
     }
+
+    // Soft delete a space
+    async softDeleteSpace(id: number) {
+        return this.spaces.update(id, { deletedAt: Date.now() });
+    }
+
+    // Restore a soft-deleted space
+    async undoDeleteSpace(id: number) {
+        return this.spaces.update(id, { deletedAt: undefined });
+    }
+
+    // Hard delete a space and its tabs
+    async hardDeleteSpace(id: number) {
+        return this.transaction('rw', this.spaces, this.tabs, async () => {
+            await this.tabs.where({ spaceId: id }).delete();
+            await this.spaces.delete(id);
+        });
+    }
 }
+
 
 // Singleton Instance
 export const db = new TabBellusDB();
