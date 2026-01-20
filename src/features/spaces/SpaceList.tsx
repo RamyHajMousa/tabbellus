@@ -56,7 +56,7 @@ const SpaceItem = ({ space }: { space: Space }) => {
         <div className="border-b border-border/40 group">
             {/* Header */}
             <div
-                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-zinc-800 transition-colors duration-150"
+                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent transition-colors duration-150"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <div className="text-muted-foreground group-hover:text-foreground transition-colors">
@@ -98,26 +98,26 @@ const SpaceItem = ({ space }: { space: Space }) => {
 
             {/* Accordion Body */}
             {isOpen && tabs && (
-                <div className="bg-zinc-900/30 pl-10 pr-4 py-2 space-y-1 animate-in slide-in-from-top-2 fade-in duration-200">
+                <div className="bg-muted/30 pl-10 pr-4 py-2 space-y-0.5 animate-in slide-in-from-top-2 fade-in duration-200">
                     {tabs.map((tab) => (
-                        <div key={tab.id} className="flex items-center gap-2 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 truncate">
+                        <div key={tab.id} className="flex items-center gap-2 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-default truncate">
                             {tab.favicon ? (
                                 <img
                                     src={tab.favicon}
                                     alt=""
-                                    className="w-4 h-4 rounded-sm"
+                                    className="w-4 h-4 rounded-sm flex-shrink-0"
                                     onError={(e) => {
                                         (e.target as HTMLImageElement).style.display = 'none';
                                         (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
                                     }}
                                 />
                             ) : null}
-                            <Globe className={`w-4 h-4 text-zinc-600 ${tab.favicon ? 'hidden' : ''}`} />
+                            <Globe className={`w-4 h-4 text-muted-foreground/50 flex-shrink-0 ${tab.favicon ? 'hidden' : ''}`} />
                             <span className="truncate">{tab.title || tab.url}</span>
                         </div>
                     ))}
                     {tabs.length === 0 && (
-                        <p className="text-xs text-muted-foreground italic py-1">No saved tabs</p>
+                        <p className="text-xs text-muted-foreground italic py-2">No saved tabs</p>
                     )}
                 </div>
             )}
