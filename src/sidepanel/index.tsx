@@ -20,21 +20,25 @@ const HydrationGuard = ({ children }: { children: React.ReactNode }) => {
     return <>{children}</>;
 };
 
+import { GlobalHeader } from './components/GlobalHeader';
+import { ViewSwitcher } from './components/ViewSwitcher';
+
 const SidePanel = () => {
+    const activeView = useAppStore((state) => state.activeView);
+
     return (
         <div className="h-screen w-full bg-background text-foreground flex flex-col font-sans overflow-hidden">
-            {/* Header */}
-            <header className="p-4 border-b border-border/50">
-                <h1 className="text-xl font-bold tracking-tight">TabBellus</h1>
-                <p className="text-xs text-muted-foreground">Workspace Manager</p>
-            </header>
+            <GlobalHeader />
+            <ViewSwitcher />
 
-            {/* Active Session & Capture */}
-            <ActiveSession />
-
-            {/* Space List */}
-            <div className="flex-1 overflow-hidden">
-                <SpaceList />
+            <div className="flex-1 overflow-y-auto">
+                {activeView === 'active' && <ActiveSession />}
+                {activeView === 'spaces' && <SpaceList />}
+                {activeView === 'read-later' && (
+                    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground p-4 text-center">
+                        <p className="text-sm">Read Later Coming Soon</p>
+                    </div>
+                )}
             </div>
         </div>
     );

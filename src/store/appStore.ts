@@ -40,8 +40,10 @@ const chromeStorageAdapter: StateStorage = {
 interface AppState {
     theme: 'light' | 'dark' | 'system';
     isHydrated: boolean;
+    activeView: 'active' | 'spaces' | 'read-later';
     setTheme: (theme: AppState['theme']) => void;
     setHydrated: (state: boolean) => void;
+    setActiveView: (view: AppState['activeView']) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -49,8 +51,10 @@ export const useAppStore = create<AppState>()(
         (set) => ({
             theme: 'system',
             isHydrated: false,
+            activeView: 'spaces',
             setTheme: (theme) => set({ theme }),
             setHydrated: (isHydrated) => set({ isHydrated }),
+            setActiveView: (view) => set({ activeView: view }),
         }),
         {
             name: 'tabbellus-settings',
