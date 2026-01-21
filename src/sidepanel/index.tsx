@@ -2,8 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { useAppStore } from '@/store/appStore';
 import { ToastProvider } from '@/components/ui/Toaster';
-import { ActiveSession } from '@/features/tabs/ActiveSession';
-import { SpaceList } from '@/features/spaces/SpaceList';
+import { ActiveSession } from '@/features/tabs';
+import { SpaceList } from '@/features/spaces';
 import '@/index.css';
 
 const HydrationGuard = ({ children }: { children: React.ReactNode }) => {

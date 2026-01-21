@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers } from 'lucide-react';
-import { db, type Space } from '@/lib/db';
-import { spaceService } from '@/lib/spaceService';
+import { db, type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
-import { TabRow } from '@/features/tabs/components/TabRow';
+import { TabRow } from '@/features/tabs';
 
 interface SpaceItemProps {
     space: Space;

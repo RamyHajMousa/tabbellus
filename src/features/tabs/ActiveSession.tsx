@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { spaceService } from '@/lib/spaceService';
+import { spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { Save, LayoutGrid } from 'lucide-react';
 

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Globe } from 'lucide-react';
-import { type Tab } from '@/lib/db';
-import { tabService } from '@/lib/tabService';
+import { type Tab, tabService } from '@/lib';
 
 interface TabRowProps {
     tab: Tab;
