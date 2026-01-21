@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toaster';
 import { Virtuoso } from 'react-virtuoso';
 import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Globe } from 'lucide-react';
 import { spaceService } from '@/lib/spaceService';
+import { tabService } from '@/lib/tabService';
 
 // Individual Space Item Component for better performance
 const SpaceItem = ({ space }: { space: Space }) => {
@@ -100,7 +101,14 @@ const SpaceItem = ({ space }: { space: Space }) => {
             {isOpen && tabs && (
                 <div className="bg-muted/30 pl-10 pr-4 py-2 space-y-0.5 animate-in slide-in-from-top-2 fade-in duration-200">
                     {tabs.map((tab) => (
-                        <div key={tab.id} className="flex items-center gap-2 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-default truncate">
+                        <div
+                            key={tab.id}
+                            className="flex items-center gap-2 py-1.5 px-2 -ml-2 rounded-md text-sm text-zinc-400 hover:text-zinc-50 hover:bg-zinc-800/50 cursor-pointer transition-all duration-200 border-l-2 border-transparent hover:border-primary/50"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                tabService.focusOrCreate(tab.url);
+                            }}
+                        >
                             {tab.favicon ? (
                                 <img
                                     src={tab.favicon}
@@ -112,7 +120,7 @@ const SpaceItem = ({ space }: { space: Space }) => {
                                     }}
                                 />
                             ) : null}
-                            <Globe className={`w-4 h-4 text-muted-foreground/50 flex-shrink-0 ${tab.favicon ? 'hidden' : ''}`} />
+                            <Globe className={`w-4 h-4 text-zinc-600 flex-shrink-0 ${tab.favicon ? 'hidden' : ''}`} />
                             <span className="truncate">{tab.title || tab.url}</span>
                         </div>
                     ))}
