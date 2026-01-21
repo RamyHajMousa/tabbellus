@@ -1,7 +1,7 @@
 import { useSpaces } from './useSpaces';
 import { Virtuoso } from 'react-virtuoso';
 import { Layers } from 'lucide-react';
-import { SpaceItem } from '@/features/spaces/components/SpaceItem';
+import { SpaceItem } from './components/SpaceItem';
 
 export const SpaceList = () => {
     const spaces = useSpaces();
