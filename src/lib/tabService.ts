@@ -47,8 +47,11 @@ class TabService {
 
         if (bestMatch && bestMatch.id && bestMatch.windowId) {
             // 4a. Focus Existing
-            await chrome.windows.update(bestMatch.windowId, { focused: true });
-            await chrome.tabs.update(bestMatch.id, { active: true });
+            await chrome.windows.update(bestMatch.windowId, { focused: true }).catch(() => { });
+            await chrome.tabs.update(bestMatch.id, { active: true }).catch(() => {
+                // Fallback: If update fails (tab closed?), create new
+                chrome.tabs.create({ url });
+            });
         } else {
             // 4b. Create New
             await chrome.tabs.create({ url });
