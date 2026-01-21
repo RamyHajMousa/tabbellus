@@ -20,6 +20,7 @@ export interface ReadLaterItem {
     id?: number;
     url: string;
     title?: string;
+    favicon?: string;
     addedAt: number;
     status: 'unread' | 'read' | 'archived';
 }
@@ -31,10 +32,13 @@ export class TabBellusDB extends Dexie {
 
     constructor() {
         super('TabBellusDB');
-        this.version(2).stores({
+        this.version(3).stores({
             spaces: '++id, name, createdAt, deletedAt',
             tabs: '++id, spaceId, url, order, [spaceId+order]',
-            readLater: '++id, url, addedAt, status'
+            readLater: '++id, url, title, addedAt, status' // Added title to index if useful for search, favicon not indexed usually
+        }).upgrade(() => {
+            // Optional: Migration logic if needed, but adding columns is usually safe in Dexie without explicit upgrade for purely new fields if not strictly typed in previous stores without default. 
+            // Actually, simply defining the new schema version is enough for Dexie to handle the store update.
         });
     }
 

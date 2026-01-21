@@ -23,6 +23,10 @@ const HydrationGuard = ({ children }: { children: React.ReactNode }) => {
 import { GlobalHeader } from './components/GlobalHeader';
 import { ViewSwitcher } from './components/ViewSwitcher';
 
+import { ReadLaterList } from '@/features/read-later';
+
+// ...
+
 const SidePanel = () => {
     const activeView = useAppStore((state) => state.activeView);
 
@@ -34,11 +38,7 @@ const SidePanel = () => {
             <div className="flex-1 overflow-y-auto">
                 {activeView === 'active' && <ActiveSession />}
                 {activeView === 'spaces' && <SpaceList />}
-                {activeView === 'read-later' && (
-                    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground p-4 text-center">
-                        <p className="text-sm">Read Later Coming Soon</p>
-                    </div>
-                )}
+                {activeView === 'read-later' && <ReadLaterList />}
             </div>
         </div>
     );

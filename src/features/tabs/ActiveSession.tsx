@@ -43,6 +43,7 @@ export const ActiveSession = () => {
             await db.readLater.add({
                 url: tab.url,
                 title: tab.title,
+                favicon: tab.favIconUrl,
                 addedAt: Date.now(),
                 status: 'unread'
             });
