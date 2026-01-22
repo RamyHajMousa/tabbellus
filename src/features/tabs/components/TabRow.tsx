@@ -15,8 +15,8 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
             className={`
                 group flex items-center gap-2 h-9 px-2 rounded-md transition-colors cursor-pointer text-sm
                 ${isActive
-                    ? 'bg-accent/50 text-accent-foreground border-l-2 border-primary -ml-[2px]'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground border-l-2 border-transparent -ml-[2px]'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
                 }
             `}
             onClick={(e) => {
