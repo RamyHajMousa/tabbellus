@@ -2,74 +2,112 @@ import { useState, useEffect } from 'react';
 
 export function useCurrentTabs() {
     const [tabs, setTabs] = useState<chrome.tabs.Tab[]>([]);
+    const [groups, setGroups] = useState<Map<number, chrome.tabGroups.TabGroup>>(new Map());
     const [activeTabId, setActiveTabId] = useState<number | null>(null);
 
     useEffect(() => {
         // Initial fetch
-        const fetchTabs = async () => {
+        const fetchAll = async () => {
             try {
-                const currentTabs = await chrome.tabs.query({ currentWindow: true });
+                const currentFnOption = { currentWindow: true };
+
+                // Fetch Tabs
+                const currentTabs = await chrome.tabs.query(currentFnOption);
                 setTabs(currentTabs);
+
+                // Fetch Groups
+                const currentGroups = await chrome.tabGroups.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+                const groupMap = new Map();
+                currentGroups.forEach(g => groupMap.set(g.id, g));
+                setGroups(groupMap);
+
+                // Set Active
                 const active = currentTabs.find(t => t.active);
                 if (active && active.id) setActiveTabId(active.id);
             } catch (e) {
-                console.warn('Failed to fetch tabs:', e);
+                console.warn('Failed to fetch tabs/groups:', e);
             }
         };
 
-        fetchTabs();
+        fetchAll();
 
-        // Listeners for real-time updates
-        const onCreated = (tab: chrome.tabs.Tab) => {
+        // --- Tab Listeners ---
+        const onTabCreated = (tab: chrome.tabs.Tab) => {
             setTabs(prev => {
                 if (prev.some(t => t.id === tab.id)) return prev;
                 return [...prev, tab];
             });
         };
 
-        const onRemoved = (tabId: number) => {
+        const onTabRemoved = (tabId: number) => {
             setTabs(prev => prev.filter(t => t.id !== tabId));
         };
 
-        const onUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
-            // Filter: Only update if relevant properties changed
-            if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl) {
+        const onTabUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+            if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl || changeInfo.groupId) {
                 setTabs(prev => prev.map(t => (t.id === tabId ? tab : t)));
             }
         };
 
-        const onMoved = async () => {
-            // For move/reorder, re-fetch the entire list to ensure correct index order
+        const onTabMoved = async () => {
             const sortedTabs = await chrome.tabs.query({ currentWindow: true });
             setTabs(sortedTabs);
         };
 
-        const onActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+        const onTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
             setActiveTabId(activeInfo.tabId);
-            // Optionally update the active status in the list if we were tracking it there too,
-            // but for simple highlighting, `activeTabId` state is enough.
-            // However, chrome.tabs.query keeps 'active' property, so let's update that to be safe.
             setTabs(prev => prev.map(t => ({ ...t, active: t.id === activeInfo.tabId })));
         };
 
-        chrome.tabs.onCreated.addListener(onCreated);
-        chrome.tabs.onUpdated.addListener(onUpdated);
-        chrome.tabs.onRemoved.addListener(onRemoved);
-        chrome.tabs.onMoved.addListener(onMoved);
-        chrome.tabs.onActivated.addListener(onActivated);
-        // Also listen to onDetached/onAttached if tabs move between windows? 
-        // For "currentWindow: true", if a tab is detached it is removed from this window. onDetached -> onRemoved.
-        // If attached, onAttached -> onCreated (effectively). 
-        // Actually onAttached fires after... let's stick to onCreated/onRemoved for window moves for now.
+        // --- Group Listeners ---
+        const onGroupCreated = (group: chrome.tabGroups.TabGroup) => {
+            if (group.windowId !== chrome.windows.WINDOW_ID_CURRENT) return; // Although Query is constrained, listeners might fire globally? No, but let's be safe if possible, or filter at render. Actually listeners are global.
+            // Just update our map.
+            setGroups(prev => new Map(prev).set(group.id, group));
+        };
+
+        const onGroupRemoved = (groupId: chrome.tabGroups.TabGroup) => {
+            // Note: Listener signature varies, check docs. 
+            // chrome.tabGroups.onRemoved.addListener(callback: (group: TabGroup) => void) in Types? 
+            // Actually it passes the group object.
+            setGroups(prev => {
+                const next = new Map(prev);
+                next.delete(groupId.id);
+                return next;
+            });
+        };
+
+        const onGroupUpdated = (group: chrome.tabGroups.TabGroup) => {
+            setGroups(prev => new Map(prev).set(group.id, group));
+        };
+
+        // Register
+        chrome.tabs.onCreated.addListener(onTabCreated);
+        chrome.tabs.onUpdated.addListener(onTabUpdated);
+        chrome.tabs.onRemoved.addListener(onTabRemoved);
+        chrome.tabs.onMoved.addListener(onTabMoved);
+        chrome.tabs.onActivated.addListener(onTabActivated);
+
+        if (chrome.tabGroups) {
+            chrome.tabGroups.onCreated.addListener(onGroupCreated);
+            chrome.tabGroups.onUpdated.addListener(onGroupUpdated);
+            chrome.tabGroups.onRemoved.addListener(onGroupRemoved);
+        }
 
         return () => {
-            chrome.tabs.onCreated.removeListener(onCreated);
-            chrome.tabs.onUpdated.removeListener(onUpdated);
-            chrome.tabs.onRemoved.removeListener(onRemoved);
-            chrome.tabs.onMoved.removeListener(onMoved);
-            chrome.tabs.onActivated.removeListener(onActivated);
+            chrome.tabs.onCreated.removeListener(onTabCreated);
+            chrome.tabs.onUpdated.removeListener(onTabUpdated);
+            chrome.tabs.onRemoved.removeListener(onTabRemoved);
+            chrome.tabs.onMoved.removeListener(onTabMoved);
+            chrome.tabs.onActivated.removeListener(onTabActivated);
+
+            if (chrome.tabGroups) {
+                chrome.tabGroups.onCreated.removeListener(onGroupCreated);
+                chrome.tabGroups.onUpdated.removeListener(onGroupUpdated);
+                chrome.tabGroups.onRemoved.removeListener(onGroupRemoved);
+            }
         };
     }, []);
 
-    return { tabs, activeTabId };
+    return { tabs, groups, activeTabId };
 }

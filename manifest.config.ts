@@ -11,7 +11,8 @@ export default defineManifest({
         "sidePanel",
         "contextMenus",
         "unlimitedStorage",
-        "alarms"
+        "alarms",
+        "tabGroups"
     ],
     action: {
         default_popup: "src/popup/index.html",

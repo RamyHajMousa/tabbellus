@@ -1,15 +1,64 @@
-import { useState } from 'react';
-import { spaceService, db } from '@/lib'; // Ensure 'db' is exported from @/lib or import from db directly
+import { useState, useMemo } from 'react';
+import { spaceService, db } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
-import { Save, LayoutGrid } from 'lucide-react';
+import { Save, LayoutGrid, Ghost } from 'lucide-react';
 import { useCurrentTabs } from './hooks/useCurrentTabs';
 import { TabRow } from './components/TabRow';
+import { GroupRow } from './components/GroupRow';
 
 export const ActiveSession = () => {
-    const { tabs, activeTabId } = useCurrentTabs();
+    const { tabs, groups, activeTabId } = useCurrentTabs();
     const [spaceName, setSpaceName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const { toast } = useToast();
+
+    // Grouping Topology
+    const groupedTabs = useMemo(() => {
+
+        const groupMap = new Map<number, chrome.tabs.Tab[]>();
+
+        // 1. Bucket tabs
+        tabs.forEach(tab => {
+            const gid = tab.groupId;
+            if (!groupMap.has(gid)) {
+                groupMap.set(gid, []);
+                // Preserve order of appearance of GROUPS based on their first tab? 
+                // Or just iterate tabs and push new groups as we see them?
+                // The API order is usually index-based.
+            }
+            groupMap.get(gid)!.push(tab);
+        });
+
+        // 2. Linearize based on tab order (Chrome usually keeps tabs in a group contiguous)
+        // We'll iterate the tabs list to discover group order.
+
+
+        // Better approach:
+        // Identify contiguous blocks. 
+        // But for now, let's stick to a simpler model: Render Grouped items by Group ID, then Ungrouped? 
+        // No, visual fidelity requires order.
+
+        // Final Approach: iterate `tabs`.
+        // If tab is ungrouped -> add to render list.
+        // If tab is grouped -> if group not yet added, add GROUP block (which contains all its tabs), then mark group as added.
+
+        const renderList: ({ type: 'tab', tab: chrome.tabs.Tab } | { type: 'group', groupId: number, tabs: chrome.tabs.Tab[] })[] = [];
+        const processedGroups = new Set<number>();
+
+        tabs.forEach(tab => {
+            if (tab.groupId === -1) {
+                renderList.push({ type: 'tab', tab });
+            } else {
+                if (!processedGroups.has(tab.groupId)) {
+                    processedGroups.add(tab.groupId);
+                    const tabsInGroup = groupMap.get(tab.groupId) || [];
+                    renderList.push({ type: 'group', groupId: tab.groupId, tabs: tabsInGroup });
+                }
+            }
+        });
+
+        return renderList;
+    }, [tabs]);
 
     const handleCapture = async () => {
         if (!spaceName.trim()) return;
@@ -39,7 +88,6 @@ export const ActiveSession = () => {
         if (!tab.url || !tab.id) return;
 
         try {
-            // 1. Save to DB
             await db.readLater.add({
                 url: tab.url,
                 title: tab.title,
@@ -47,10 +95,7 @@ export const ActiveSession = () => {
                 addedAt: Date.now(),
                 status: 'unread'
             });
-
-            // 2. Close Tab (Clear the Deck)
             await chrome.tabs.remove(tab.id).catch(() => { });
-
             toast("Saved to Read Later", { duration: 1500 });
         } catch (err) {
             console.error(err);
@@ -64,7 +109,7 @@ export const ActiveSession = () => {
     };
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full select-none">
             {/* Capture Header */}
             <div className="p-4 bg-card border-b border-border shadow-sm flex-shrink-0 z-10 w-full">
                 <div className="flex items-center gap-2 mb-3">
@@ -97,17 +142,49 @@ export const ActiveSession = () => {
 
             {/* Scrollable Tab List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0 bg-background/50">
-                {tabs.map((tab, index) => (
-                    <TabRow
-                        key={tab.id || `tab-${index}`}
-                        tab={tab}
-                        isActive={tab.id === activeTabId}
-                        onClose={(e) => handleClose(e, tab.id)}
-                        onReadLater={(e) => handleReadLater(e, tab)}
-                    />
-                ))}
+                {groupedTabs.map((item, index) => {
+                    if (item.type === 'tab') {
+                        return (
+                            <TabRow
+                                key={item.tab.id || `tab-u-${index}`}
+                                tab={item.tab}
+                                isActive={item.tab.id === activeTabId}
+                                onClose={(e) => handleClose(e, item.tab.id)}
+                                onReadLater={(e) => handleReadLater(e, item.tab)}
+                            />
+                        );
+                    } else {
+                        // Group Block
+                        const group = groups.get(item.groupId);
+                        if (!group) return null; // Should ideally not happen if synced
+
+                        return (
+                            <div key={`group-${item.groupId}`} className="mb-1">
+                                <GroupRow group={group} />
+
+                                {/* Group Children */}
+                                {!group.collapsed && (
+                                    <div className="pl-[14px] border-l-2 border-zinc-800 ml-2 space-y-0.5 mt-0.5 relative">
+                                        {/* Visual Guide Line Extension can be CSS-ed, but simple border-l worked well in context */}
+                                        {item.tabs.map(t => (
+                                            <TabRow
+                                                key={t.id || `tab-g-${t.index}`}
+                                                tab={t}
+                                                isActive={t.id === activeTabId}
+                                                onClose={(e) => handleClose(e, t.id)}
+                                                onReadLater={(e) => handleReadLater(e, t)}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }
+                })}
+
                 {tabs.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-32 text-muted-foreground opacity-50">
+                        <Ghost className="w-8 h-8 mb-2 opacity-20" />
                         <p className="text-xs">No active tabs</p>
                     </div>
                 )}
