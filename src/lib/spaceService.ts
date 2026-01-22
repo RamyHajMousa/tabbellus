@@ -63,6 +63,46 @@ class SpaceService {
         const urls = tabs.map(t => t.url);
         await chrome.windows.create({ url: urls, focused: true });
     }
+
+    /**
+     * Creates a new Space from a specific list of tabs (e.g. from a Group).
+     */
+    async createSpaceFromTabs(name: string, tabs: chrome.tabs.Tab[]): Promise<void> {
+        // 1. Filter
+        const validTabs = tabs.filter(tab => {
+            const url = tab.url || '';
+            return (
+                url &&
+                !url.startsWith('chrome://') &&
+                !url.startsWith('about:')
+            );
+        });
+
+        if (validTabs.length === 0) {
+            throw new Error('No valid tabs to save in this group.');
+        }
+
+        // 2. Transaction
+        await db.transaction('rw', db.spaces, db.tabs, async () => {
+            // Default name fallback if empty
+            const safeName = name.trim() || `Untitled Group ${new Date().toLocaleTimeString()}`;
+
+            const spaceId = await db.spaces.add({
+                name: safeName,
+                createdAt: Date.now()
+            });
+
+            const tabRecords: Tab[] = validTabs.map((tab, index) => ({
+                spaceId: spaceId as number,
+                url: tab.url!,
+                title: tab.title || 'Untitled',
+                favicon: tab.favIconUrl || '',
+                order: index
+            }));
+
+            await db.tabs.bulkAdd(tabRecords);
+        });
+    }
 }
 
 // Singleton Export

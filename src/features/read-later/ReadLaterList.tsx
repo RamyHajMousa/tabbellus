@@ -3,8 +3,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Trash2, Archive, CheckCircle2, Globe, Check } from 'lucide-react';
 import { db, tabService } from '@/lib';
 
+import { useToast } from '@/components/ui/Toaster';
+
 export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
+    const { toast } = useToast();
 
     const items = useLiveQuery(
         () => db.readLater
@@ -21,7 +24,17 @@ export const ReadLaterList = () => {
     };
 
     const handleDelete = async (id: number) => {
+        const item = await db.readLater.get(id);
+        if (!item) return;
+
         await db.readLater.delete(id);
+
+        toast("Item deleted", {
+            duration: 4000,
+            onUndo: () => {
+                db.readLater.add(item);
+            }
+        });
     };
 
     const handleOpen = async (url: string) => {

@@ -12,7 +12,8 @@ export default defineManifest({
         "contextMenus",
         "unlimitedStorage",
         "alarms",
-        "tabGroups"
+        "tabGroups",
+        "sessions"
     ],
     action: {
         default_popup: "src/popup/index.html",

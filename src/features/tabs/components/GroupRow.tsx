@@ -1,13 +1,14 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, Layers, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Layers, X, Archive } from 'lucide-react';
 import { getGroupColorClasses } from '@/lib/colors';
 
 interface GroupRowProps {
     group: chrome.tabGroups.TabGroup;
     onClose?: (e: React.MouseEvent) => void;
+    onArchive?: (e: React.MouseEvent) => void;
 }
 
-export const GroupRow = React.memo(({ group, onClose }: GroupRowProps) => {
+export const GroupRow = React.memo(({ group, onClose, onArchive }: GroupRowProps) => {
     const colors = getGroupColorClasses(group.color);
 
     const handleToggleCollapse = (e: React.MouseEvent) => {
@@ -36,17 +37,27 @@ export const GroupRow = React.memo(({ group, onClose }: GroupRowProps) => {
                 {group.title || 'Untitled Group'}
             </span>
 
-            {/* Actions: Collapse Icon (Visual) & Close Button */}
+            {/* Actions: Collapse Icon (Visual) & Archive & Close Button */}
             <div className="flex items-center gap-1">
-                {group.collapsed && (
+                {group.collapsed && !onArchive && !onClose && (
                     <Layers className={`w-3 h-3 opacity-50 ${colors.text}`} />
+                )}
+
+                {onArchive && (
+                    <button
+                        onClick={onArchive}
+                        className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white ${colors.text}`}
+                        title="Save & Close (Archive)"
+                    >
+                        <Archive className="w-3 h-3" />
+                    </button>
                 )}
 
                 {onClose && (
                     <button
                         onClick={onClose}
                         className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-white ${colors.text}`}
-                        title="Close Group"
+                        title="Delete Group"
                     >
                         <X className="w-3 h-3" />
                     </button>

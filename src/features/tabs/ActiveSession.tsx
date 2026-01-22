@@ -105,14 +105,43 @@ export const ActiveSession = () => {
 
     const handleClose = (e: React.MouseEvent, tabId?: number) => {
         e.stopPropagation();
-        if (tabId) chrome.tabs.remove(tabId).catch(() => { });
+        if (!tabId) return;
+
+        chrome.tabs.remove(tabId).then(() => {
+            toast("Tab closed", {
+                duration: 4000,
+                onUndo: () => {
+                    chrome.sessions.restore().catch(console.error);
+                }
+            });
+        }).catch(() => { });
     };
 
     const handleCloseGroup = (e: React.MouseEvent, groupTabs: chrome.tabs.Tab[]) => {
         e.stopPropagation();
         const ids = groupTabs.map(t => t.id).filter((id): id is number => id !== undefined);
+
         if (ids.length > 0) {
-            chrome.tabs.remove(ids).catch(() => { });
+            chrome.tabs.remove(ids).then(() => {
+                toast(`Closed group with ${ids.length} tabs`, {
+                    duration: 3000
+                });
+            }).catch(() => { });
+        }
+    };
+
+    const handleArchiveGroup = async (e: React.MouseEvent, group: chrome.tabGroups.TabGroup, tabs: chrome.tabs.Tab[]) => {
+        e.stopPropagation();
+        const ids = tabs.map(t => t.id).filter((id): id is number => id !== undefined);
+        if (ids.length === 0) return;
+
+        try {
+            await spaceService.createSpaceFromTabs(group.title || '', tabs);
+            await chrome.tabs.remove(ids);
+            toast("Group archived to Spaces", { duration: 2000 });
+        } catch (err) {
+            console.error(err);
+            toast("Failed to archive group");
         }
     };
 
@@ -172,6 +201,7 @@ export const ActiveSession = () => {
                                 <GroupRow
                                     group={group}
                                     onClose={(e) => handleCloseGroup(e, item.tabs)}
+                                    onArchive={(e) => handleArchiveGroup(e, group, item.tabs)}
                                 />
 
                                 {/* Group Children */}
