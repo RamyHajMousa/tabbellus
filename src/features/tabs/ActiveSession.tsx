@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { spaceService, db } from '@/lib';
+import { spaceService, db, getGroupColorClasses } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { Save, LayoutGrid, Ghost } from 'lucide-react';
 import { useCurrentTabs } from './hooks/useCurrentTabs';
@@ -157,6 +157,7 @@ export const ActiveSession = () => {
                         // Group Block
                         const group = groups.get(item.groupId);
                         if (!group) return null; // Should ideally not happen if synced
+                        const colors = getGroupColorClasses(group.color);
 
                         return (
                             <div key={`group-${item.groupId}`} className="mb-1">
@@ -164,7 +165,7 @@ export const ActiveSession = () => {
 
                                 {/* Group Children */}
                                 {!group.collapsed && (
-                                    <div className="pl-[14px] border-l-2 border-zinc-800 ml-2 space-y-0.5 mt-0.5 relative">
+                                    <div className={`pl-[14px] border-l-2 ml-2 space-y-0.5 mt-0.5 relative ${colors.border}`}>
                                         {/* Visual Guide Line Extension can be CSS-ed, but simple border-l worked well in context */}
                                         {item.tabs.map(t => (
                                             <TabRow

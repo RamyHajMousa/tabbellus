@@ -16,25 +16,28 @@ export const GroupRow = React.memo(({ group }: GroupRowProps) => {
 
     return (
         <div
-            className="group flex items-center gap-2 py-1.5 px-2 -ml-2 rounded-md text-sm cursor-pointer hover:bg-zinc-800/50 transition-all select-none"
+            className={`
+                group flex items-center gap-2 h-7 px-2 -ml-2 rounded-md text-xs cursor-pointer select-none transition-colors mb-0.5
+                ${colors.row}
+            `}
             onClick={handleToggleCollapse}
         >
             {/* Collapse Icon */}
-            <span className="text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity">
+            <span className={`opacity-70 group-hover:opacity-100 transition-opacity ${colors.text}`}>
                 {group.collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </span>
 
             {/* Color Badge */}
-            <div className={`w-3 h-3 rounded-full ${colors.bg} border ${colors.border} shadow-sm`} />
+            <div className={`w-2 h-2 rounded-full ${colors.badge} shadow-sm`} />
 
             {/* Title */}
-            <span className={`font-medium ${colors.text} truncate opacity-90`}>
+            <span className={`font-semibold uppercase tracking-wider ${colors.text} truncate opacity-90`}>
                 {group.title || 'Untitled Group'}
             </span>
 
             {/* Optional: Add badge for child count if needed, but we rely on visuals */}
             {group.collapsed && (
-                <Layers className="ml-auto w-3 h-3 text-muted-foreground opacity-30" />
+                <Layers className={`ml-auto w-3 h-3 opacity-50 ${colors.text}`} />
             )}
         </div>
     );

@@ -1,21 +1,22 @@
 export type ChromeColor = 'grey' | 'blue' | 'red' | 'yellow' | 'green' | 'pink' | 'purple' | 'cyan' | 'orange';
 
 interface ColorDefinition {
-    bg: string;
-    border: string;
-    text: string;
+    badge: string; // The solid dot or border
+    row: string; // The row background tint
+    text: string; // Text color
+    border: string; // The vertical guide line color
 }
 
 export const GROUP_COLORS: Record<ChromeColor, ColorDefinition> = {
-    grey: { bg: 'bg-zinc-500', border: 'border-zinc-500', text: 'text-zinc-100' },
-    blue: { bg: 'bg-blue-500', border: 'border-blue-500', text: 'text-blue-100' },
-    red: { bg: 'bg-red-500', border: 'border-red-500', text: 'text-red-100' },
-    yellow: { bg: 'bg-yellow-500', border: 'border-yellow-500', text: 'text-yellow-100' },
-    green: { bg: 'bg-green-500', border: 'border-green-500', text: 'text-green-100' },
-    pink: { bg: 'bg-pink-500', border: 'border-pink-500', text: 'text-pink-100' },
-    purple: { bg: 'bg-purple-500', border: 'border-purple-500', text: 'text-purple-100' },
-    cyan: { bg: 'bg-cyan-500', border: 'border-cyan-500', text: 'text-cyan-100' },
-    orange: { bg: 'bg-orange-500', border: 'border-orange-500', text: 'text-orange-100' },
+    grey: { badge: 'bg-zinc-500', row: 'bg-zinc-500/10 dark:bg-zinc-500/20', text: 'text-zinc-500', border: 'border-zinc-500' },
+    blue: { badge: 'bg-blue-500', row: 'bg-blue-500/10 dark:bg-blue-500/20', text: 'text-blue-500', border: 'border-blue-500' },
+    red: { badge: 'bg-red-500', row: 'bg-red-500/10 dark:bg-red-500/20', text: 'text-red-500', border: 'border-red-500' },
+    yellow: { badge: 'bg-yellow-500', row: 'bg-yellow-500/10 dark:bg-yellow-500/20', text: 'text-yellow-500', border: 'border-yellow-500' },
+    green: { badge: 'bg-green-500', row: 'bg-green-500/10 dark:bg-green-500/20', text: 'text-green-500', border: 'border-green-500' },
+    pink: { badge: 'bg-pink-500', row: 'bg-pink-500/10 dark:bg-pink-500/20', text: 'text-pink-500', border: 'border-pink-500' },
+    purple: { badge: 'bg-purple-500', row: 'bg-purple-500/10 dark:bg-purple-500/20', text: 'text-purple-500', border: 'border-purple-500' },
+    cyan: { badge: 'bg-cyan-500', row: 'bg-cyan-500/10 dark:bg-cyan-500/20', text: 'text-cyan-500', border: 'border-cyan-500' },
+    orange: { badge: 'bg-orange-500', row: 'bg-orange-500/10 dark:bg-orange-500/20', text: 'text-orange-500', border: 'border-orange-500' },
 };
 
 export const getGroupColorClasses = (color: ChromeColor | string): ColorDefinition => {

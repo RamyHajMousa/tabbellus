@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, ExternalLink, Layers } from 'lucide-react';
 import { db, type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { TabRow } from '@/features/tabs';
@@ -49,50 +49,45 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         if (space.id) await spaceService.restoreSpace(space.id);
     };
 
-    const formatDate = (ts: number) => new Date(ts).toLocaleDateString(undefined, {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
+
 
     return (
         <div className="border-b border-border/40 group">
             {/* Header */}
+
             <div
-                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent transition-colors duration-150"
+                className="flex items-center gap-2 p-2 h-9 cursor-pointer hover:bg-accent/50 transition-colors duration-150 rounded-md mx-1"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <div className="text-muted-foreground group-hover:text-foreground transition-colors">
                     {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </div>
 
-                <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium truncate">{space.name}</h3>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
+                <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <h3 className="text-sm font-medium text-foreground truncate">{space.name}</h3>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
+                        <span className="flex items-center gap-0.5">
                             <Layers className="w-3 h-3" />
-                            {tabs?.length || 0} tabs
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            {formatDate(space.createdAt)}
+                            {tabs?.length || 0}
                         </span>
                     </div>
                 </div>
 
                 {/* Actions (Visible on Hover) */}
-                <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                         onClick={handleRestore}
-                        className="p-2 rounded-md hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
+                        className="p-1 rounded-sm hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
                         title="Restore Space"
                     >
-                        <ExternalLink className="w-4 h-4" />
+                        <ExternalLink className="w-3.5 h-3.5" />
                     </button>
                     <button
                         onClick={handleDelete}
-                        className="p-2 rounded-md hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+                        className="p-1 rounded-sm hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                         title="Delete Space"
                     >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                     </button>
                 </div>
             </div>

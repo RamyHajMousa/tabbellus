@@ -13,20 +13,17 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
     return (
         <div
             className={`
-                group flex items-center gap-2 py-1.5 px-2 -ml-2 rounded-md text-sm cursor-pointer transition-all duration-200 border-l-2
+                group flex items-center gap-2 h-9 px-2 rounded-md transition-colors cursor-pointer text-sm
                 ${isActive
-                    ? 'bg-indigo-500/10 border-indigo-500 text-indigo-100'
-                    : 'text-zinc-400 hover:text-zinc-50 hover:bg-zinc-800/50 border-transparent hover:border-primary/50'
+                    ? 'bg-accent/50 text-accent-foreground border-l-2 border-primary -ml-[2px]'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground border-l-2 border-transparent -ml-[2px]'
                 }
             `}
             onClick={(e) => {
                 e.stopPropagation();
-                // Check if it's a DB Tab (has spaceId)
                 if ('spaceId' in tab) {
                     tabService.focusOrCreate(tab.url || '').catch(() => { });
-                }
-                // Otherwise treat as a live Chrome Tab
-                else if ((tab as chrome.tabs.Tab).id) {
+                } else if ((tab as chrome.tabs.Tab).id) {
                     chrome.tabs.update((tab as chrome.tabs.Tab).id!, { active: true }).catch(() => { });
                 }
             }}
@@ -44,7 +41,14 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
             ) : null}
             <Globe className={`w-4 h-4 opacity-50 flex-shrink-0 ${(tab as any).favIconUrl || (tab as any).favicon ? 'hidden' : ''}`} />
 
-            <span className="truncate flex-1">{tab.title || tab.url}</span>
+            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                <span className={`truncate font-medium leading-none ${isActive ? 'text-foreground' : 'text-foreground/90'}`}>
+                    {tab.title || tab.url}
+                </span>
+                <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
+                    {tryParseHost(tab.url || '')}
+                </span>
+            </div>
 
             {/* Hover Actions */}
             {(onClose || onReadLater) && (
@@ -52,7 +56,7 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
                     {onReadLater && (
                         <button
                             onClick={onReadLater}
-                            className="p-1 rounded hover:bg-zinc-700 text-muted-foreground hover:text-indigo-400 transition-colors"
+                            className="p-1 rounded-sm hover:bg-background text-muted-foreground hover:text-primary transition-colors focus:opacity-100"
                             title="Read Later"
                         >
                             <Clock className="w-3.5 h-3.5" />
@@ -61,7 +65,7 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
                     {onClose && (
                         <button
                             onClick={onClose}
-                            className="p-1 rounded hover:bg-zinc-700 text-muted-foreground hover:text-red-400 transition-colors"
+                            className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
                             title="Close Tab"
                         >
                             <X className="w-3.5 h-3.5" />
@@ -72,3 +76,11 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
         </div>
     );
 });
+
+function tryParseHost(url: string) {
+    try {
+        return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+        return '';
+    }
+}
