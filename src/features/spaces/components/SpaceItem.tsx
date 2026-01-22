@@ -51,6 +51,25 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
 
 
 
+    const handleDeleteTab = async (e: React.MouseEvent, tab: any) => {
+        e.stopPropagation();
+        if (!tab.id) return;
+
+        // Snapshot for Undo
+        const tabSnapshot = { ...tab };
+
+        // Delete
+        await db.tabs.delete(tab.id);
+
+        // Toast with Undo
+        toast(`Tab deleted`, {
+            duration: 5000,
+            onUndo: () => {
+                db.tabs.add(tabSnapshot);
+            }
+        });
+    };
+
     return (
         <div className="border-b border-border/40 group">
             {/* Header */}
@@ -96,7 +115,11 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
             {isOpen && tabs && (
                 <div className="bg-muted/30 pl-10 pr-4 py-2 space-y-0.5 animate-in slide-in-from-top-2 fade-in duration-200">
                     {tabs.map((tab) => (
-                        <TabRow key={tab.id} tab={tab} />
+                        <TabRow
+                            key={tab.id}
+                            tab={tab}
+                            onDelete={(e) => handleDeleteTab(e, tab)}
+                        />
                     ))}
                     {tabs.length === 0 && (
                         <p className="text-xs text-muted-foreground italic py-2">No saved tabs</p>

@@ -108,6 +108,14 @@ export const ActiveSession = () => {
         if (tabId) chrome.tabs.remove(tabId).catch(() => { });
     };
 
+    const handleCloseGroup = (e: React.MouseEvent, groupTabs: chrome.tabs.Tab[]) => {
+        e.stopPropagation();
+        const ids = groupTabs.map(t => t.id).filter((id): id is number => id !== undefined);
+        if (ids.length > 0) {
+            chrome.tabs.remove(ids).catch(() => { });
+        }
+    };
+
     return (
         <div className="flex flex-col h-full select-none">
             {/* Capture Header */}
@@ -161,7 +169,10 @@ export const ActiveSession = () => {
 
                         return (
                             <div key={`group-${item.groupId}`} className="mb-1">
-                                <GroupRow group={group} />
+                                <GroupRow
+                                    group={group}
+                                    onClose={(e) => handleCloseGroup(e, item.tabs)}
+                                />
 
                                 {/* Group Children */}
                                 {!group.collapsed && (

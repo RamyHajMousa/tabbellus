@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, X, Clock } from 'lucide-react';
+import { Globe, X, Clock, Trash2 } from 'lucide-react';
 import { type Tab, tabService } from '@/lib';
 
 interface TabRowProps {
@@ -7,9 +7,10 @@ interface TabRowProps {
     isActive?: boolean;
     onClose?: (e: React.MouseEvent) => void;
     onReadLater?: (e: React.MouseEvent) => void;
+    onDelete?: (e: React.MouseEvent) => void;
 }
 
-export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRowProps) => {
+export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelete }: TabRowProps) => {
     return (
         <div
             className={`
@@ -51,7 +52,7 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
             </div>
 
             {/* Hover Actions */}
-            {(onClose || onReadLater) && (
+            {(onClose || onReadLater || onDelete) && (
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {onReadLater && (
                         <button
@@ -60,6 +61,15 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater }: TabRo
                             title="Read Later"
                         >
                             <Clock className="w-3.5 h-3.5" />
+                        </button>
+                    )}
+                    {onDelete && (
+                        <button
+                            onClick={onDelete}
+                            className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
+                            title="Delete Tab from Space"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
                         </button>
                     )}
                     {onClose && (

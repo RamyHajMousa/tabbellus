@@ -1,12 +1,13 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, Layers, X } from 'lucide-react';
 import { getGroupColorClasses } from '@/lib/colors';
 
 interface GroupRowProps {
     group: chrome.tabGroups.TabGroup;
+    onClose?: (e: React.MouseEvent) => void;
 }
 
-export const GroupRow = React.memo(({ group }: GroupRowProps) => {
+export const GroupRow = React.memo(({ group, onClose }: GroupRowProps) => {
     const colors = getGroupColorClasses(group.color);
 
     const handleToggleCollapse = (e: React.MouseEvent) => {
@@ -31,14 +32,26 @@ export const GroupRow = React.memo(({ group }: GroupRowProps) => {
             <div className={`w-2 h-2 rounded-full ${colors.badge} shadow-sm`} />
 
             {/* Title */}
-            <span className={`font-semibold uppercase tracking-wider ${colors.text} truncate opacity-90`}>
+            <span className={`font-semibold uppercase tracking-wider ${colors.text} truncate opacity-90 flex-1`}>
                 {group.title || 'Untitled Group'}
             </span>
 
-            {/* Optional: Add badge for child count if needed, but we rely on visuals */}
-            {group.collapsed && (
-                <Layers className={`ml-auto w-3 h-3 opacity-50 ${colors.text}`} />
-            )}
+            {/* Actions: Collapse Icon (Visual) & Close Button */}
+            <div className="flex items-center gap-1">
+                {group.collapsed && (
+                    <Layers className={`w-3 h-3 opacity-50 ${colors.text}`} />
+                )}
+
+                {onClose && (
+                    <button
+                        onClick={onClose}
+                        className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-white ${colors.text}`}
+                        title="Close Group"
+                    >
+                        <X className="w-3 h-3" />
+                    </button>
+                )}
+            </div>
         </div>
     );
 });
