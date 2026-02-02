@@ -47,7 +47,7 @@ export const GroupRow = React.memo(({ group, onClose, onArchive }: GroupRowProps
                     <button
                         onClick={onArchive}
                         className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white ${colors.text}`}
-                        title="Save & Close (Archive)"
+                        title="Save as Space"
                     >
                         <Archive className="w-3 h-3" />
                     </button>

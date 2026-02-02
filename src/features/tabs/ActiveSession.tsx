@@ -124,7 +124,10 @@ export const ActiveSession = () => {
         if (ids.length > 0) {
             chrome.tabs.remove(ids).then(() => {
                 toast(`Closed group with ${ids.length} tabs`, {
-                    duration: 3000
+                    duration: 4000,
+                    onUndo: () => {
+                        chrome.sessions.restore().catch(console.error);
+                    }
                 });
             }).catch(() => { });
         }

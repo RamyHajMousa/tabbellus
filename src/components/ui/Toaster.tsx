@@ -25,7 +25,12 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
         const id = Math.random().toString(36).substring(7);
         const duration = options?.duration || 5000;
 
-        setToasts((prev) => [...prev, { id, message, ...options }]);
+        setToasts((prev) => [...prev, {
+            id,
+            message,
+            duration,
+            onUndo: options?.onUndo
+        }]);
 
         if (duration > 0) {
             setTimeout(() => {
