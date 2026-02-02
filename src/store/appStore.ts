@@ -41,9 +41,12 @@ interface AppState {
     theme: 'light' | 'dark' | 'system';
     isHydrated: boolean;
     activeView: 'active' | 'spaces' | 'read-later';
+    activeSpaces: Record<number, number>; // SpaceID -> WindowID (ephemeral)
     setTheme: (theme: AppState['theme']) => void;
     setHydrated: (state: boolean) => void;
     setActiveView: (view: AppState['activeView']) => void;
+    registerActiveSpace: (spaceId: number, windowId: number) => void;
+    unregisterWindow: (windowId: number) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -52,14 +55,31 @@ export const useAppStore = create<AppState>()(
             theme: 'system',
             isHydrated: false,
             activeView: 'spaces',
+            activeSpaces: {},
             setTheme: (theme) => set({ theme }),
             setHydrated: (isHydrated) => set({ isHydrated }),
             setActiveView: (view) => set({ activeView: view }),
+            registerActiveSpace: (spaceId, windowId) => set((state) => ({
+                activeSpaces: { ...state.activeSpaces, [spaceId]: windowId }
+            })),
+            unregisterWindow: (windowId) => set((state) => {
+                const newActiveSpaces = { ...state.activeSpaces };
+                for (const [spaceId, wId] of Object.entries(newActiveSpaces)) {
+                    if (wId === windowId) {
+                        delete newActiveSpaces[Number(spaceId)];
+                    }
+                }
+                return { activeSpaces: newActiveSpaces };
+            }),
         }),
         {
             name: 'tabbellus-settings',
-            // 2. Use the Chrome Adapter instead of sessionStorage
             storage: createJSONStorage(() => chromeStorageAdapter),
+            partialize: (state) => ({
+                theme: state.theme,
+                activeView: state.activeView,
+                // Exclude: isHydrated, activeSpaces (ephemeral)
+            }),
             onRehydrateStorage: () => (state) => {
                 state?.setHydrated(true);
             }
