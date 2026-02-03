@@ -26,6 +26,7 @@ import { ViewSwitcher } from './components/ViewSwitcher';
 import { ReadLaterList } from '@/features/read-later';
 import { useActiveSpacesSync } from '@/hooks/useActiveSpacesSync';
 import { OmniSearch } from '@/features/search';
+import { SettingsDialog } from '@/features/settings';
 
 // ...
 
@@ -78,6 +79,7 @@ const SidePanel = () => {
             </div>
 
             <OmniSearch />
+            <SettingsDialog />
         </div>
     );
 };

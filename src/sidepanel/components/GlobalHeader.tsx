@@ -2,7 +2,7 @@ import { Search, Settings } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 
 export const GlobalHeader = () => {
-    const setSearchOpen = useUIStore((state) => state.setSearchOpen);
+    const { setSearchOpen, setSettingsOpen } = useUIStore();
 
     return (
         <header className="h-12 flex items-center px-4 border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
@@ -16,7 +16,10 @@ export const GlobalHeader = () => {
                     ⌘K
                 </span>
             </button>
-            <button className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors">
+            <button
+                onClick={() => setSettingsOpen(true)}
+                className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+            >
                 <Settings className="w-4 h-4" />
             </button>
         </header>
