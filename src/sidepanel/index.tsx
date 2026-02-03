@@ -48,6 +48,19 @@ const SidePanel = () => {
         root.classList.add(theme);
     }, [theme]);
 
+    // Listen for window closures to cleanup activeSpaces
+    React.useEffect(() => {
+        const handleWindowRemoved = (windowId: number) => {
+            useAppStore.getState().unregisterWindow(windowId);
+        };
+
+        chrome.windows.onRemoved.addListener(handleWindowRemoved);
+
+        return () => {
+            chrome.windows.onRemoved.removeListener(handleWindowRemoved);
+        };
+    }, []);
+
     return (
         <div className="h-screen w-full bg-background text-foreground flex flex-col font-sans overflow-hidden">
             <GlobalHeader />

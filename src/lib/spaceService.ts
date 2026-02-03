@@ -57,11 +57,18 @@ class SpaceService {
         }
     }
     async restoreSpace(spaceId: number): Promise<void> {
+        // Avoid import cycle by dynamically accessing store
+        const { useAppStore } = await import('@/store/appStore');
+
         const tabs = await db.tabs.where({ spaceId }).sortBy('order');
         if (tabs.length === 0) return;
 
         const urls = tabs.map(t => t.url);
-        await chrome.windows.create({ url: urls, focused: true });
+        const win = await chrome.windows.create({ url: urls, focused: true, type: 'normal' });
+
+        if (win.id) {
+            useAppStore.getState().registerActiveSpace(spaceId, win.id);
+        }
     }
 
     /**
