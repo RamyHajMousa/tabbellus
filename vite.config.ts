@@ -23,7 +23,7 @@ export default defineConfig({
     cors: {
       origin: true, // Allow any origin
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-      allowedHeaders: ["Content-Type", "Authorization", "x-requested-with", "Accept", "Origin", "Cache-Control"],
+      allowedHeaders: ["Content-Type", "Authorization", "x-requested-with", "Accept", "Origin", "Cache-Control", "upgrade-insecure-requests"],
       credentials: true,
     },
   },

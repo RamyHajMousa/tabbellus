@@ -25,6 +25,7 @@ import { ViewSwitcher } from './components/ViewSwitcher';
 
 import { ReadLaterList } from '@/features/read-later';
 import { useActiveSpacesSync } from '@/hooks/useActiveSpacesSync';
+import { OmniSearch } from '@/features/search';
 
 // ...
 
@@ -75,6 +76,8 @@ const SidePanel = () => {
                 {activeView === 'spaces' && <SpaceList />}
                 {activeView === 'read-later' && <ReadLaterList />}
             </div>
+
+            <OmniSearch />
         </div>
     );
 };
