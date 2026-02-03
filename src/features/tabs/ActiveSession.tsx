@@ -103,18 +103,46 @@ export const ActiveSession = () => {
         }
     };
 
-    const handleClose = (e: React.MouseEvent, tabId?: number) => {
+    const handleClose = async (e: React.MouseEvent, tab: chrome.tabs.Tab) => {
         e.stopPropagation();
-        if (!tabId) return;
+        if (!tab.id) return;
 
-        chrome.tabs.remove(tabId).then(() => {
-            toast("Tab closed", {
-                duration: 4000,
-                onUndo: () => {
-                    chrome.sessions.restore().catch(console.error);
-                }
-            });
-        }).catch(() => { });
+        const tabId = tab.id;
+        const tabUrl = tab.url || '';
+
+        // Skip Undo for blank tabs (Chrome doesn't save these)
+        const isBlankTab = tabUrl === '' || tabUrl === 'chrome://newtab/' || tabUrl === 'about:blank';
+
+        try {
+            await chrome.tabs.remove(tabId);
+
+            if (isBlankTab) {
+                toast("Tab closed", { duration: 2000 });
+                return;
+            }
+
+            // Wait briefly for Chrome to update session stack
+            await new Promise(r => setTimeout(r, 100));
+
+            // Fetch the most recently closed session
+            const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 1 });
+            const session = sessions[0];
+            const sessionId = session?.tab?.sessionId || session?.window?.sessionId;
+
+            if (sessionId) {
+                toast("Tab closed", {
+                    duration: 4000,
+                    onUndo: () => {
+                        chrome.sessions.restore(sessionId).catch(console.error);
+                    }
+                });
+            } else {
+                // No sessionId available (e.g., incognito)
+                toast("Tab closed", { duration: 2000 });
+            }
+        } catch {
+            // Tab might already be closed
+        }
     };
 
     const handleCloseGroup = (e: React.MouseEvent, groupTabs: chrome.tabs.Tab[]) => {
@@ -189,7 +217,7 @@ export const ActiveSession = () => {
                                 key={item.tab.id || `tab-u-${index}`}
                                 tab={item.tab}
                                 isActive={item.tab.id === activeTabId}
-                                onClose={(e) => handleClose(e, item.tab.id)}
+                                onClose={(e) => handleClose(e, item.tab)}
                                 onReadLater={(e) => handleReadLater(e, item.tab)}
                             />
                         );
@@ -216,7 +244,7 @@ export const ActiveSession = () => {
                                                 key={t.id || `tab-g-${t.index}`}
                                                 tab={t}
                                                 isActive={t.id === activeTabId}
-                                                onClose={(e) => handleClose(e, t.id)}
+                                                onClose={(e) => handleClose(e, t)}
                                                 onReadLater={(e) => handleReadLater(e, t)}
                                             />
                                         ))}
