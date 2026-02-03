@@ -1,5 +1,4 @@
 import { db, type Tab } from './db';
-import { useAppStore } from '@/store/appStore';
 
 class SpaceService {
     /**
@@ -57,42 +56,12 @@ class SpaceService {
             throw new Error('Failed to save space. Storage might be full.');
         }
     }
-
     async restoreSpace(spaceId: number): Promise<void> {
-        // 1. Fetch space and tabs
-        const space = await db.spaces.get(spaceId);
-        if (!space) return;
-
         const tabs = await db.tabs.where({ spaceId }).sortBy('order');
         if (tabs.length === 0) return;
 
         const urls = tabs.map(t => t.url);
-
-        // 2. Create new window
-        const newWindow = await chrome.windows.create({ url: urls, focused: true });
-        if (!newWindow || !newWindow.id) return;
-
-        // 3. Group all tabs in the new window
-        const newTabIds = newWindow.tabs?.map(t => t.id).filter((id): id is number => id !== undefined) || [];
-
-        if (newTabIds.length > 0) {
-            try {
-                const groupId = await chrome.tabs.group({
-                    tabIds: newTabIds,
-                    createProperties: { windowId: newWindow.id }
-                });
-
-                // 4. Update group with color only (no title to avoid Chrome's "Saved Groups" feature)
-                await chrome.tabGroups.update(groupId, {
-                    color: 'blue'
-                });
-            } catch (err) {
-                console.warn('SpaceService: Could not create tab group', err);
-            }
-        }
-
-        // 5. Register in store
-        useAppStore.getState().registerActiveSpace(spaceId, newWindow.id);
+        await chrome.windows.create({ url: urls, focused: true });
     }
 
     /**

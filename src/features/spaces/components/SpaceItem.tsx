@@ -4,7 +4,6 @@ import { ChevronDown, ChevronRight, Trash2, ExternalLink, Layers } from 'lucide-
 import { db, type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { TabRow } from '@/features/tabs';
-import { useAppStore } from '@/store/appStore';
 
 interface SpaceItemProps {
     space: Space;
@@ -13,12 +12,6 @@ interface SpaceItemProps {
 export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
     const [isOpen, setIsOpen] = useState(false);
     const { toast } = useToast();
-
-    // Check if this space is currently open in a window
-    const activeSpaces = useAppStore((state) => state.activeSpaces);
-    const unregisterWindow = useAppStore((state) => state.unregisterWindow);
-    const isLive = space.id !== undefined && activeSpaces[space.id] !== undefined;
-    const liveWindowId = space.id !== undefined ? activeSpaces[space.id] : undefined;
 
     // Fetch tabs only for this space
     const tabs = useLiveQuery(
@@ -51,24 +44,9 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         }, 10001);
     };
 
-    const handleRestoreOrFocus = async (e: React.MouseEvent) => {
+    const handleRestore = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!space.id) return;
-
-        if (isLive && liveWindowId) {
-            // Focus existing window
-            try {
-                await chrome.windows.update(liveWindowId, { focused: true });
-            } catch {
-                // Window was closed externally, clean up
-                unregisterWindow(liveWindowId);
-                // Open fresh
-                await spaceService.restoreSpace(space.id);
-            }
-        } else {
-            // Restore space to new window
-            await spaceService.restoreSpace(space.id);
-        }
+        if (space.id) await spaceService.restoreSpace(space.id);
     };
 
 
@@ -106,15 +84,6 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
 
                 <div className="flex-1 min-w-0 flex items-center gap-2">
                     <h3 className="text-sm font-medium text-foreground truncate">{space.name}</h3>
-
-                    {/* Live Indicator */}
-                    {isLive && (
-                        <span
-                            className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0"
-                            title="Space is open in a window"
-                        />
-                    )}
-
                     <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
                         <span className="flex items-center gap-0.5">
                             <Layers className="w-3 h-3" />
@@ -126,9 +95,9 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                 {/* Actions (Visible on Hover) */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                        onClick={handleRestoreOrFocus}
+                        onClick={handleRestore}
                         className="p-1 rounded-sm hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
-                        title={isLive ? "Focus Window" : "Restore Space"}
+                        title="Restore Space"
                     >
                         <ExternalLink className="w-3.5 h-3.5" />
                     </button>

@@ -32,9 +32,7 @@ const SidePanel = () => {
         activeView: state.activeView,
         theme: state.theme
     }));
-    const unregisterWindow = useAppStore((state) => state.unregisterWindow);
 
-    // Theme effect
     React.useEffect(() => {
         const root = window.document.documentElement;
         root.classList.remove("light", "dark");
@@ -49,18 +47,6 @@ const SidePanel = () => {
 
         root.classList.add(theme);
     }, [theme]);
-
-    // Window cleanup effect
-    React.useEffect(() => {
-        const handleWindowRemoved = (windowId: number) => {
-            unregisterWindow(windowId);
-        };
-
-        chrome.windows.onRemoved.addListener(handleWindowRemoved);
-        return () => {
-            chrome.windows.onRemoved.removeListener(handleWindowRemoved);
-        };
-    }, [unregisterWindow]);
 
     return (
         <div className="h-screen w-full bg-background text-foreground flex flex-col font-sans overflow-hidden">
