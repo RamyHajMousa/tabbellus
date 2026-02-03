@@ -24,6 +24,7 @@ import { GlobalHeader } from './components/GlobalHeader';
 import { ViewSwitcher } from './components/ViewSwitcher';
 
 import { ReadLaterList } from '@/features/read-later';
+import { useActiveSpacesSync } from '@/hooks/useActiveSpacesSync';
 
 // ...
 
@@ -32,6 +33,9 @@ const SidePanel = () => {
         activeView: state.activeView,
         theme: state.theme
     }));
+
+    // Cross-window sync for activeSpaces
+    useActiveSpacesSync();
 
     React.useEffect(() => {
         const root = window.document.documentElement;

@@ -47,6 +47,7 @@ interface AppState {
     setActiveView: (view: AppState['activeView']) => void;
     registerActiveSpace: (spaceId: number, windowId: number) => void;
     unregisterWindow: (windowId: number) => void;
+    syncActiveSpaces: (map: Record<number, number>) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -59,18 +60,22 @@ export const useAppStore = create<AppState>()(
             setTheme: (theme) => set({ theme }),
             setHydrated: (isHydrated) => set({ isHydrated }),
             setActiveView: (view) => set({ activeView: view }),
-            registerActiveSpace: (spaceId, windowId) => set((state) => ({
-                activeSpaces: { ...state.activeSpaces, [spaceId]: windowId }
-            })),
+            registerActiveSpace: (spaceId, windowId) => set((state) => {
+                const newMap = { ...state.activeSpaces, [spaceId]: windowId };
+                chrome.storage.session.set({ activeSpaces: newMap }); // Broadcast
+                return { activeSpaces: newMap };
+            }),
             unregisterWindow: (windowId) => set((state) => {
-                const newActiveSpaces = { ...state.activeSpaces };
-                for (const key in newActiveSpaces) {
-                    if (newActiveSpaces[key] === windowId) {
-                        delete newActiveSpaces[key];
+                const newMap = { ...state.activeSpaces };
+                for (const key in newMap) {
+                    if (newMap[key] === windowId) {
+                        delete newMap[key];
                     }
                 }
-                return { activeSpaces: newActiveSpaces };
+                chrome.storage.session.set({ activeSpaces: newMap }); // Broadcast
+                return { activeSpaces: newMap };
             }),
+            syncActiveSpaces: (map) => set({ activeSpaces: map }),
         }),
         {
             name: 'tabbellus-settings',
