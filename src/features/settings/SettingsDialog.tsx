@@ -89,8 +89,8 @@ export const SettingsDialog = () => {
                     <button
                         onClick={() => setActiveTab('appearance')}
                         className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'appearance'
-                                ? 'border-b-2 border-primary text-primary'
-                                : 'text-muted-foreground hover:text-foreground'
+                            ? 'border-b-2 border-primary text-primary'
+                            : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >
                         Appearance
@@ -98,8 +98,8 @@ export const SettingsDialog = () => {
                     <button
                         onClick={() => setActiveTab('data')}
                         className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'data'
-                                ? 'border-b-2 border-primary text-primary'
-                                : 'text-muted-foreground hover:text-foreground'
+                            ? 'border-b-2 border-primary text-primary'
+                            : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >
                         Data
@@ -117,8 +117,8 @@ export const SettingsDialog = () => {
                                         key={value}
                                         onClick={() => setTheme(value)}
                                         className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-colors ${theme === value
-                                                ? 'border-primary bg-primary/10 text-primary'
-                                                : 'border-border hover:border-primary/50 text-muted-foreground hover:text-foreground'
+                                            ? 'border-primary bg-primary/10 text-primary'
+                                            : 'border-border hover:border-primary/50 text-muted-foreground hover:text-foreground'
                                             }`}
                                     >
                                         <Icon className="w-5 h-5" />
@@ -136,7 +136,7 @@ export const SettingsDialog = () => {
                                 onClick={handleExport}
                                 className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
                             >
-                                <Download className="w-5 h-5 text-muted-foreground" />
+                                <Upload className="w-5 h-5 text-muted-foreground" />
                                 <div className="text-left">
                                     <p className="text-sm font-medium">Export Backup</p>
                                     <p className="text-xs text-muted-foreground">Download your spaces and tabs as JSON</p>
@@ -148,7 +148,7 @@ export const SettingsDialog = () => {
                                 onClick={handleImportClick}
                                 className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
                             >
-                                <Upload className="w-5 h-5 text-muted-foreground" />
+                                <Download className="w-5 h-5 text-muted-foreground" />
                                 <div className="text-left">
                                     <p className="text-sm font-medium">Import Backup</p>
                                     <p className="text-xs text-muted-foreground">Restore from a JSON backup file</p>
@@ -168,8 +168,8 @@ export const SettingsDialog = () => {
                                 <button
                                     onClick={handleClearData}
                                     className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors ${isClearing
-                                            ? 'border-destructive bg-destructive/10 text-destructive'
-                                            : 'border-destructive/50 hover:border-destructive hover:bg-destructive/10 text-destructive/80 hover:text-destructive'
+                                        ? 'border-destructive bg-destructive/10 text-destructive'
+                                        : 'border-destructive/50 hover:border-destructive hover:bg-destructive/10 text-destructive/80 hover:text-destructive'
                                         }`}
                                 >
                                     <Trash2 className="w-5 h-5" />
