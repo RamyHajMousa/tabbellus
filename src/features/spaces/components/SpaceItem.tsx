@@ -88,7 +88,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                 {/* Expand/Collapse Toggle */}
                 <button
                     onClick={handleToggle}
-                    className="text-muted-foreground group-hover:text-foreground transition-colors"
+                    className="p-1 rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
                 >
                     {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
