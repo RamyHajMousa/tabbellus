@@ -27,6 +27,7 @@ import { ReadLaterList } from '@/features/read-later';
 import { useActiveSpacesSync } from '@/hooks/useActiveSpacesSync';
 import { OmniSearch } from '@/features/search';
 import { SettingsDialog } from '@/features/settings';
+import { initUsageTracking } from '@/lib/usageTracker';
 
 // ...
 
@@ -38,6 +39,11 @@ const SidePanel = () => {
 
     // Cross-window sync for activeSpaces
     useActiveSpacesSync();
+
+    // Initialize usage tracking
+    React.useEffect(() => {
+        initUsageTracking();
+    }, []);
 
     React.useEffect(() => {
         const root = window.document.documentElement;

@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Download, Upload, Trash2, Sun, Moon, Monitor } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { Download, Upload, Trash2, Sun, Moon, Monitor, Heart, Star, Coffee, MessageSquare } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -11,14 +11,37 @@ import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
 import { dataService } from '@/lib/dataService';
 import { useToast } from '@/components/ui/Toaster';
+import { getUsageStats, markSupportInteracted } from '@/lib/usageTracker';
 
 export const SettingsDialog = () => {
     const { isSettingsOpen, setSettingsOpen } = useUIStore();
     const { theme, setTheme } = useAppStore();
     const { toast } = useToast();
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [activeTab, setActiveTab] = useState<'appearance' | 'data'>('appearance');
+    const [activeTab, setActiveTab] = useState<'appearance' | 'data' | 'support'>('appearance');
     const [isClearing, setIsClearing] = useState(false);
+    const [showSupportBadge, setShowSupportBadge] = useState(false);
+    const [isEligibleForPromo, setIsEligibleForPromo] = useState(false);
+
+    useEffect(() => {
+        if (isSettingsOpen) {
+            getUsageStats().then(stats => {
+                setShowSupportBadge(stats.isEligible);
+                setIsEligibleForPromo(stats.isEligible);
+            });
+        }
+    }, [isSettingsOpen]);
+
+    const handleDismissPromo = async () => {
+        await markSupportInteracted();
+        setIsEligibleForPromo(false);
+        setShowSupportBadge(false);
+        toast('Thanks for using TabBellus!');
+    };
+
+    const openLink = (url: string) => {
+        chrome.tabs.create({ url, active: true });
+    };
 
     const handleExport = async () => {
         try {
@@ -104,6 +127,18 @@ export const SettingsDialog = () => {
                     >
                         Data
                     </button>
+                    <button
+                        onClick={() => setActiveTab('support')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === 'support'
+                            ? 'border-b-2 border-primary text-primary'
+                            : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        Support
+                        {showSupportBadge && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                        )}
+                    </button>
                 </div>
 
                 {/* Tab Content */}
@@ -129,6 +164,69 @@ export const SettingsDialog = () => {
                         </div>
                     )}
 
+                    {activeTab === 'support' && (
+                        <div className="space-y-4">
+                            {isEligibleForPromo && (
+                                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/50">
+                                    <div className="flex items-start gap-3">
+                                        <Heart className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
+                                        <div>
+                                            <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">Loving TabBellus?</h4>
+                                            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1 leading-relaxed">
+                                                You active usage helps us grow! If TabBellus has improved your workflow, please consider supporting development.
+                                            </p>
+                                            {/* TODO: Change the links when put in production */}
+                                            <div className="flex gap-2 mt-3">
+                                                <button
+                                                    onClick={() => openLink('https://chromewebstore.google.com/detail/tabbellus-workstation/ikgdoaampabbohhkapeelhafojdnnfec/reviews')}
+                                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
+                                                >
+                                                    Rate 5 Stars
+                                                </button>
+                                                <button
+                                                    onClick={() => openLink('https://buymeacoffee.com/ramyhajmousa')}
+                                                    className="px-3 py-1.5 bg-white dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-200 text-xs font-medium rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/60 transition-colors"
+                                                >
+                                                    Buy Coffee
+                                                </button>
+                                                <button
+                                                    onClick={handleDismissPromo}
+                                                    className="ml-auto text-xs text-blue-600/60 dark:text-blue-400/60 hover:text-blue-600 dark:hover:text-blue-400"
+                                                >
+                                                    Dismiss
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-1">
+                                {/* TODO: Change these links when put in production as well*/}
+                                <button
+                                    onClick={() => openLink('https://chromewebstore.google.com/detail/tabbellus-workstation/ikgdoaampabbohhkapeelhafojdnnfec/reviews')}
+                                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
+                                >
+                                    <Star className="w-4 h-4 text-orange-400" />
+                                    <span className="text-sm font-medium">Rate TabBellus</span>
+                                </button>
+                                <button
+                                    onClick={() => openLink('https://buymeacoffee.com/ramyhajmousa')}
+                                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
+                                >
+                                    <Coffee className="w-4 h-4 text-amber-600" />
+                                    <span className="text-sm font-medium">Buy me a coffee</span>
+                                </button>
+                                <button
+                                    onClick={() => openLink('https://github.com/RamyHajMousa/tabbellus/issues')}
+                                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
+                                >
+                                    <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Report Issue / Request Feature</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {activeTab === 'data' && (
                         <div className="space-y-4">
                             {/* Export */}
@@ -136,7 +234,7 @@ export const SettingsDialog = () => {
                                 onClick={handleExport}
                                 className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
                             >
-                                <Upload className="w-5 h-5 text-muted-foreground" />
+                                <Download className="w-5 h-5 text-muted-foreground" />
                                 <div className="text-left">
                                     <p className="text-sm font-medium">Export Backup</p>
                                     <p className="text-xs text-muted-foreground">Download your spaces and tabs as JSON</p>
@@ -148,7 +246,7 @@ export const SettingsDialog = () => {
                                 onClick={handleImportClick}
                                 className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
                             >
-                                <Download className="w-5 h-5 text-muted-foreground" />
+                                <Upload className="w-5 h-5 text-muted-foreground" />
                                 <div className="text-left">
                                     <p className="text-sm font-medium">Import Backup</p>
                                     <p className="text-xs text-muted-foreground">Restore from a JSON backup file</p>
