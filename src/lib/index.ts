@@ -3,3 +3,4 @@ export * from './spaceService';
 export * from './tabService';
 export * from './colors';
 export * from './usageTracker';
+export * from './platform';

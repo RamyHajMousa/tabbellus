@@ -12,6 +12,8 @@ import { useAppStore } from '@/store/appStore';
 import { dataService } from '@/lib/dataService';
 import { useToast } from '@/components/ui/Toaster';
 import { getUsageStats, markSupportInteracted } from '@/lib/usageTracker';
+import { isEdge, openAppearanceSettings } from '@/lib/platform';
+
 
 export const SettingsDialog = () => {
     const { isSettingsOpen, setSettingsOpen } = useUIStore();
@@ -161,6 +163,24 @@ export const SettingsDialog = () => {
                                     </button>
                                 ))}
                             </div>
+
+
+                            {!isEdge() && (
+                                <div className="pt-4 border-t border-border">
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-0.5">
+                                            <label className="text-sm font-medium">Sidebar Position</label>
+                                            <p className="text-xs text-muted-foreground">Prefer the sidebar on the left?</p>
+                                        </div>
+                                        <button
+                                            onClick={openAppearanceSettings}
+                                            className="px-3 py-1.5 text-xs font-medium border border-border rounded-md hover:bg-muted/50 transition-colors"
+                                        >
+                                            Change in Browser Settings
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -175,7 +195,6 @@ export const SettingsDialog = () => {
                                             <p className="text-xs text-blue-700 dark:text-blue-300 mt-1 leading-relaxed">
                                                 You active usage helps us grow! If TabBellus has improved your workflow, please consider supporting development.
                                             </p>
-                                            {/* TODO: Change the links when put in production */}
                                             <div className="flex gap-2 mt-3">
                                                 <button
                                                     onClick={() => openLink('https://chromewebstore.google.com/detail/tabbellus-workstation/ikgdoaampabbohhkapeelhafojdnnfec/reviews')}
@@ -283,6 +302,6 @@ export const SettingsDialog = () => {
                     )}
                 </div>
             </DialogContent>
-        </Dialog>
+        </Dialog >
     );
 };

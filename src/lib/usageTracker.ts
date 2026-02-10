@@ -50,9 +50,7 @@ export const getUsageStats = async (): Promise<{ activeDayCount: number; isEligi
     const activeDayCount = data.activeDays.length;
 
     // Eligible if 7+ days and hasn't dismissed/interacted
-    // const isEligible = activeDayCount >= 0 && !state.hasInteractedWithSupport;
-    // TODO: Here for testing support me message appearance
-    const isEligible = true;
+    const isEligible = activeDayCount >= 7 && !state.hasInteractedWithSupport;
 
     return { activeDayCount, isEligible };
 };
