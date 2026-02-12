@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Trash2, Archive, CheckCircle2, Globe, Check } from 'lucide-react';
+import { Trash2, Archive, CheckCircle2, Globe, Check, Copy } from 'lucide-react';
 import { db, tabService } from '@/lib';
 
-import { useToast } from '@/components/ui/Toaster';
+import { useClipboard } from '@/hooks/useClipboard';
+import { useUndoDelete } from '@/hooks/useUndoDelete';
+
+
 
 export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
-    const { toast } = useToast();
 
     const items = useLiveQuery(
         () => db.readLater
@@ -18,23 +20,15 @@ export const ReadLaterList = () => {
         [showArchived]
     );
 
+    const { deleteWithUndo: deleteItem } = useUndoDelete(db.readLater);
+
     const toggleStatus = async (id: number, currentStatus: string) => {
         const newStatus = currentStatus === 'unread' ? 'archived' : 'unread';
         await db.readLater.update(id, { status: newStatus });
     };
 
     const handleDelete = async (id: number) => {
-        const item = await db.readLater.get(id);
-        if (!item) return;
-
-        await db.readLater.delete(id);
-
-        toast("Item deleted", {
-            duration: 4000,
-            onUndo: () => {
-                db.readLater.add(item);
-            }
-        });
+        await deleteItem(id, "Item deleted");
     };
 
     const handleOpen = async (url: string) => {
@@ -66,55 +60,9 @@ export const ReadLaterList = () => {
             {/* List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
                 {items?.map((item) => (
-                    <div
-                        key={item.id}
-                        className="group flex items-center gap-3 p-2 rounded-md hover:bg-muted/40 border border-transparent hover:border-border/30 transition-all"
-                    >
-                        {/* Checkbox */}
-                        <button
-                            onClick={() => item.id && toggleStatus(item.id, item.status)}
-                            className={`
-                                flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-200
-                                ${item.status === 'archived'
-                                    ? 'bg-primary border-primary text-primary-foreground'
-                                    : 'border-muted-foreground/30 hover:border-primary/50 text-transparent'
-                                }
-                            `}
-                            title={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
-                        >
-                            {item.status === 'archived' && <Check className="w-3 h-3" />}
-                        </button>
-
-                        {/* Content */}
-                        <div
-                            className="flex-1 min-w-0 cursor-pointer"
-                            onClick={() => handleOpen(item.url)}
-                        >
-                            <div className="flex items-center gap-2">
-                                {item.favicon ? (
-                                    <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm opacity-80" />
-                                ) : (
-                                    <Globe className="w-3.5 h-3.5 text-muted-foreground opacity-50" />
-                                )}
-                                <span className={`text-sm truncate transition-colors ${item.status === 'archived' ? 'text-muted-foreground line-through decoration-zinc-500/30' : 'text-foreground'}`}>
-                                    {item.title || item.url}
-                                </span>
-                            </div>
-                            <div className="text-[10px] text-muted-foreground/50 mt-0.5 ml-0.5 truncate max-w-[90%]">
-                                {new URL(item.url).hostname} • {new Date(item.addedAt).toLocaleDateString()}
-                            </div>
-                        </div>
-
-                        {/* Actions */}
-                        <button
-                            onClick={() => item.id && handleDelete(item.id)}
-                            className="p-1.5 text-muted-foreground/0 group-hover:text-muted-foreground hover:bg-destructive/10 hover:text-destructive rounded-md transition-all opacity-0 group-hover:opacity-100"
-                            title="Delete"
-                        >
-                            <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                    </div>
+                    <ReadLaterItem key={item.id} item={item} toggleStatus={toggleStatus} handleDelete={handleDelete} handleOpen={handleOpen} />
                 ))}
+
 
                 {items?.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-48 text-center px-8">
@@ -128,6 +76,77 @@ export const ReadLaterList = () => {
                         </p>
                     </div>
                 )}
+            </div>
+        </div>
+    );
+
+
+};
+
+// Extracted for clean hook usage
+const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) => {
+    const { hasCopied, copy } = useClipboard();
+
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        copy(item.url);
+    };
+
+    return (
+        <div
+            className="group flex items-center gap-3 p-2 rounded-md hover:bg-muted/40 border border-transparent hover:border-border/30 transition-all"
+        >
+            {/* Checkbox */}
+            <button
+                onClick={() => item.id && toggleStatus(item.id, item.status)}
+                className={`
+                    flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-200
+                    ${item.status === 'archived'
+                        ? 'bg-primary border-primary text-primary-foreground'
+                        : 'border-muted-foreground/30 hover:border-primary/50 text-transparent'
+                    }
+                `}
+                title={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
+            >
+                {item.status === 'archived' && <Check className="w-3 h-3" />}
+            </button>
+
+            {/* Content */}
+            <div
+                className="flex-1 min-w-0 cursor-pointer"
+                onClick={() => handleOpen(item.url)}
+            >
+                <div className="flex items-center gap-2">
+                    {item.favicon ? (
+                        <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm opacity-80" />
+                    ) : (
+                        <Globe className="w-3.5 h-3.5 text-muted-foreground opacity-50" />
+                    )}
+                    <span className={`text-sm truncate transition-colors ${item.status === 'archived' ? 'text-muted-foreground line-through decoration-zinc-500/30' : 'text-foreground'}`}>
+                        {item.title || item.url}
+                    </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground/50 mt-0.5 ml-0.5 truncate max-w-[90%]">
+                    {new URL(item.url).hostname} • {new Date(item.addedAt).toLocaleDateString()}
+                </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                    onClick={handleCopy}
+                    className="p-1.5 text-muted-foreground/0 group-hover:text-muted-foreground hover:bg-background hover:text-blue-500 rounded-md transition-all"
+                    title="Copy URL"
+                >
+                    {hasCopied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                    onClick={() => item.id && handleDelete(item.id)}
+                    className="p-1.5 text-muted-foreground/0 group-hover:text-muted-foreground hover:bg-destructive/10 hover:text-destructive rounded-md transition-all"
+                    title="Delete"
+                >
+                    <Trash2 className="w-3.5 h-3.5" />
+                </button>
             </div>
         </div>
     );

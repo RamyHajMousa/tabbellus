@@ -5,6 +5,7 @@ import { db, type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { TabRow } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
+import { useUndoDelete } from '@/hooks/useUndoDelete';
 
 interface SpaceItemProps {
     space: Space;
@@ -24,6 +25,8 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         () => db.tabs.where({ spaceId: space.id }).sortBy('order'),
         [space.id]
     );
+
+    const { deleteWithUndo: deleteTab } = useUndoDelete(db.tabs);
 
     const handleClick = async () => {
         if (!space.id) return;
@@ -77,6 +80,11 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
     const formatDate = (ts: number) => new Date(ts).toLocaleDateString(undefined, {
         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
+
+    const handleDeleteTab = async (e: React.MouseEvent, tabId: number) => {
+        e.stopPropagation();
+        await deleteTab(tabId, "Tab deleted");
+    };
 
     return (
         <div className="border-b border-border/40 group">
@@ -135,7 +143,11 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
             {isOpen && tabs && (
                 <div className="bg-muted/30 pl-10 pr-4 py-2 space-y-0.5 animate-in slide-in-from-top-2 fade-in duration-200">
                     {tabs.map((tab) => (
-                        <TabRow key={tab.id} tab={tab} />
+                        <TabRow
+                            key={tab.id}
+                            tab={tab}
+                            onDelete={(e) => tab.id && handleDeleteTab(e, tab.id)}
+                        />
                     ))}
                     {tabs.length === 0 && (
                         <p className="text-xs text-muted-foreground italic py-2">No saved tabs</p>

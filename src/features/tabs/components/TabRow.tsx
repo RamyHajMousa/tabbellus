@@ -1,6 +1,7 @@
 import React from 'react';
-import { Globe, X, Clock, Trash2 } from 'lucide-react';
+import { Globe, X, Clock, Trash2, Copy, Check } from 'lucide-react';
 import { type Tab, tabService } from '@/lib';
+import { useClipboard } from '@/hooks/useClipboard';
 
 interface TabRowProps {
     tab: Tab | chrome.tabs.Tab; // Accept both our DB Type and Chrome Type
@@ -11,6 +12,15 @@ interface TabRowProps {
 }
 
 export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelete }: TabRowProps) => {
+    const { hasCopied, copy } = useClipboard();
+
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (tab.url) {
+            copy(tab.url);
+        }
+    };
+
     return (
         <div
             className={`
@@ -52,37 +62,47 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
             </div>
 
             {/* Hover Actions */}
-            {(onClose || onReadLater || onDelete) && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {onReadLater && (
-                        <button
-                            onClick={onReadLater}
-                            className="p-1 rounded-sm hover:bg-background text-muted-foreground hover:text-primary transition-colors focus:opacity-100"
-                            title="Read Later"
-                        >
-                            <Clock className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-                    {onDelete && (
-                        <button
-                            onClick={onDelete}
-                            className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
-                            title="Delete Tab from Space"
-                        >
-                            <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-                    {onClose && (
-                        <button
-                            onClick={onClose}
-                            className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
-                            title="Close Tab"
-                        >
-                            <X className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-                </div>
-            )}
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {/* Copy URL */}
+                {tab.url && (
+                    <button
+                        onClick={handleCopy}
+                        className="p-1 rounded-sm hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100"
+                        title="Copy URL"
+                    >
+                        {hasCopied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                )}
+
+                {onReadLater && (
+                    <button
+                        onClick={onReadLater}
+                        className="p-1 rounded-sm hover:bg-background text-muted-foreground hover:text-primary transition-colors focus:opacity-100"
+                        title="Read Later"
+                    >
+                        <Clock className="w-3.5 h-3.5" />
+                    </button>
+                )}
+                {onDelete && (
+                    <button
+                        onClick={onDelete}
+                        className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
+                        title="Delete Tab from Space"
+                    >
+                        <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                )}
+                {onClose && (
+                    <button
+                        onClick={onClose}
+                        className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
+                        title="Close Tab"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                    </button>
+                )}
+            </div>
+
         </div>
     );
 });
