@@ -72,6 +72,34 @@ class SpaceService {
     }
 
     /**
+     * Adds a single tab to an existing Space.
+     */
+    async addTabToSpace(spaceId: number, tab: chrome.tabs.Tab): Promise<void> {
+        if (!tab.url || !tab.title) return;
+
+        await db.transaction('rw', db.tabs, async () => {
+            // 1. Get current max order
+            const lastTab = await db.tabs
+                .where('spaceId')
+                .equals(spaceId)
+                .reverse()
+                .sortBy('order')
+                .then(tabs => tabs[0]);
+
+            const nextOrder = lastTab ? lastTab.order + 1 : 0;
+
+            // 2. Add
+            await db.tabs.add({
+                spaceId,
+                url: tab.url!,
+                title: tab.title || 'Untitled',
+                favicon: tab.favIconUrl || '',
+                order: nextOrder
+            });
+        });
+    }
+
+    /**
      * Creates a new Space from a specific list of tabs (e.g. from a Group).
      */
     async createSpaceFromTabs(name: string, tabs: chrome.tabs.Tab[]): Promise<void> {

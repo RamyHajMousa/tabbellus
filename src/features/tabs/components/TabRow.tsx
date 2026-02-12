@@ -2,6 +2,7 @@ import React from 'react';
 import { Globe, X, Clock, Trash2, Copy, Check } from 'lucide-react';
 import { type Tab, tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
+import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
 
 interface TabRowProps {
     tab: Tab | chrome.tabs.Tab; // Accept both our DB Type and Chrome Type
@@ -13,6 +14,9 @@ interface TabRowProps {
 
 export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelete }: TabRowProps) => {
     const { hasCopied, copy } = useClipboard();
+
+    const isChromeTab = (t: any): t is chrome.tabs.Tab => 'windowId' in t;
+    const canAddToSpace = isChromeTab(tab);
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -72,6 +76,11 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
                     >
                         {hasCopied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
+                )}
+
+                {/* Add To Space (Only for Active Tabs) */}
+                {canAddToSpace && (
+                    <AddToSpaceMenu tab={tab} />
                 )}
 
                 {onReadLater && (
