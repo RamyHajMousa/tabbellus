@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Download, Upload, Trash2, Sun, Moon, Monitor, Heart, Star, Coffee, MessageSquare } from 'lucide-react';
+import { Download, Upload, Trash2, Sun, Moon, Monitor, Heart, Star, Coffee, LifeBuoy } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -12,7 +12,8 @@ import { useAppStore } from '@/store/appStore';
 import { dataService } from '@/lib/dataService';
 import { useToast } from '@/components/ui/Toaster';
 import { getUsageStats, markSupportInteracted } from '@/lib/usageTracker';
-import { isEdge, openAppearanceSettings } from '@/lib/platform';
+import { isEdge, openAppearanceSettings, handleExternalLink, openSupportHub } from '@/lib/platform';
+import { EXTERNAL_LINKS } from '@/config/links';
 
 
 export const SettingsDialog = () => {
@@ -41,9 +42,9 @@ export const SettingsDialog = () => {
         toast('Thanks for using TabBellus!');
     };
 
-    const openLink = (url: string) => {
-        chrome.tabs.create({ url, active: true });
-    };
+    // openLink function is no longer needed locally as we use handleExternalLink from platform
+    // keeping handleExternalLink alias for convenience if needed, or direct usage
+    const openLink = (url: string) => handleExternalLink(url);
 
     const handleExport = async () => {
         try {
@@ -197,13 +198,13 @@ export const SettingsDialog = () => {
                                             </p>
                                             <div className="flex gap-2 mt-3">
                                                 <button
-                                                    onClick={() => openLink('https://chromewebstore.google.com/detail/tabbellus-workstation/ikgdoaampabbohhkapeelhafojdnnfec/reviews')}
+                                                    onClick={() => openLink(EXTERNAL_LINKS.REVIEWS)}
                                                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
                                                 >
                                                     Rate 5 Stars
                                                 </button>
                                                 <button
-                                                    onClick={() => openLink('https://buymeacoffee.com/ramyhajmousa')}
+                                                    onClick={() => openLink(EXTERNAL_LINKS.DONATE)}
                                                     className="px-3 py-1.5 bg-white dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-200 text-xs font-medium rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/60 transition-colors"
                                                 >
                                                     Buy Coffee
@@ -223,25 +224,25 @@ export const SettingsDialog = () => {
                             <div className="space-y-1">
                                 {/* TODO: Change these links when put in production as well*/}
                                 <button
-                                    onClick={() => openLink('https://chromewebstore.google.com/detail/tabbellus-workstation/ikgdoaampabbohhkapeelhafojdnnfec/reviews')}
+                                    onClick={() => openLink(EXTERNAL_LINKS.REVIEWS)}
                                     className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
                                 >
                                     <Star className="w-4 h-4 text-orange-400" />
                                     <span className="text-sm font-medium">Rate TabBellus</span>
                                 </button>
                                 <button
-                                    onClick={() => openLink('https://buymeacoffee.com/ramyhajmousa')}
+                                    onClick={() => openLink(EXTERNAL_LINKS.DONATE)}
                                     className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
                                 >
                                     <Coffee className="w-4 h-4 text-amber-600" />
                                     <span className="text-sm font-medium">Buy me a coffee</span>
                                 </button>
                                 <button
-                                    onClick={() => openLink('https://github.com/RamyHajMousa/tabbellus/issues')}
+                                    onClick={openSupportHub}
                                     className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
                                 >
-                                    <MessageSquare className="w-4 h-4 text-muted-foreground" />
-                                    <span className="text-sm font-medium">Report Issue / Request Feature</span>
+                                    <LifeBuoy className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Help & Feedback</span>
                                 </button>
                             </div>
                         </div>

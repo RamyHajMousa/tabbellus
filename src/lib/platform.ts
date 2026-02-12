@@ -1,3 +1,5 @@
+import { EXTERNAL_LINKS } from '@/config/links';
+
 /**
  * Platform Detection Utility
  * 
@@ -25,4 +27,31 @@ export const openAppearanceSettings = () => {
     }
 
     chrome.tabs.create({ url: "chrome://settings/appearance" });
+};
+
+/**
+ * Safely opens an external URL in a new tab.
+ * 
+ * @param url - The URL to open.
+ */
+export const handleExternalLink = (url: string) => {
+    if (!url || url.includes("INSERT_ID_HERE")) {
+        console.warn("Attempted to open a placeholder link.");
+        return;
+    }
+    chrome.tabs.create({ url, active: true });
+};
+
+/**
+ * Opens the Support Hub with diagnostic attributes (Version, Browser).
+ */
+export const openSupportHub = () => {
+    const version = chrome.runtime.getManifest().version;
+    const browser = isEdge() ? "Edge" : "Chrome";
+
+    const url = new URL(EXTERNAL_LINKS.SUPPORT);
+    url.searchParams.append("v", version);
+    url.searchParams.append("browser", browser);
+
+    chrome.tabs.create({ url: url.toString(), active: true });
 };
