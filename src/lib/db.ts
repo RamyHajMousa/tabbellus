@@ -5,6 +5,7 @@ export interface Space {
     name: string;
     createdAt: number;
     deletedAt?: number; // Soft delete timestamp
+    isPinned?: boolean;
 }
 
 export interface Tab {
@@ -33,7 +34,7 @@ export class TabBellusDB extends Dexie {
     constructor() {
         super('TabBellusDB');
         this.version(3).stores({
-            spaces: '++id, name, createdAt, deletedAt',
+            spaces: '++id, name, createdAt, deletedAt, isPinned',
             tabs: '++id, spaceId, url, order, [spaceId+order]',
             readLater: '++id, url, title, addedAt, status' // Added title to index if useful for search, favicon not indexed usually
         }).upgrade(() => {

@@ -56,6 +56,16 @@ class SpaceService {
             throw new Error('Failed to save space. Storage might be full.');
         }
     }
+    /**
+     * Toggles the pinned state of a space.
+     */
+    async toggleSpacePin(spaceId: number): Promise<void> {
+        const space = await db.spaces.get(spaceId);
+        if (!space) return;
+
+        await db.spaces.update(spaceId, { isPinned: !space.isPinned });
+    }
+
     async restoreSpace(spaceId: number): Promise<void> {
         // Avoid import cycle by dynamically accessing store
         const { useAppStore } = await import('@/store/appStore');

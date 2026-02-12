@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin } from 'lucide-react';
 import { db, type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { TabRow } from '@/features/tabs';
@@ -45,6 +45,11 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
             // Restore (opens in new window)
             await spaceService.restoreSpace(space.id);
         }
+    };
+
+    const handlePin = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (space.id) spaceService.toggleSpacePin(space.id);
     };
 
     const handleToggle = (e: React.MouseEvent) => {
@@ -128,6 +133,14 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                         title={isActive ? "Focus Window" : "Restore Space"}
                     >
                         <ExternalLink className="w-4 h-4" />
+                    </button>
+                    {/* Pin Action */}
+                    <button
+                        onClick={handlePin}
+                        className={`p-2 rounded-md transition-colors ${space.isPinned ? 'text-blue-500 opacity-100' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'}`}
+                        title={space.isPinned ? "Unpin Space" : "Pin Space"}
+                    >
+                        <Pin className={`w-4 h-4 ${space.isPinned ? 'fill-current' : ''}`} />
                     </button>
                     <button
                         onClick={handleDelete}
