@@ -1,8 +1,8 @@
-import { Search, Settings } from 'lucide-react';
+import { Search, Settings, History } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 
 export const GlobalHeader = () => {
-    const { setSearchOpen, setSettingsOpen } = useUIStore();
+    const { setSearchOpen, setSettingsOpen, toggleHistory } = useUIStore();
 
     return (
         <header className="h-12 flex items-center px-4 border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
@@ -17,8 +17,15 @@ export const GlobalHeader = () => {
                 </span>
             </button>
             <button
-                onClick={() => setSettingsOpen(true)}
+                onClick={toggleHistory}
                 className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+                title="Recently Closed"
+            >
+                <History className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => setSettingsOpen(true)}
+                className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
             >
                 <Settings className="w-4 h-4" />
             </button>
