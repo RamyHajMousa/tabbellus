@@ -60,6 +60,13 @@ function isFuzzyMatch(savedUrl: string, closedUrl: string): boolean {
         if (savedPath === '/') return true;
         // 3. SPA extension: '/maps/place' starts with '/maps'
         if (closedPath.startsWith(savedPath)) return true;
+        // 4. Common path prefix: same first segment = same SPA section
+        //    Handles '/maps/@59...' vs '/maps/@60...' where dynamic params diverge
+        const savedSegs = savedPath.split('/').filter(Boolean);
+        const closedSegs = closedPath.split('/').filter(Boolean);
+        if (savedSegs.length > 0 && closedSegs.length > 0 && savedSegs[0] === closedSegs[0]) {
+            return true;
+        }
 
         return false;
     } catch {
