@@ -15,6 +15,33 @@ export const isEdge = (): boolean => {
 };
 
 /**
+ * Gets the current Operating System.
+ */
+export const getOS = (): string => {
+    const userAgent = window.navigator.userAgent;
+    if (userAgent.indexOf("Win") !== -1) return "Windows";
+    if (userAgent.indexOf("Mac") !== -1) return "MacOS";
+    if (userAgent.indexOf("Linux") !== -1) return "Linux";
+    return "Unknown";
+};
+
+/**
+ * Gets the browser version.
+ */
+export const getBrowserVersion = (): string => {
+    const userAgent = navigator.userAgent;
+    // Check for Edge first (Edg/)
+    const edgeMatch = userAgent.match(/Edg\/(\d+(\.\d+)*)/);
+    if (edgeMatch) return edgeMatch[1];
+
+    // Check for Chrome (Chrome/)
+    const chromeMatch = userAgent.match(/Chrome\/(\d+(\.\d+)*)/);
+    if (chromeMatch) return chromeMatch[1];
+
+    return "Unknown";
+};
+
+/**
  * Opens the browser's appearance settings in a new tab.
  * This is used for changing sidebar position, theme, etc.
  * 
@@ -43,15 +70,25 @@ export const handleExternalLink = (url: string) => {
 };
 
 /**
- * Opens the Support Hub with diagnostic attributes (Version, Browser).
+ * Opens the Support Hub with diagnostic attributes (Version, Browser, OS, Stats).
  */
-export const openSupportHub = () => {
+export const openSupportHub = async () => {
     const version = chrome.runtime.getManifest().version;
     const browser = isEdge() ? "Edge" : "Chrome";
+    const browserVersion = getBrowserVersion();
+    const os = getOS();
+
+    // Get live browser state
+    const windows = await chrome.windows.getAll();
+    const tabs = await chrome.tabs.query({});
 
     const url = new URL(EXTERNAL_LINKS.SUPPORT);
     url.searchParams.append("v", version);
     url.searchParams.append("browser", browser);
+    url.searchParams.append("browserV", browserVersion);
+    url.searchParams.append("os", os);
+    url.searchParams.append("windows", windows.length.toString());
+    url.searchParams.append("tabs", tabs.length.toString());
 
     chrome.tabs.create({ url: url.toString(), active: true });
 };
