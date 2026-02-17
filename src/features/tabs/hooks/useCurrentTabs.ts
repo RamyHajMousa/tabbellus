@@ -6,105 +6,161 @@ export function useCurrentTabs() {
     const [activeTabId, setActiveTabId] = useState<number | null>(null);
 
     useEffect(() => {
-        // Initial fetch
-        const fetchAll = async () => {
+        let mounted = true;
+
+        // Listener references
+        let onTabCreated: (tab: chrome.tabs.Tab) => void;
+        let onTabUpdated: (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void;
+        let onTabRemoved: (tabId: number, removeInfo: chrome.tabs.TabRemoveInfo) => void;
+        let onTabMoved: (tabId: number, moveInfo: chrome.tabs.TabMoveInfo) => void;
+        let onTabActivated: (activeInfo: chrome.tabs.TabActiveInfo) => void;
+        let onTabAttached: (tabId: number, attachInfo: chrome.tabs.TabAttachInfo) => void;
+        let onTabDetached: (tabId: number, detachInfo: chrome.tabs.TabDetachInfo) => void;
+
+        let onGroupCreated: (group: chrome.tabGroups.TabGroup) => void;
+        let onGroupUpdated: (group: chrome.tabGroups.TabGroup) => void;
+        let onGroupRemoved: (group: chrome.tabGroups.TabGroup) => void;
+
+        const init = async () => {
             try {
-                const currentFnOption = { currentWindow: true };
+                // 1. Get Current Window ID securely
+                const win = await chrome.windows.getCurrent();
+                const currentWindowId = win.id;
+
+                if (currentWindowId === undefined || !mounted) return;
+
+                // 2. Initial Fetch (Strictly Scoped)
+                const currentFnOption = { windowId: currentWindowId };
 
                 // Fetch Tabs
                 const currentTabs = await chrome.tabs.query(currentFnOption);
-                setTabs(currentTabs);
+                if (mounted) {
+                    setTabs(currentTabs);
+                    const active = currentTabs.find(t => t.active);
+                    if (active && active.id) setActiveTabId(active.id);
+                }
 
                 // Fetch Groups
-                const currentGroups = await chrome.tabGroups.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-                const groupMap = new Map();
-                currentGroups.forEach(g => groupMap.set(g.id, g));
-                setGroups(groupMap);
+                if (chrome.tabGroups) {
+                    const currentGroups = await chrome.tabGroups.query({ windowId: currentWindowId });
+                    if (mounted) {
+                        const groupMap = new Map();
+                        currentGroups.forEach(g => groupMap.set(g.id, g));
+                        setGroups(groupMap);
+                    }
+                }
 
-                // Set Active
-                const active = currentTabs.find(t => t.active);
-                if (active && active.id) setActiveTabId(active.id);
+                // 3. Define Listeners (Strictly Scoped via Closure)
+
+                // --- Tab Listeners ---
+                onTabCreated = (tab) => {
+                    if (tab.windowId !== currentWindowId) return;
+                    setTabs(prev => {
+                        if (prev.some(t => t.id === tab.id)) return prev;
+                        return [...prev, tab];
+                    });
+                };
+
+                onTabUpdated = (tabId, changeInfo, tab) => {
+                    if (tab.windowId !== currentWindowId) return;
+                    // Intentionally check strict/shallow updates prevents over-rendering
+                    if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl || changeInfo.groupId || changeInfo.pinned || changeInfo.audible) {
+                        setTabs(prev => prev.map(t => (t.id === tabId ? tab : t)));
+                    }
+                };
+
+                onTabRemoved = (tabId, removeInfo) => {
+                    if (removeInfo.windowId !== currentWindowId) return;
+                    setTabs(prev => prev.filter(t => t.id !== tabId));
+                };
+
+                onTabMoved = async (_tabId, moveInfo) => {
+                    if (moveInfo.windowId !== currentWindowId) return;
+                    // Re-fetch to guarantee correct order index
+                    const sortedTabs = await chrome.tabs.query({ windowId: currentWindowId });
+                    if (mounted) setTabs(sortedTabs);
+                };
+
+                onTabActivated = (activeInfo) => {
+                    if (activeInfo.windowId !== currentWindowId) return;
+                    setActiveTabId(activeInfo.tabId);
+                    setTabs(prev => prev.map(t => ({ ...t, active: t.id === activeInfo.tabId })));
+                };
+
+                onTabAttached = async (_tabId, attachInfo) => {
+                    if (attachInfo.newWindowId !== currentWindowId) return;
+                    // Tab moved INTO this window. Fetch it or re-fetch all to ensure order.
+                    // Re-fetching all is safer to respect the new index.
+                    const sortedTabs = await chrome.tabs.query({ windowId: currentWindowId });
+                    if (mounted) setTabs(sortedTabs);
+                };
+
+                onTabDetached = (tabId, detachInfo) => {
+                    if (detachInfo.oldWindowId !== currentWindowId) return;
+                    // Tab moved OUT of this window.
+                    setTabs(prev => prev.filter(t => t.id !== tabId));
+                };
+
+                // --- Group Listeners ---
+                if (chrome.tabGroups) {
+                    onGroupCreated = (group) => {
+                        if (group.windowId !== currentWindowId) return;
+                        setGroups(prev => new Map(prev).set(group.id, group));
+                    };
+
+                    onGroupUpdated = (group) => {
+                        if (group.windowId !== currentWindowId) return;
+                        setGroups(prev => new Map(prev).set(group.id, group));
+                    };
+
+                    onGroupRemoved = (group) => {
+                        // Note: chrome.tabGroups.onRemoved passes the group object (with windowId) in modern Chrome
+                        if (group.windowId !== currentWindowId) return;
+                        setGroups(prev => {
+                            const next = new Map(prev);
+                            next.delete(group.id);
+                            return next;
+                        });
+                    };
+
+                    chrome.tabGroups.onCreated.addListener(onGroupCreated);
+                    chrome.tabGroups.onUpdated.addListener(onGroupUpdated);
+                    chrome.tabGroups.onRemoved.addListener(onGroupRemoved);
+                }
+
+                // Register Tab Listeners
+                chrome.tabs.onCreated.addListener(onTabCreated);
+                chrome.tabs.onUpdated.addListener(onTabUpdated);
+                chrome.tabs.onRemoved.addListener(onTabRemoved);
+                chrome.tabs.onMoved.addListener(onTabMoved);
+                chrome.tabs.onActivated.addListener(onTabActivated);
+                chrome.tabs.onAttached.addListener(onTabAttached);
+                chrome.tabs.onDetached.addListener(onTabDetached);
+
             } catch (e) {
-                console.warn('Failed to fetch tabs/groups:', e);
+                console.warn('Failed to initialize useCurrentTabs:', e);
             }
         };
 
-        fetchAll();
+        // Ignite
+        init();
 
-        // --- Tab Listeners ---
-        const onTabCreated = (tab: chrome.tabs.Tab) => {
-            setTabs(prev => {
-                if (prev.some(t => t.id === tab.id)) return prev;
-                return [...prev, tab];
-            });
-        };
-
-        const onTabRemoved = (tabId: number) => {
-            setTabs(prev => prev.filter(t => t.id !== tabId));
-        };
-
-        const onTabUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
-            if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl || changeInfo.groupId) {
-                setTabs(prev => prev.map(t => (t.id === tabId ? tab : t)));
-            }
-        };
-
-        const onTabMoved = async () => {
-            const sortedTabs = await chrome.tabs.query({ currentWindow: true });
-            setTabs(sortedTabs);
-        };
-
-        const onTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
-            setActiveTabId(activeInfo.tabId);
-            setTabs(prev => prev.map(t => ({ ...t, active: t.id === activeInfo.tabId })));
-        };
-
-        // --- Group Listeners ---
-        const onGroupCreated = (group: chrome.tabGroups.TabGroup) => {
-            if (group.windowId !== chrome.windows.WINDOW_ID_CURRENT) return; // Although Query is constrained, listeners might fire globally? No, but let's be safe if possible, or filter at render. Actually listeners are global.
-            // Just update our map.
-            setGroups(prev => new Map(prev).set(group.id, group));
-        };
-
-        const onGroupRemoved = (groupId: chrome.tabGroups.TabGroup) => {
-            // Note: Listener signature varies, check docs. 
-            // chrome.tabGroups.onRemoved.addListener(callback: (group: TabGroup) => void) in Types? 
-            // Actually it passes the group object.
-            setGroups(prev => {
-                const next = new Map(prev);
-                next.delete(groupId.id);
-                return next;
-            });
-        };
-
-        const onGroupUpdated = (group: chrome.tabGroups.TabGroup) => {
-            setGroups(prev => new Map(prev).set(group.id, group));
-        };
-
-        // Register
-        chrome.tabs.onCreated.addListener(onTabCreated);
-        chrome.tabs.onUpdated.addListener(onTabUpdated);
-        chrome.tabs.onRemoved.addListener(onTabRemoved);
-        chrome.tabs.onMoved.addListener(onTabMoved);
-        chrome.tabs.onActivated.addListener(onTabActivated);
-
-        if (chrome.tabGroups) {
-            chrome.tabGroups.onCreated.addListener(onGroupCreated);
-            chrome.tabGroups.onUpdated.addListener(onGroupUpdated);
-            chrome.tabGroups.onRemoved.addListener(onGroupRemoved);
-        }
-
+        // Cleanup
         return () => {
-            chrome.tabs.onCreated.removeListener(onTabCreated);
-            chrome.tabs.onUpdated.removeListener(onTabUpdated);
-            chrome.tabs.onRemoved.removeListener(onTabRemoved);
-            chrome.tabs.onMoved.removeListener(onTabMoved);
-            chrome.tabs.onActivated.removeListener(onTabActivated);
+            mounted = false;
+
+            if (onTabCreated) chrome.tabs.onCreated.removeListener(onTabCreated);
+            if (onTabUpdated) chrome.tabs.onUpdated.removeListener(onTabUpdated);
+            if (onTabRemoved) chrome.tabs.onRemoved.removeListener(onTabRemoved);
+            if (onTabMoved) chrome.tabs.onMoved.removeListener(onTabMoved);
+            if (onTabActivated) chrome.tabs.onActivated.removeListener(onTabActivated);
+            if (onTabAttached) chrome.tabs.onAttached.removeListener(onTabAttached);
+            if (onTabDetached) chrome.tabs.onDetached.removeListener(onTabDetached);
 
             if (chrome.tabGroups) {
-                chrome.tabGroups.onCreated.removeListener(onGroupCreated);
-                chrome.tabGroups.onUpdated.removeListener(onGroupUpdated);
-                chrome.tabGroups.onRemoved.removeListener(onGroupRemoved);
+                if (onGroupCreated) chrome.tabGroups.onCreated.removeListener(onGroupCreated);
+                if (onGroupUpdated) chrome.tabGroups.onUpdated.removeListener(onGroupUpdated);
+                if (onGroupRemoved) chrome.tabGroups.onRemoved.removeListener(onGroupRemoved);
             }
         };
     }, []);
