@@ -3,15 +3,13 @@ import { defineManifest } from '@crxjs/vite-plugin';
 export default defineManifest({
     manifest_version: 3,
     name: "TabBellus Workstation",
-    version: "0.1.0",
+    version: "1.0.0",
     description: "A calm, local-first workspace layer for Chromium.",
     permissions: [
         "tabs",
         "storage",
         "sidePanel",
-        "contextMenus",
         "unlimitedStorage",
-        "alarms",
         "tabGroups",
         "sessions"
     ],
