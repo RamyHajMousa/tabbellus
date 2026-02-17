@@ -1,7 +1,7 @@
 {
   "name": "tabbellus-workstation",
   "version": "1.0.0",
-  "description": "A calm, local-first workspace layer for Chromium.",
+  "description": "The premium workspace and tab manager for power users. Save spaces, search tabs, and declutter your browser.",
   "type": "module",
   "scripts": {
     "dev": "vite",

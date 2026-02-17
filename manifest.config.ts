@@ -4,7 +4,7 @@ export default defineManifest({
     manifest_version: 3,
     name: "TabBellus Workstation",
     version: "1.0.0",
-    description: "A calm, local-first workspace layer for Chromium.",
+    description: "The premium workspace and tab manager for power users. Save spaces, search tabs, and declutter your browser.",
     permissions: [
         "tabs",
         "storage",
