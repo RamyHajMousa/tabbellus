@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toaster';
 import { TabRow } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
 
 interface SpaceItemProps {
     space: Space;
@@ -14,6 +15,21 @@ interface SpaceItemProps {
 export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
     const [isOpen, setIsOpen] = React.useState(false);
     const { toast } = useToast();
+    const nameRef = React.useRef<HTMLHeadingElement>(null);
+    const [isTruncated, setIsTruncated] = React.useState(false);
+
+    // Check if the name text is visually truncated
+    React.useEffect(() => {
+        const el = nameRef.current;
+        if (!el) return;
+
+        const check = () => setIsTruncated(el.scrollWidth > el.clientWidth);
+        check();
+
+        const observer = new ResizeObserver(check);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [space.name]);
 
     // Subscribe to activeSpaces for this space
     const activeWindowId = useAppStore((state) => space.id ? state.activeSpaces[space.id] : undefined);
@@ -112,7 +128,18 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                 )}
 
                 <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium truncate">{space.name}</h3>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <h3 ref={nameRef} className="text-sm font-medium truncate">{space.name}</h3>
+                            </TooltipTrigger>
+                            {isTruncated && (
+                                <TooltipContent side="top">
+                                    {space.name}
+                                </TooltipContent>
+                            )}
+                        </Tooltip>
+                    </TooltipProvider>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                             <Layers className="w-3 h-3" />
