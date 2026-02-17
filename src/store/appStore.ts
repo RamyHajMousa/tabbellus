@@ -48,6 +48,8 @@ interface AppState {
     registerActiveSpace: (spaceId: number, windowId: number) => void;
     unregisterWindow: (windowId: number) => void;
     syncActiveSpaces: (map: Record<number, number>) => void;
+    recentSearches: string[];
+    addRecentSearch: (query: string) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -76,6 +78,13 @@ export const useAppStore = create<AppState>()(
                 return { activeSpaces: newMap };
             }),
             syncActiveSpaces: (map) => set({ activeSpaces: map }),
+            recentSearches: [],
+            addRecentSearch: (query) => set((state) => {
+                const trimmed = query.trim();
+                if (!trimmed) return state;
+                const filtered = state.recentSearches.filter(s => s !== trimmed);
+                return { recentSearches: [trimmed, ...filtered].slice(0, 5) };
+            }),
         }),
         {
             name: 'tabbellus-settings',
@@ -85,6 +94,7 @@ export const useAppStore = create<AppState>()(
             partialize: (state) => ({
                 theme: state.theme,
                 activeView: state.activeView,
+                recentSearches: state.recentSearches,
             }),
             onRehydrateStorage: () => (state) => {
                 state?.setHydrated(true);

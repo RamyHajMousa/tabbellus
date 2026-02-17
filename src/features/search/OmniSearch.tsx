@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { LayoutTemplate, Package, BookOpen } from 'lucide-react';
+import { LayoutTemplate, Package, BookOpen, History } from 'lucide-react';
 import {
     CommandDialog,
     CommandInput,
@@ -17,10 +17,19 @@ import { DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 export const OmniSearch = () => {
     const { isSearchOpen, setSearchOpen } = useUIStore();
     const activeSpaces = useAppStore((state) => state.activeSpaces);
+    const recentSearches = useAppStore((state) => state.recentSearches);
+    const addRecentSearch = useAppStore((state) => state.addRecentSearch);
 
+    const [search, setSearch] = useState('');
     const [activeTabs, setActiveTabs] = useState<chrome.tabs.Tab[]>([]);
     const [spaces, setSpaces] = useState<Space[]>([]);
     const [readLater, setReadLater] = useState<ReadLaterItem[]>([]);
+
+    useEffect(() => {
+        if (!isSearchOpen) {
+            setSearch('');
+        }
+    }, [isSearchOpen]);
 
     // Keyboard shortcut: Ctrl+K / Cmd+K
     useEffect(() => {
@@ -50,14 +59,16 @@ export const OmniSearch = () => {
     }, [isSearchOpen]);
 
     const handleSelectTab = useCallback(async (tab: chrome.tabs.Tab) => {
+        if (search) addRecentSearch(search);
         setSearchOpen(false);
         if (tab.windowId && tab.id) {
             await chrome.windows.update(tab.windowId, { focused: true }).catch(() => { });
             await chrome.tabs.update(tab.id, { active: true }).catch(() => { });
         }
-    }, [setSearchOpen]);
+    }, [setSearchOpen, search, addRecentSearch]);
 
     const handleSelectSpace = useCallback(async (space: Space) => {
+        if (search) addRecentSearch(search);
         setSearchOpen(false);
         if (!space.id) return;
 
@@ -71,20 +82,40 @@ export const OmniSearch = () => {
         } else {
             await spaceService.restoreSpace(space.id);
         }
-    }, [setSearchOpen, activeSpaces]);
+    }, [setSearchOpen, activeSpaces, search, addRecentSearch]);
 
     const handleSelectReadLater = useCallback(async (item: ReadLaterItem) => {
+        if (search) addRecentSearch(search);
         setSearchOpen(false);
         await chrome.tabs.create({ url: item.url, active: true });
-    }, [setSearchOpen]);
+    }, [setSearchOpen, search, addRecentSearch]);
 
     return (
         <CommandDialog open={isSearchOpen} onOpenChange={setSearchOpen}>
             <DialogTitle className="sr-only">OmniSearch</DialogTitle>
             <DialogDescription className="sr-only">Search across tabs, spaces, and read later items</DialogDescription>
-            <CommandInput placeholder="Search tabs, spaces, read later..." />
+            <CommandInput
+                placeholder="Search tabs, spaces, read later..."
+                value={search}
+                onValueChange={setSearch}
+            />
             <CommandList>
                 <CommandEmpty>No results found.</CommandEmpty>
+
+                {search.length === 0 && recentSearches.length > 0 && (
+                    <CommandGroup heading="Recent Searches">
+                        {recentSearches.map((term) => (
+                            <CommandItem
+                                key={term}
+                                value={`recent ${term}`}
+                                onSelect={() => setSearch(term)}
+                            >
+                                <History className="mr-2 h-4 w-4 text-muted-foreground" />
+                                <span>{term}</span>
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                )}
 
                 {activeTabs.length > 0 && (
                     <CommandGroup heading="Active Tabs">
