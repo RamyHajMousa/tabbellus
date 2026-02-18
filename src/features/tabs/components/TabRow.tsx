@@ -2,6 +2,8 @@ import React from 'react';
 import { Globe, X, Clock, Trash2, Copy, Check } from 'lucide-react';
 import { type Tab, tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
+import { useIsTruncated } from '@/hooks/useIsTruncated';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
 
 interface TabRowProps {
@@ -14,6 +16,7 @@ interface TabRowProps {
 
 export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelete }: TabRowProps) => {
     const { hasCopied, copy } = useClipboard();
+    const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
 
     const isChromeTab = (t: any): t is chrome.tabs.Tab => 'windowId' in t;
     const canAddToSpace = isChromeTab(tab);
@@ -57,9 +60,20 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
             <Globe className={`w-4 h-4 opacity-50 flex-shrink-0 ${(tab as any).favIconUrl || (tab as any).favicon ? 'hidden' : ''}`} />
 
             <div className="flex-1 min-w-0 flex flex-col justify-center">
-                <span className={`truncate font-medium leading-none ${isActive ? 'text-foreground' : 'text-foreground/90'}`}>
-                    {tab.title || tab.url}
-                </span>
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span ref={titleRef} className={`truncate font-medium leading-none ${isActive ? 'text-foreground' : 'text-foreground/90'}`}>
+                                {tab.title || tab.url}
+                            </span>
+                        </TooltipTrigger>
+                        {isTruncated && (
+                            <TooltipContent side="top">
+                                {tab.title || tab.url}
+                            </TooltipContent>
+                        )}
+                    </Tooltip>
+                </TooltipProvider>
                 <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
                     {tryParseHost(tab.url || '')}
                 </span>

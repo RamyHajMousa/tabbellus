@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toaster';
 import { TabRow } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
+import { useIsTruncated } from '@/hooks/useIsTruncated';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
 
 interface SpaceItemProps {
@@ -15,21 +16,7 @@ interface SpaceItemProps {
 export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
     const [isOpen, setIsOpen] = React.useState(false);
     const { toast } = useToast();
-    const nameRef = React.useRef<HTMLHeadingElement>(null);
-    const [isTruncated, setIsTruncated] = React.useState(false);
-
-    // Check if the name text is visually truncated
-    React.useEffect(() => {
-        const el = nameRef.current;
-        if (!el) return;
-
-        const check = () => setIsTruncated(el.scrollWidth > el.clientWidth);
-        check();
-
-        const observer = new ResizeObserver(check);
-        observer.observe(el);
-        return () => observer.disconnect();
-    }, [space.name]);
+    const [nameRef, isTruncated] = useIsTruncated<HTMLHeadingElement>();
 
     // Subscribe to activeSpaces for this space
     const activeWindowId = useAppStore((state) => space.id ? state.activeSpaces[space.id] : undefined);

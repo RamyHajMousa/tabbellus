@@ -1,6 +1,8 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, Layers, X, Archive } from 'lucide-react';
 import { getGroupColorClasses } from '@/lib/colors';
+import { useIsTruncated } from '@/hooks/useIsTruncated';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
 
 interface GroupRowProps {
     group: chrome.tabGroups.TabGroup;
@@ -10,6 +12,7 @@ interface GroupRowProps {
 
 export const GroupRow = React.memo(({ group, onClose, onArchive }: GroupRowProps) => {
     const colors = getGroupColorClasses(group.color);
+    const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
 
     const handleToggleCollapse = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -33,9 +36,20 @@ export const GroupRow = React.memo(({ group, onClose, onArchive }: GroupRowProps
             <div className={`w-2 h-2 rounded-full ${colors.badge} shadow-sm`} />
 
             {/* Title */}
-            <span className={`font-semibold uppercase tracking-wider ${colors.text} truncate opacity-90 flex-1`}>
-                {group.title || 'Untitled Group'}
-            </span>
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <span ref={titleRef} className={`font-semibold uppercase tracking-wider ${colors.text} truncate opacity-90 flex-1`}>
+                            {group.title || 'Untitled Group'}
+                        </span>
+                    </TooltipTrigger>
+                    {isTruncated && (
+                        <TooltipContent side="top">
+                            {group.title || 'Untitled Group'}
+                        </TooltipContent>
+                    )}
+                </Tooltip>
+            </TooltipProvider>
 
             {/* Actions: Collapse Icon (Visual) & Archive & Close Button */}
             <div className="flex items-center gap-1">
