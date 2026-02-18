@@ -6,7 +6,7 @@ const Workstation = () => {
     return (
         <div className="min-h-screen w-full bg-background text-foreground p-8">
             <header className="mb-8">
-                <h1 className="text-4xl font-bold tracking-tight">TabBellus Workstation</h1>
+                <h1 className="text-4xl font-bold tracking-tight">TabBellus</h1>
                 <p className="text-muted-foreground mt-2">Manage your focus spaces.</p>
             </header>
             <main>

@@ -2,7 +2,7 @@ import { defineManifest } from '@crxjs/vite-plugin';
 
 export default defineManifest({
     manifest_version: 3,
-    name: "TabBellus Workstation",
+    name: "TabBellus",
     version: "1.0.0",
     description: "The premium workspace and tab manager for power users. Save spaces, search tabs, and declutter your browser.",
     permissions: [
