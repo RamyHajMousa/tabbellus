@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Download, Upload, Trash2, Sun, Moon, Monitor, Heart, Star, Coffee, LifeBuoy } from 'lucide-react';
+import { Download, Upload, Trash2, Sun, Moon, Monitor, Heart, Star, Coffee, LifeBuoy, ShieldCheck } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -244,6 +244,19 @@ export const SettingsDialog = () => {
                                     <LifeBuoy className="w-4 h-4 text-muted-foreground" />
                                     <span className="text-sm font-medium">Help & Feedback</span>
                                 </button>
+                            </div>
+
+                            <div className="mt-6 space-y-2">
+                                <h4 className="text-sm font-medium text-muted-foreground">Legal</h4>
+                                <a
+                                    href="https://errorfirst.com/tabbellus-privacy-policy/"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
+                                >
+                                    <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Privacy Policy</span>
+                                </a>
                             </div>
                         </div>
                     )}
