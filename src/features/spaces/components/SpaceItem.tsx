@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil } from 'lucide-react';
 import { db, type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { TabRow } from '@/features/tabs';
@@ -18,6 +18,11 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
     const { toast } = useToast();
     const [nameRef, isTruncated] = useIsTruncated<HTMLHeadingElement>();
 
+    // Editing State
+    const [isEditing, setIsEditing] = React.useState(false);
+    const [newName, setNewName] = React.useState(space.name);
+    const inputRef = React.useRef<HTMLInputElement>(null);
+
     // Subscribe to activeSpaces for this space
     const activeWindowId = useAppStore((state) => space.id ? state.activeSpaces[space.id] : undefined);
     const unregisterWindow = useAppStore((state) => state.unregisterWindow);
@@ -31,7 +36,16 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
 
     const { deleteWithUndo: deleteTab } = useUndoDelete(db.tabs);
 
+    // Focus input when entering edit mode
+    React.useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [isEditing]);
+
     const handleClick = async () => {
+        if (isEditing) return; // Prevent navigation while editing
         if (!space.id) return;
 
         if (isActive && activeWindowId) {
@@ -85,6 +99,22 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         }, 10001);
     };
 
+    const handleRename = async () => {
+        if (space.id && newName.trim() !== space.name) {
+            await spaceService.updateSpaceName(space.id, newName);
+        }
+        setIsEditing(false);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleRename();
+        } else if (e.key === 'Escape') {
+            setNewName(space.name); // Revert
+            setIsEditing(false);
+        }
+    };
+
     const formatDate = (ts: number) => new Date(ts).toLocaleDateString(undefined, {
         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
@@ -115,32 +145,60 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                 )}
 
                 <div className="flex-1 min-w-0">
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <h3 ref={nameRef} className="text-sm font-medium truncate">{space.name}</h3>
-                            </TooltipTrigger>
-                            {isTruncated && (
-                                <TooltipContent side="top">
-                                    {space.name}
-                                </TooltipContent>
-                            )}
-                        </Tooltip>
-                    </TooltipProvider>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                            <Layers className="w-3 h-3" />
-                            {tabs?.length || 0} tabs
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            {formatDate(space.createdAt)}
-                        </span>
-                    </div>
+                    {isEditing ? (
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            onBlur={handleRename}
+                            onKeyDown={handleKeyDown}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full bg-transparent border-none p-0 text-sm font-medium focus:outline-none focus:ring-0"
+                        />
+                    ) : (
+                        <>
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <h3 ref={nameRef} className="text-sm font-medium truncate">{space.name}</h3>
+                                    </TooltipTrigger>
+                                    {isTruncated && (
+                                        <TooltipContent side="top">
+                                            {space.name}
+                                        </TooltipContent>
+                                    )}
+                                </Tooltip>
+                            </TooltipProvider>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                    <Layers className="w-3 h-3" />
+                                    {tabs?.length || 0} tabs
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    {formatDate(space.createdAt)}
+                                </span>
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 {/* Actions (Visible on Hover) */}
                 <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    {!isEditing && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsEditing(true);
+                                setNewName(space.name); // Reset state to current name
+                            }}
+                            className="p-2 rounded-md hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
+                            title="Rename Space"
+                        >
+                            <Pencil className="w-4 h-4" />
+                        </button>
+                    )}
                     <button
                         onClick={(e) => { e.stopPropagation(); handleClick(); }}
                         className="p-2 rounded-md hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"

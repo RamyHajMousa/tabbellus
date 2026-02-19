@@ -66,6 +66,14 @@ class SpaceService {
         await db.spaces.update(spaceId, { isPinned: !space.isPinned });
     }
 
+    /**
+     * Updates the name of a space.
+     */
+    async updateSpaceName(spaceId: number, newName: string): Promise<void> {
+        if (!newName.trim()) return;
+        await db.spaces.update(spaceId, { name: newName.trim() });
+    }
+
     async restoreSpace(spaceId: number): Promise<void> {
         // Avoid import cycle by dynamically accessing store
         const { useAppStore } = await import('@/store/appStore');
