@@ -5,6 +5,8 @@ import { db, tabService } from '@/lib';
 
 import { useClipboard } from '@/hooks/useClipboard';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
+import { useIsTruncated } from '@/hooks/useIsTruncated';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
 
 
 
@@ -86,6 +88,7 @@ export const ReadLaterList = () => {
 // Extracted for clean hook usage
 const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) => {
     const { hasCopied, copy } = useClipboard();
+    const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -122,9 +125,20 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                     ) : (
                         <Globe className="w-3.5 h-3.5 text-muted-foreground opacity-50" />
                     )}
-                    <span className={`text-sm truncate transition-colors ${item.status === 'archived' ? 'text-muted-foreground line-through decoration-zinc-500/30' : 'text-foreground'}`}>
-                        {item.title || item.url}
-                    </span>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span ref={titleRef} className={`block text-sm truncate transition-colors ${item.status === 'archived' ? 'text-muted-foreground line-through decoration-zinc-500/30' : 'text-foreground'}`}>
+                                    {item.title || item.url}
+                                </span>
+                            </TooltipTrigger>
+                            {isTruncated && (
+                                <TooltipContent side="top">
+                                    {item.title || item.url}
+                                </TooltipContent>
+                            )}
+                        </Tooltip>
+                    </TooltipProvider>
                 </div>
                 <div className="text-[10px] text-muted-foreground/50 mt-0.5 ml-0.5 truncate max-w-[90%]">
                     {new URL(item.url).hostname} • {new Date(item.addedAt).toLocaleDateString()}
