@@ -19,6 +19,7 @@ export const SpaceList = () => {
         <Virtuoso
             style={{ height: '100%', width: '100%' }}
             totalCount={spaces.length}
+            computeItemKey={(index) => spaces[index].id!}
             itemContent={(index) => <SpaceItem space={spaces[index]} />}
         />
     );

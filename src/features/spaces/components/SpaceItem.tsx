@@ -64,8 +64,9 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         }
     };
 
-    const handlePin = (e: React.MouseEvent) => {
+    const handlePin = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
+        e.currentTarget.blur();
         if (space.id) spaceService.toggleSpacePin(space.id);
     };
 
@@ -74,8 +75,9 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         setIsOpen(!isOpen);
     };
 
-    const handleDelete = async (e: React.MouseEvent) => {
+    const handleDelete = async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
+        e.currentTarget.blur();
         if (!space.id) return;
 
         // 1. Soft Delete
@@ -116,7 +118,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
     };
 
     const formatDate = (ts: number) => new Date(ts).toLocaleDateString(undefined, {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        month: 'short', day: 'numeric'
     });
 
     const handleDeleteTab = async (e: React.MouseEvent, tabId: number) => {
@@ -170,7 +172,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                                     )}
                                 </Tooltip>
                             </TooltipProvider>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <div className="flex flex-row items-center gap-3 mt-1 text-xs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">
                                 <span className="flex items-center gap-1">
                                     <Layers className="w-3 h-3" />
                                     {tabs?.length || 0} tabs
@@ -184,24 +186,25 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                     )}
                 </div>
 
-                {/* Actions (Visible on Hover) */}
-                <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                {/* Actions (Visible on Hover, except Pin if pinned) */}
+                <div className="flex items-center gap-1 flex-shrink-0">
                     {!isEditing && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
+                                e.currentTarget.blur();
                                 setIsEditing(true);
                                 setNewName(space.name); // Reset state to current name
                             }}
-                            className="p-2 rounded-md hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
+                            className="p-2 rounded-md hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100 focus-within:opacity-100"
                             title="Rename Space"
                         >
                             <Pencil className="w-4 h-4" />
                         </button>
                     )}
                     <button
-                        onClick={(e) => { e.stopPropagation(); handleClick(); }}
-                        className="p-2 rounded-md hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
+                        onClick={(e) => { e.stopPropagation(); e.currentTarget.blur(); handleClick(); }}
+                        className="p-2 rounded-md hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100 focus-within:opacity-100"
                         title={isActive ? "Focus Window" : "Restore Space"}
                     >
                         <ExternalLink className="w-4 h-4" />
@@ -209,14 +212,14 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                     {/* Pin Action */}
                     <button
                         onClick={handlePin}
-                        className={`p-2 rounded-md transition-colors ${space.isPinned ? 'text-blue-500 opacity-100' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'}`}
+                        className={`p-2 rounded-md transition-all ${space.isPinned ? 'text-blue-500 opacity-100' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}
                         title={space.isPinned ? "Unpin Space" : "Pin Space"}
                     >
                         <Pin className={`w-4 h-4 ${space.isPinned ? 'fill-current' : ''}`} />
                     </button>
                     <button
                         onClick={handleDelete}
-                        className="p-2 rounded-md hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+                        className="p-2 rounded-md hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 focus-within:opacity-100"
                         title="Delete Space"
                     >
                         <Trash2 className="w-4 h-4" />
