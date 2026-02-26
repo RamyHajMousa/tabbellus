@@ -81,11 +81,34 @@ class SpaceService {
         const tabs = await db.tabs.where({ spaceId }).sortBy('order');
         if (tabs.length === 0) return;
 
-        const urls = tabs.map(t => t.url);
-        const win = await chrome.windows.create({ url: urls, focused: true, type: 'normal' });
+        const win = await chrome.windows.create({
+            url: tabs[0].url,
+            focused: true,
+            type: 'normal'
+        });
 
         if (win.id) {
             useAppStore.getState().registerActiveSpace(spaceId, win.id);
+
+            const remainingTabs = tabs.slice(1);
+            if (remainingTabs.length > 0) {
+                const windowId = win.id;
+                // Fire and forget async loop for staggered loading
+                (async () => {
+                    for (const tab of remainingTabs) {
+                        await new Promise(r => setTimeout(r, 400));
+                        try {
+                            await chrome.tabs.create({
+                                windowId,
+                                url: tab.url,
+                                active: false
+                            });
+                        } catch (error) {
+                            console.error('SpaceService: Failed to create staggered tab', error);
+                        }
+                    }
+                })();
+            }
         }
     }
 
