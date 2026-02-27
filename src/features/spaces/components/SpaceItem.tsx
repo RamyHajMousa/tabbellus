@@ -130,7 +130,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         <div className="border-b border-border/40 group">
             {/* Header */}
             <div
-                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent transition-colors duration-150"
+                className="relative flex items-center gap-3 p-3 cursor-pointer hover:bg-accent transition-colors duration-150"
                 onClick={handleClick}
             >
                 {/* Expand/Collapse Toggle */}
@@ -146,7 +146,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0" title="Window is open" />
                 )}
 
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 pr-8">
                     {isEditing ? (
                         <input
                             ref={inputRef}
@@ -186,8 +186,15 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                     )}
                 </div>
 
-                {/* Actions (Visible on Hover, except Pin if pinned) */}
-                <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Passive Pin Indicator (Hidden on Hover) */}
+                {space.isPinned && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-500 opacity-100 group-hover:opacity-0 transition-opacity p-2 pointer-events-none">
+                        <Pin className="w-4 h-4 fill-current" />
+                    </div>
+                )}
+
+                {/* Actions (Visible on Hover) */}
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 px-1 py-0.5 pl-2 rounded-md transition-all z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 bg-background group-hover:bg-accent">
                     {!isEditing && (
                         <button
                             onClick={(e) => {
@@ -212,7 +219,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                     {/* Pin Action */}
                     <button
                         onClick={handlePin}
-                        className={`p-2 rounded-md transition-all ${space.isPinned ? 'text-blue-500 opacity-100' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}
+                        className={`p-2 rounded-md transition-all opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${space.isPinned ? 'text-blue-500 hover:text-blue-600' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'}`}
                         title={space.isPinned ? "Unpin Space" : "Pin Space"}
                     >
                         <Pin className={`w-4 h-4 ${space.isPinned ? 'fill-current' : ''}`} />

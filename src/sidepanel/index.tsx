@@ -21,6 +21,7 @@ const HydrationGuard = ({ children }: { children: React.ReactNode }) => {
 };
 
 import { GlobalHeader } from './components/GlobalHeader';
+import { ActiveSpaceAnchor } from './components/ActiveSpaceAnchor';
 import { ViewSwitcher } from './components/ViewSwitcher';
 
 import { ReadLaterList } from '@/features/read-later';
@@ -77,6 +78,7 @@ const SidePanel = () => {
     return (
         <div className="h-screen w-full bg-background text-foreground flex flex-col font-sans overflow-hidden">
             <GlobalHeader />
+            <ActiveSpaceAnchor />
             <ViewSwitcher />
 
             <div className="flex-1 overflow-y-auto">

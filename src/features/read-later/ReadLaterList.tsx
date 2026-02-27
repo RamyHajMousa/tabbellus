@@ -97,7 +97,7 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
 
     return (
         <div
-            className="group flex items-center gap-3 p-2 rounded-md hover:bg-muted/40 border border-transparent hover:border-border/30 transition-all"
+            className="relative group flex items-center gap-3 p-2 rounded-md hover:bg-accent border border-transparent transition-colors"
         >
             {/* Checkbox */}
             <button
@@ -116,7 +116,7 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
 
             {/* Content */}
             <div
-                className="flex-1 min-w-0 cursor-pointer"
+                className="flex-1 min-w-0 pr-4 cursor-pointer"
                 onClick={() => handleOpen(item.url)}
             >
                 <div className="flex items-center gap-2">
@@ -140,23 +140,23 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                         </Tooltip>
                     </TooltipProvider>
                 </div>
-                <div className="text-[10px] text-muted-foreground/50 mt-0.5 ml-0.5 truncate max-w-[90%]">
+                <div className="text-[10px] text-muted-foreground/50 mt-0.5 ml-0.5 truncate w-full">
                     {new URL(item.url).hostname} • {new Date(item.addedAt).toLocaleDateString()}
                 </div>
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pl-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity bg-background group-hover:bg-accent rounded-md">
                 <button
                     onClick={handleCopy}
-                    className="p-1.5 text-muted-foreground/0 group-hover:text-muted-foreground hover:bg-background hover:text-blue-500 rounded-md transition-all"
+                    className="p-1 rounded-sm text-muted-foreground hover:bg-background hover:text-blue-500 transition-colors focus:opacity-100"
                     title="Copy URL"
                 >
                     {hasCopied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
                 <button
                     onClick={() => item.id && handleDelete(item.id)}
-                    className="p-1.5 text-muted-foreground/0 group-hover:text-muted-foreground hover:bg-destructive/10 hover:text-destructive rounded-md transition-all"
+                    className="p-1 rounded-sm text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors focus:opacity-100"
                     title="Delete"
                 >
                     <Trash2 className="w-3.5 h-3.5" />

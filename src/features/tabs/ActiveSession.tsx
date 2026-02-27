@@ -5,9 +5,11 @@ import { Save, LayoutGrid, Ghost } from 'lucide-react';
 import { useCurrentTabs } from './hooks/useCurrentTabs';
 import { TabRow } from './components/TabRow';
 import { GroupRow } from './components/GroupRow';
+import { useCurrentSpace } from '@/hooks/useCurrentSpace';
 
 export const ActiveSession = () => {
     const { tabs, groups, activeTabId } = useCurrentTabs();
+    const currentSpace = useCurrentSpace();
     const [spaceName, setSpaceName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const { toast } = useToast();
@@ -182,7 +184,9 @@ export const ActiveSession = () => {
             <div className="p-4 bg-card border-b border-border shadow-sm flex-shrink-0 z-10 w-full">
                 <div className="flex items-center gap-2 mb-3">
                     <LayoutGrid className="w-5 h-5 text-primary" />
-                    <h2 className="font-semibold text-sm">Active Session</h2>
+                    <h2 className="font-semibold text-sm truncate max-w-[200px]" title={currentSpace ? `Active Space: ${currentSpace.name}` : `Active Session`}>
+                        {currentSpace ? `Active Space: ${currentSpace.name}` : 'Active Session'}
+                    </h2>
                     <span className="ml-auto text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
                         {tabs.length} Tabs
                     </span>

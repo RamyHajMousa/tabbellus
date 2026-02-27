@@ -31,10 +31,10 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
     return (
         <div
             className={`
-                group flex items-center gap-2 h-9 px-2 rounded-md transition-colors cursor-pointer text-sm
+                relative group flex items-center gap-2 h-9 px-2 rounded-md transition-colors cursor-pointer text-sm
                 ${isActive
                     ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 }
             `}
             onClick={(e) => {
@@ -59,7 +59,7 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
             ) : null}
             <Globe className={`w-4 h-4 opacity-50 flex-shrink-0 ${(tab as any).favIconUrl || (tab as any).favicon ? 'hidden' : ''}`} />
 
-            <div className="flex-1 min-w-0 flex flex-col justify-center">
+            <div className="flex-1 min-w-0 pr-4 flex flex-col justify-center">
                 <TooltipProvider>
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -80,7 +80,7 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
             </div>
 
             {/* Hover Actions */}
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pl-2 transition-opacity opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${isActive ? 'bg-accent' : 'bg-background group-hover:bg-accent'}`}>
                 {/* Copy URL */}
                 {tab.url && (
                     <button
