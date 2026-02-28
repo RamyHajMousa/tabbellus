@@ -270,7 +270,7 @@ const HistoryItem = ({ session, onRestore }: {
     const [imgError, setImgError] = useState(false);
 
     return (
-        <div className="group flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors">
+        <div className="relative group flex items-center gap-3 p-2 rounded-md hover:bg-accent transition-colors">
             {/* Icon / Favicon */}
             <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
                 {isTab ? (
@@ -292,7 +292,7 @@ const HistoryItem = ({ session, onRestore }: {
             </div>
 
             {/* Content */}
-            <div className="flex-1 min-w-0 flex flex-col justify-center">
+            <div className="flex-1 min-w-0 pr-4 flex flex-col justify-center">
                 <span className={`truncate font-medium text-sm ${isMatchedSpace ? 'text-blue-500' : 'text-foreground/90'}`}>
                     {title}
                 </span>
@@ -304,11 +304,11 @@ const HistoryItem = ({ session, onRestore }: {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pl-2 bg-background group-hover:bg-accent opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity rounded-md z-10">
                 {url && (
                     <button
                         onClick={handleCopy}
-                        className="p-1.5 rounded-sm hover:bg-background text-muted-foreground hover:text-foreground transition-colors"
+                        className="p-1.5 rounded-sm hover:bg-background text-muted-foreground hover:text-foreground transition-colors focus:opacity-100"
                         title="Copy URL"
                     >
                         {hasCopied ? <Copy className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
