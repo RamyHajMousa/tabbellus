@@ -80,15 +80,15 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
             </div>
 
             {/* Hover Actions */}
-            <div className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pl-2 transition-opacity opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${isActive ? 'bg-accent' : 'bg-background group-hover:bg-accent'}`}>
+            <div className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 px-1 py-0.5 pl-2 rounded-md transition-all z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${isActive ? 'bg-accent' : 'bg-background group-hover:bg-accent'}`}>
                 {/* Copy URL */}
                 {tab.url && (
                     <button
                         onClick={handleCopy}
-                        className="p-1 rounded-sm hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100"
+                        className="p-1.5 rounded-md hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100"
                         title="Copy URL"
                     >
-                        {hasCopied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        {hasCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                     </button>
                 )}
 
@@ -100,28 +100,28 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
                 {onReadLater && (
                     <button
                         onClick={onReadLater}
-                        className="p-1 rounded-sm hover:bg-background text-muted-foreground hover:text-primary transition-colors focus:opacity-100"
+                        className="p-1.5 rounded-md hover:bg-background text-muted-foreground hover:text-primary transition-colors focus:opacity-100"
                         title="Read Later"
                     >
-                        <Clock className="w-3.5 h-3.5" />
+                        <Clock className="w-4 h-4" />
                     </button>
                 )}
                 {onDelete && (
                     <button
                         onClick={onDelete}
-                        className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
+                        className="p-1.5 rounded-md hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
                         title="Delete Tab from Space"
                     >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                     </button>
                 )}
                 {onClose && (
                     <button
                         onClick={onClose}
-                        className="p-1 rounded-sm hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
+                        className="p-1.5 rounded-md hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
                         title="Close Tab"
                     >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-4 h-4" />
                     </button>
                 )}
             </div>

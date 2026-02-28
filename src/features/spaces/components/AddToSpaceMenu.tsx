@@ -41,11 +41,11 @@ export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <button
-                    className="p-1 rounded-sm hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100 outline-none"
+                    className="p-1.5 rounded-md hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100 outline-none"
                     title="Save to Space"
                     onClick={(e) => e.stopPropagation()} // Prevent row click
                 >
-                    <FolderPlus className="w-3.5 h-3.5" />
+                    <FolderPlus className="w-4 h-4" />
                 </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
