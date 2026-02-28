@@ -187,6 +187,19 @@ export const SettingsDialog = () => {
 
                     {activeTab === 'support' && (
                         <div className="space-y-4">
+                            {/* Mission Statement */}
+                            <div className="mb-6 space-y-4 text-sm text-muted-foreground leading-relaxed px-1">
+                                <p>
+                                    TabBellus is a local-first tool built for your privacy. No ads, no trackers, and your data never leaves your machine.
+                                </p>
+                                <p>
+                                    If you find value in a cleaner workflow, consider supporting my work. Your tips help keep the project independent and ad-free.
+                                </p>
+                                <p className="font-medium text-foreground">
+                                    Thank you for being part of the journey! — Ramy
+                                </p>
+                            </div>
+
                             {isEligibleForPromo && (
                                 <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/50">
                                     <div className="flex items-start gap-3">
