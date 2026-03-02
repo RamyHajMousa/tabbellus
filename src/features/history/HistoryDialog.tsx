@@ -196,9 +196,14 @@ export const HistoryDialog = () => {
     // 4. Restore handler
     const handleRestore = (sessionId?: string, matchedSpaceId?: number) => {
         if (!sessionId) return;
-        chrome.sessions.restore(sessionId, (restoredSession) => {
+        chrome.sessions.restore(sessionId, async (restoredSession) => {
             if (matchedSpaceId && restoredSession?.window?.id) {
                 registerActiveSpace(matchedSpaceId, restoredSession.window.id);
+                try {
+                    await chrome.sidePanel.open({ windowId: restoredSession.window.id });
+                } catch (error) {
+                    console.error('HistoryDialog: Failed to open side panel for restored space', error);
+                }
             }
             setHistoryOpen(false);
         });

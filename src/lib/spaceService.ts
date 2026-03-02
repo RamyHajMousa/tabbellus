@@ -90,6 +90,13 @@ class SpaceService {
         if (win.id) {
             useAppStore.getState().registerActiveSpace(spaceId, win.id);
 
+            // Automatically open the side panel when a space is fully generated
+            try {
+                await chrome.sidePanel.open({ windowId: win.id });
+            } catch (error) {
+                console.error('SpaceService: Failed to open side panel', error);
+            }
+
             const remainingTabs = tabs.slice(1);
             if (remainingTabs.length > 0) {
                 const windowId = win.id;
