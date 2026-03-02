@@ -1,6 +1,6 @@
 {
   "name": "tabbellus-workstation",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "The premium workspace and tab manager for power users. Save spaces, search tabs, and declutter your browser.",
   "type": "module",
   "scripts": {
