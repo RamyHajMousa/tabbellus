@@ -7,6 +7,7 @@ export function useCurrentTabs() {
 
     useEffect(() => {
         let mounted = true;
+        let fetchTimeout: NodeJS.Timeout;
 
         // Listener references
         let onTabCreated: (tab: chrome.tabs.Tab) => void;
@@ -28,6 +29,21 @@ export function useCurrentTabs() {
                 const currentWindowId = win.id;
 
                 if (currentWindowId === undefined || !mounted) return;
+
+                const triggerTabsRefresh = () => {
+                    if (fetchTimeout) clearTimeout(fetchTimeout);
+                    fetchTimeout = setTimeout(async () => {
+                        if (!mounted) return;
+                        try {
+                            const sortedTabs = await chrome.tabs.query({ windowId: currentWindowId });
+                            if (mounted) {
+                                setTabs(sortedTabs.sort((a, b) => a.index - b.index));
+                            }
+                        } catch (e) {
+                            console.warn('Failed to refresh tabs:', e);
+                        }
+                    }, 50);
+                };
 
                 // 2. Initial Fetch (Strictly Scoped)
                 const currentFnOption = { windowId: currentWindowId };
@@ -55,50 +71,41 @@ export function useCurrentTabs() {
                 // --- Tab Listeners ---
                 onTabCreated = (tab) => {
                     if (tab.windowId !== currentWindowId) return;
-                    setTabs(prev => {
-                        if (prev.some(t => t.id === tab.id)) return prev;
-                        return [...prev, tab];
-                    });
+                    triggerTabsRefresh();
                 };
 
                 onTabUpdated = (tabId, changeInfo, tab) => {
                     if (tab.windowId !== currentWindowId) return;
                     // Intentionally check strict/shallow updates prevents over-rendering
                     if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl || changeInfo.groupId || changeInfo.pinned || changeInfo.audible) {
-                        setTabs(prev => prev.map(t => (t.id === tabId ? tab : t)));
+                        setTabs(prev => prev.map(t => (t.id === tabId ? tab : t)).sort((a, b) => a.index - b.index));
                     }
                 };
 
                 onTabRemoved = (tabId, removeInfo) => {
                     if (removeInfo.windowId !== currentWindowId) return;
-                    setTabs(prev => prev.filter(t => t.id !== tabId));
+                    triggerTabsRefresh();
                 };
 
-                onTabMoved = async (_tabId, moveInfo) => {
+                onTabMoved = (_tabId, moveInfo) => {
                     if (moveInfo.windowId !== currentWindowId) return;
-                    // Re-fetch to guarantee correct order index
-                    const sortedTabs = await chrome.tabs.query({ windowId: currentWindowId });
-                    if (mounted) setTabs(sortedTabs);
+                    triggerTabsRefresh();
                 };
 
                 onTabActivated = (activeInfo) => {
                     if (activeInfo.windowId !== currentWindowId) return;
                     setActiveTabId(activeInfo.tabId);
-                    setTabs(prev => prev.map(t => ({ ...t, active: t.id === activeInfo.tabId })));
+                    setTabs(prev => prev.map(t => ({ ...t, active: t.id === activeInfo.tabId })).sort((a, b) => a.index - b.index));
                 };
 
-                onTabAttached = async (_tabId, attachInfo) => {
+                onTabAttached = (_tabId, attachInfo) => {
                     if (attachInfo.newWindowId !== currentWindowId) return;
-                    // Tab moved INTO this window. Fetch it or re-fetch all to ensure order.
-                    // Re-fetching all is safer to respect the new index.
-                    const sortedTabs = await chrome.tabs.query({ windowId: currentWindowId });
-                    if (mounted) setTabs(sortedTabs);
+                    triggerTabsRefresh();
                 };
 
                 onTabDetached = (tabId, detachInfo) => {
                     if (detachInfo.oldWindowId !== currentWindowId) return;
-                    // Tab moved OUT of this window.
-                    setTabs(prev => prev.filter(t => t.id !== tabId));
+                    triggerTabsRefresh();
                 };
 
                 // --- Group Listeners ---
@@ -148,6 +155,7 @@ export function useCurrentTabs() {
         // Cleanup
         return () => {
             mounted = false;
+            if (fetchTimeout) clearTimeout(fetchTimeout);
 
             if (onTabCreated) chrome.tabs.onCreated.removeListener(onTabCreated);
             if (onTabUpdated) chrome.tabs.onUpdated.removeListener(onTabUpdated);
