@@ -66,4 +66,18 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Custom Theme-Aware Scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 hover:bg-muted-foreground/50 rounded-full;
+  }
 }
