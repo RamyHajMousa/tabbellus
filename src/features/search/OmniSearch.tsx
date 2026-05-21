@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { LayoutTemplate, Package, BookOpen, History } from 'lucide-react';
+import { LayoutTemplate, Package, BookOpen, History, Globe } from 'lucide-react';
 import {
     CommandDialog,
     CommandInput,
@@ -10,9 +10,16 @@ import {
 } from '@/components/ui/Command';
 import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
-import { db, spaceService } from '@/lib';
+import { db, spaceService, tabService } from '@/lib';
 import type { Space, ReadLaterItem } from '@/lib/db';
 import { DialogTitle, DialogDescription } from '@/components/ui/Dialog';
+
+interface SavedTabResult {
+    url: string;
+    title?: string;
+    favicon?: string;
+    spaceNames: string[];
+}
 
 export const OmniSearch = () => {
     const { isSearchOpen, setSearchOpen } = useUIStore();
@@ -24,6 +31,7 @@ export const OmniSearch = () => {
     const [activeTabs, setActiveTabs] = useState<chrome.tabs.Tab[]>([]);
     const [spaces, setSpaces] = useState<Space[]>([]);
     const [readLater, setReadLater] = useState<ReadLaterItem[]>([]);
+    const [savedTabs, setSavedTabs] = useState<SavedTabResult[]>([]);
 
     useEffect(() => {
         if (!isSearchOpen) {
@@ -51,8 +59,57 @@ export const OmniSearch = () => {
         // Fetch all tabs
         chrome.tabs.query({}).then(setActiveTabs).catch(() => setActiveTabs([]));
 
-        // Fetch spaces
-        db.spaces.filter(s => !s.deletedAt).toArray().then(setSpaces).catch(() => setSpaces([]));
+        // Fetch spaces and their tabs
+        db.spaces
+            .filter((s) => !s.deletedAt)
+            .toArray()
+            .then(async (fetchedSpaces) => {
+                setSpaces(fetchedSpaces);
+                const spaceIds = fetchedSpaces.map((s) => s.id).filter((id): id is number => id !== undefined);
+                if (spaceIds.length === 0) {
+                    setSavedTabs([]);
+                    return;
+                }
+
+                try {
+                    const allTabs = await db.tabs.where('spaceId').anyOf(spaceIds).toArray();
+                    const spaceNameMap = new Map<number, string>();
+                    fetchedSpaces.forEach((s) => {
+                        if (s.id !== undefined) {
+                            spaceNameMap.set(s.id, s.name);
+                        }
+                    });
+
+                    const tabMap = new Map<string, SavedTabResult>();
+                    for (const tab of allTabs) {
+                        const spaceName = spaceNameMap.get(tab.spaceId);
+                        if (!spaceName) continue;
+
+                        const existing = tabMap.get(tab.url);
+                        if (existing) {
+                            if (!existing.spaceNames.includes(spaceName)) {
+                                existing.spaceNames.push(spaceName);
+                            }
+                        } else {
+                            tabMap.set(tab.url, {
+                                url: tab.url,
+                                title: tab.title,
+                                favicon: tab.favicon,
+                                spaceNames: [spaceName],
+                            });
+                        }
+                    }
+
+                    setSavedTabs(Array.from(tabMap.values()));
+                } catch (error) {
+                    console.error('Error fetching/grouping saved tabs:', error);
+                    setSavedTabs([]);
+                }
+            })
+            .catch(() => {
+                setSpaces([]);
+                setSavedTabs([]);
+            });
 
         // Fetch read later items
         db.readLater.toArray().then(setReadLater).catch(() => setReadLater([]));
@@ -90,6 +147,12 @@ export const OmniSearch = () => {
         await chrome.tabs.create({ url: item.url, active: true });
     }, [setSearchOpen, search, addRecentSearch]);
 
+    const handleSelectSavedTab = useCallback(async (tab: SavedTabResult) => {
+        if (search) addRecentSearch(search);
+        setSearchOpen(false);
+        await tabService.focusOrCreate(tab.url).catch(() => { });
+    }, [setSearchOpen, search, addRecentSearch]);
+
     return (
         <CommandDialog open={isSearchOpen} onOpenChange={setSearchOpen}>
             <DialogTitle className="sr-only">OmniSearch</DialogTitle>
@@ -117,21 +180,6 @@ export const OmniSearch = () => {
                     </CommandGroup>
                 )}
 
-                {activeTabs.length > 0 && (
-                    <CommandGroup heading="Active Tabs">
-                        {activeTabs.slice(0, 10).map((tab) => (
-                            <CommandItem
-                                key={`tab-${tab.id}`}
-                                value={`tab ${tab.title} ${tab.url}`}
-                                onSelect={() => handleSelectTab(tab)}
-                            >
-                                <LayoutTemplate className="mr-2 h-4 w-4 text-muted-foreground" />
-                                <span className="truncate">{tab.title || tab.url}</span>
-                            </CommandItem>
-                        ))}
-                    </CommandGroup>
-                )}
-
                 {spaces.length > 0 && (
                     <CommandGroup heading="Spaces">
                         {spaces.slice(0, 10).map((space) => (
@@ -150,6 +198,35 @@ export const OmniSearch = () => {
                     </CommandGroup>
                 )}
 
+                {savedTabs.length > 0 && (
+                    <CommandGroup heading="Saved Tabs">
+                        {savedTabs.map((tab) => (
+                            <CommandItem
+                                key={`saved-${tab.url}`}
+                                value={`savedtab ${tab.title || ''} ${tab.url} ${tab.spaceNames.join(' ')}`}
+                                onSelect={() => handleSelectSavedTab(tab)}
+                            >
+                                {tab.favicon ? (
+                                    <img
+                                        src={tab.favicon}
+                                        alt=""
+                                        className="mr-2 h-4 w-4 rounded-sm flex-shrink-0"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).style.display = 'none';
+                                            (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                    />
+                                ) : null}
+                                <Globe className={`mr-2 h-4 w-4 text-muted-foreground flex-shrink-0 ${tab.favicon ? 'hidden' : ''}`} />
+                                <span className="truncate">{tab.title || tab.url}</span>
+                                <span className="ml-auto pl-2 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+                                    In: {tab.spaceNames.join(', ')}
+                                </span>
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                )}
+
                 {readLater.length > 0 && (
                     <CommandGroup heading="Read Later">
                         {readLater.slice(0, 10).map((item) => (
@@ -160,6 +237,21 @@ export const OmniSearch = () => {
                             >
                                 <BookOpen className="mr-2 h-4 w-4 text-muted-foreground" />
                                 <span className="truncate">{item.title || item.url}</span>
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                )}
+
+                {activeTabs.length > 0 && (
+                    <CommandGroup heading="Active Tabs">
+                        {activeTabs.slice(0, 10).map((tab) => (
+                            <CommandItem
+                                key={`tab-${tab.id}`}
+                                value={`tab ${tab.title} ${tab.url}`}
+                                onSelect={() => handleSelectTab(tab)}
+                            >
+                                <LayoutTemplate className="mr-2 h-4 w-4 text-muted-foreground" />
+                                <span className="truncate">{tab.title || tab.url}</span>
                             </CommandItem>
                         ))}
                     </CommandGroup>

@@ -82,7 +82,7 @@ export function useCurrentTabs() {
                     }
                 };
 
-                onTabRemoved = (tabId, removeInfo) => {
+                onTabRemoved = (_tabId, removeInfo) => {
                     if (removeInfo.windowId !== currentWindowId) return;
                     triggerTabsRefresh();
                 };
@@ -103,7 +103,7 @@ export function useCurrentTabs() {
                     triggerTabsRefresh();
                 };
 
-                onTabDetached = (tabId, detachInfo) => {
+                onTabDetached = (_tabId, detachInfo) => {
                     if (detachInfo.oldWindowId !== currentWindowId) return;
                     triggerTabsRefresh();
                 };
