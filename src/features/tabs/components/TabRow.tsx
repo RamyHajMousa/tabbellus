@@ -1,10 +1,11 @@
 import React from 'react';
-import { Globe, X, Clock, Trash2, Copy, Check } from 'lucide-react';
+import { Globe, X, Clock, Trash2, Copy, Check, GripVertical } from 'lucide-react';
 import { type Tab, tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useIsTruncated } from '@/hooks/useIsTruncated';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
+import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
 
 interface TabRowProps {
     tab: Tab | chrome.tabs.Tab; // Accept both our DB Type and Chrome Type
@@ -12,9 +13,11 @@ interface TabRowProps {
     onClose?: (e: React.MouseEvent) => void;
     onReadLater?: (e: React.MouseEvent) => void;
     onDelete?: (e: React.MouseEvent) => void;
+    isDragging?: boolean;
+    dragHandleProps?: DraggableProvidedDragHandleProps | null;
 }
 
-export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelete }: TabRowProps) => {
+export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelete, isDragging, dragHandleProps }: TabRowProps) => {
     const { hasCopied, copy } = useClipboard();
     const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
 
@@ -36,6 +39,7 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 }
+                ${isDragging ? 'opacity-50 ring-1 ring-primary/40 shadow-lg' : ''}
             `}
             onClick={(e) => {
                 e.stopPropagation();
@@ -46,6 +50,17 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
                 }
             }}
         >
+            {/* Drag Handle — visible on hover only */}
+            {dragHandleProps && (
+                <span
+                    {...dragHandleProps}
+                    className="opacity-0 group-hover:opacity-40 hover:!opacity-100 flex-shrink-0 cursor-grab active:cursor-grabbing transition-opacity -ml-1"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="Drag to reorder"
+                >
+                    <GripVertical className="w-3.5 h-3.5" />
+                </span>
+            )}
             {(tab as any).favIconUrl || (tab as any).favicon ? (
                 <img
                     src={(tab as any).favIconUrl || (tab as any).favicon}

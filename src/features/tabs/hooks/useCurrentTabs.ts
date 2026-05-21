@@ -173,5 +173,5 @@ export function useCurrentTabs() {
         };
     }, []);
 
-    return { tabs, groups, activeTabId };
+    return { tabs, setTabs, groups, activeTabId };
 }
