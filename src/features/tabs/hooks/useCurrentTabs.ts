@@ -17,6 +17,7 @@ export function useCurrentTabs() {
         let onTabActivated: (activeInfo: chrome.tabs.TabActiveInfo) => void;
         let onTabAttached: (tabId: number, attachInfo: chrome.tabs.TabAttachInfo) => void;
         let onTabDetached: (tabId: number, detachInfo: chrome.tabs.TabDetachInfo) => void;
+        let onTabReplaced: (addedTabId: number, removedTabId: number) => void;
 
         let onGroupCreated: (group: chrome.tabGroups.TabGroup) => void;
         let onGroupUpdated: (group: chrome.tabGroups.TabGroup) => void;
@@ -108,6 +109,17 @@ export function useCurrentTabs() {
                     triggerTabsRefresh();
                 };
 
+                onTabReplaced = async (addedTabId, _removedTabId) => {
+                    try {
+                        const newTab = await chrome.tabs.get(addedTabId);
+                        if (newTab.windowId === currentWindowId) {
+                            triggerTabsRefresh();
+                        }
+                    } catch (e) {
+                        console.warn('Failed to handle tab replacement:', e);
+                    }
+                };
+
                 // --- Group Listeners ---
                 if (chrome.tabGroups) {
                     onGroupCreated = (group) => {
@@ -143,6 +155,7 @@ export function useCurrentTabs() {
                 chrome.tabs.onActivated.addListener(onTabActivated);
                 chrome.tabs.onAttached.addListener(onTabAttached);
                 chrome.tabs.onDetached.addListener(onTabDetached);
+                chrome.tabs.onReplaced.addListener(onTabReplaced);
 
             } catch (e) {
                 console.warn('Failed to initialize useCurrentTabs:', e);
@@ -164,6 +177,7 @@ export function useCurrentTabs() {
             if (onTabActivated) chrome.tabs.onActivated.removeListener(onTabActivated);
             if (onTabAttached) chrome.tabs.onAttached.removeListener(onTabAttached);
             if (onTabDetached) chrome.tabs.onDetached.removeListener(onTabDetached);
+            if (onTabReplaced) chrome.tabs.onReplaced.removeListener(onTabReplaced);
 
             if (chrome.tabGroups) {
                 if (onGroupCreated) chrome.tabGroups.onCreated.removeListener(onGroupCreated);

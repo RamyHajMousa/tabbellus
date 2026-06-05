@@ -114,6 +114,17 @@ chrome.tabs.onDetached.addListener((_tabId, detachInfo) => {
     if (detachInfo.oldWindowId) triggerSync(detachInfo.oldWindowId);
 });
 
+chrome.tabs.onReplaced.addListener(async (addedTabId) => {
+    try {
+        const tab = await chrome.tabs.get(addedTabId);
+        if (tab.windowId) {
+            triggerSync(tab.windowId);
+        }
+    } catch (e) {
+        console.warn('Background Sync: Failed to handle tab replacement:', e);
+    }
+});
+
 // Listener for Window Closed (Cleanup tracked space mapping)
 chrome.windows.onRemoved.addListener(async (windowId) => {
     // Clear any pending debounces
