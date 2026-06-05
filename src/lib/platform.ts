@@ -53,7 +53,7 @@ export const openAppearanceSettings = () => {
         return;
     }
 
-    chrome.tabs.create({ url: "chrome://settings/appearance" });
+    chrome.tabs.create({ url: "chrome://settings/appearance" }).catch(() => {});
 };
 
 /**
@@ -66,29 +66,34 @@ export const handleExternalLink = (url: string) => {
         console.warn("Attempted to open a placeholder link.");
         return;
     }
-    chrome.tabs.create({ url, active: true });
+    chrome.tabs.create({ url, active: true }).catch(() => {});
 };
 
 /**
  * Opens the Support Hub with diagnostic attributes (Version, Browser, OS, Stats).
  */
 export const openSupportHub = async () => {
-    const version = chrome.runtime.getManifest().version;
-    const browser = isEdge() ? "Edge" : "Chrome";
-    const browserVersion = getBrowserVersion();
-    const os = getOS();
+    try {
+        const version = chrome.runtime.getManifest().version;
+        const browser = isEdge() ? "Edge" : "Chrome";
+        const browserVersion = getBrowserVersion();
+        const os = getOS();
 
-    // Get live browser state
-    const windows = await chrome.windows.getAll();
-    const tabs = await chrome.tabs.query({});
+        // Get live browser state
+        const windows = await chrome.windows.getAll();
+        const tabs = await chrome.tabs.query({});
 
-    const url = new URL(EXTERNAL_LINKS.SUPPORT);
-    url.searchParams.append("v", version);
-    url.searchParams.append("browser", browser);
-    url.searchParams.append("browserV", browserVersion);
-    url.searchParams.append("os", os);
-    url.searchParams.append("windows", windows.length.toString());
-    url.searchParams.append("tabs", tabs.length.toString());
+        const url = new URL(EXTERNAL_LINKS.SUPPORT);
+        url.searchParams.append("v", version);
+        url.searchParams.append("browser", browser);
+        url.searchParams.append("browserV", browserVersion);
+        url.searchParams.append("os", os);
+        url.searchParams.append("windows", windows.length.toString());
+        url.searchParams.append("tabs", tabs.length.toString());
 
-    chrome.tabs.create({ url: url.toString(), active: true });
+        chrome.tabs.create({ url: url.toString(), active: true }).catch(() => {});
+    } catch (e) {
+        console.warn('Failed to open Support Hub:', e);
+        chrome.tabs.create({ url: EXTERNAL_LINKS.SUPPORT, active: true }).catch(() => {});
+    }
 };

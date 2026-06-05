@@ -8,9 +8,13 @@ export function useCurrentSpace() {
     const activeSpaces = useAppStore(state => state.activeSpaces);
 
     useEffect(() => {
-        chrome.windows.getCurrent().then(win => {
-            if (win.id) setCurrentWindowId(win.id);
-        });
+        chrome.windows.getCurrent()
+            .then(win => {
+                if (win.id) setCurrentWindowId(win.id);
+            })
+            .catch(err => {
+                console.warn('Failed to get current window:', err);
+            });
     }, []);
 
     const spaceIdRaw = currentWindowId 

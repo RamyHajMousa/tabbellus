@@ -30,7 +30,12 @@ export const useUndoDelete = <T>(table: Table<T, any>) => {
             toast(message, {
                 duration: 4000,
                 onUndo: async () => {
-                    await table.add(item);
+                    try {
+                        await table.add(item);
+                    } catch (e) {
+                        console.error("Undo failed:", e);
+                        toast("Failed to restore item");
+                    }
                 }
             });
         } catch (error) {

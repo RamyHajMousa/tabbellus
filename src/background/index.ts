@@ -36,15 +36,15 @@ const triggerSync = (windowId: number) => {
 };
 
 const performSync = async (windowId: number) => {
-    // 1. Check if window is tracked as an active space
-    const activeSpaces = await chrome.storage.session.get('activeSpaces').then(res => res.activeSpaces || {});
-    const spaceIdStr = Object.keys(activeSpaces).find(k => activeSpaces[parseInt(k, 10)] === windowId);
-
-    if (!spaceIdStr) return; // Not a tracked space window
-
-    const spaceId = parseInt(spaceIdStr, 10);
-
     try {
+        // 1. Check if window is tracked as an active space
+        const activeSpaces = await chrome.storage.session.get('activeSpaces').then(res => res.activeSpaces || {});
+        const spaceIdStr = Object.keys(activeSpaces).find(k => activeSpaces[parseInt(k, 10)] === windowId);
+
+        if (!spaceIdStr) return; // Not a tracked space window
+
+        const spaceId = parseInt(spaceIdStr, 10);
+
         // 2. Fetch current tabs in that window
         const windowTabs = await chrome.tabs.query({ windowId });
 
@@ -79,7 +79,7 @@ const performSync = async (windowId: number) => {
         });
 
     } catch (error) {
-        console.error('Background Sync: Failed to sync space', spaceId, error);
+        console.error('Background Sync: Failed to sync space for window', windowId, error);
     }
 };
 
