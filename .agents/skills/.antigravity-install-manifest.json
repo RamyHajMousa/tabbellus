@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-06-30T13:08:45.390Z",
+  "entries": [
+    "brooks-lint",
+    "bug-hunter",
+    "codebase-audit-pre-push",
+    "design-it",
+    "design-taste-frontend",
+    "diagnosing-bugs",
+    "docs",
+    "emil-design-eng",
+    "frontend-api-integration-patterns",
+    "frontend-lighthouse",
+    "full-output-enforcement",
+    "gpt-taste",
+    "high-end-visual-design",
+    "improve-codebase-architecture",
+    "logic-lens",
+    "minimalist-ui",
+    "performance-optimizer",
+    "prototype",
+    "redesign-existing-projects",
+    "review-animations",
+    "skill-check",
+    "squirrel",
+    "stitch-design-taste",
+    "tdd",
+    "triage",
+    "unship"
+  ]
+}
