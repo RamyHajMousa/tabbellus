@@ -28,6 +28,7 @@ Squirrel is a full-cycle AI coding skill that works across 9 AI coding agents. I
 - Use when adding tests, linting, or CI/CD to a project
 - Use when writing production-grade documentation
 - Use when the user says "build me", "fix this", "squirrel this project", or any multi-step development task
+  - *Note: Defer planning and task tracking strictly to the native IDE Planning Mode.*
 
 ## How It Works
 
@@ -37,21 +38,28 @@ Squirrel classifies the project directory:
 
 | Signal | Mode | Entry Point |
 |--------|------|-------------|
-| Empty directory | Greenfield | All 8 phases from scratch |
+| Empty directory | Greenfield | All phases from scratch |
 | Source files, no tests/docs | In-Progress | Audit first, then improve |
 | Source + tests + CI + README | Mature | Targeted improvements |
 | "fix this bug / add feature" | Targeted | Scoped work only |
 
-### The 8-Phase Pipeline
+### Integration with Native Planning Mode (CRITICAL)
 
-1. **Discover** — Understand the project (audit existing code or gather requirements)
-2. **Plan** — Concrete task list with dependencies and done-criteria
-3. **Build** — Write or modify code (parallel sub-agents when supported)
-4. **Test** — Run existing tests, write new ones, 70%+ coverage target
-5. **Bug Hunt** — Static analysis + manual review
-6. **Polish** — Lint, format, type check, remove dead code
-7. **Document** — README + inline docs (update existing, don't overwrite)
-8. **Ship** — Final checklist: tests green, no secrets, CI configured
+> [!IMPORTANT]
+> The custom **Plan** and **Ship** phases of Squirrel are **disabled** in this environment. You must use the IDE's native **Planning Mode** (specifically generating `implementation_plan.md`, `task.md`, and `walkthrough.md` artifacts) for all architectural plans, TODO tracking, and verification walkthroughs.
+> 
+> You should only use Squirrel for its **development, code quality, testing, polishing, and documentation guidelines** (Phases 1, 3, 4, 5, 6, 7).
+
+### The Adjusted Pipeline
+
+1. **Discover** — Understand the project (audit existing code or gather requirements).
+2. **Plan (DELEGATED)** — Defer to native IDE Planning Mode (`implementation_plan.md` + `task.md`). Do NOT write separate/custom Planning lists.
+3. **Build** — Write or modify code. Keep code quality standards (e.g. read 2-3 files first, match style).
+4. **Test** — Run existing tests, write new ones, ensure coverage.
+5. **Bug Hunt** — Static analysis + manual code review.
+6. **Polish** — Lint, format, type check, remove dead code.
+7. **Document** — README + inline docs (update existing, don't overwrite).
+8. **Ship (DELEGATED)** — Final checklist and native walkthrough generation.
 
 ### Failure Recovery (3-Strike Rule)
 
