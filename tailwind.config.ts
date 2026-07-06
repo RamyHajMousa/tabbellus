@@ -66,6 +66,13 @@ const config = {
     			md: 'calc(var(--radius) - 2px)',
     			sm: 'calc(var(--radius) - 4px)'
     		},
+    		fontSize: {
+    			'xxs': '0.625rem',
+    			'super-mini': '0.5625rem'
+    		},
+    		spacing: {
+    			'badge-size': '0.875rem'
+    		},
     		keyframes: {
     			'accordion-down': {
     				from: {

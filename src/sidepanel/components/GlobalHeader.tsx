@@ -43,11 +43,11 @@ export const GlobalHeader = () => {
 
                 <button
                     onClick={() => setSearchOpen(true)}
-                    className="relative flex-1 max-w-md h-8 flex items-center px-3 text-xs bg-muted/50 hover:bg-muted/80 border border-transparent hover:border-primary/20 rounded-md transition-all text-muted-foreground/50"
+                    className="relative flex-1 max-w-md h-8 flex items-center px-3 text-xs bg-muted/50 hover:bg-muted/80 border border-transparent hover:border-primary/20 rounded-md transition-colors text-muted-foreground/50"
                 >
                     <Search className="w-4 h-4 mr-2 flex-shrink-0" />
                     <span className="flex-1 text-left truncate">Search...</span>
-                    <span className="ml-2 px-1.5 py-0.5 bg-background/80 border border-border/50 rounded text-[10px] font-medium flex-shrink-0">
+                    <span className="ml-2 px-1.5 py-0.5 bg-background/80 border border-border/50 rounded text-xxs font-medium flex-shrink-0">
                         ⌘K
                     </span>
                 </button>

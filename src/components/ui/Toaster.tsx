@@ -46,7 +46,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                 {toasts.map((t) => (
                     <div
                         key={t.id}
-                        className="bg-zinc-900 text-zinc-50 border border-zinc-800 rounded-lg shadow-lg p-4 min-w-[300px] flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
+                        className="bg-popover text-popover-foreground border border-border rounded-lg shadow-lg p-4 min-w-[300px] flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
                     >
                         <span className="text-sm font-medium">{t.message}</span>
                         <div className="flex items-center gap-3">

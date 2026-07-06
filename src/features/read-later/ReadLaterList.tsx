@@ -140,13 +140,13 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                         </Tooltip>
                     </TooltipProvider>
                 </div>
-                <div className="text-[10px] text-muted-foreground/50 mt-0.5 ml-0.5 truncate w-full">
+                <div className="text-xxs text-muted-foreground/50 mt-0.5 ml-0.5 truncate w-full">
                     {new URL(item.url).hostname} • {new Date(item.addedAt).toLocaleDateString()}
                 </div>
             </div>
 
             {/* Actions */}
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 px-1 py-0.5 pl-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-all bg-background group-hover:bg-accent rounded-md">
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 px-1 py-0.5 pl-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-colors bg-background group-hover:bg-accent rounded-md">
                 <button
                     onClick={handleCopy}
                     className="p-1.5 rounded-md text-muted-foreground hover:bg-background hover:text-blue-500 transition-colors focus:opacity-100"

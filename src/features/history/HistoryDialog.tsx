@@ -302,7 +302,7 @@ const HistoryItem = ({ session, onRestore }: {
                     {title}
                 </span>
                 {subtitle && (
-                    <span className="truncate text-[10px] text-muted-foreground/70">
+                    <span className="truncate text-xxs text-muted-foreground/70">
                         {subtitle}
                     </span>
                 )}
@@ -321,7 +321,7 @@ const HistoryItem = ({ session, onRestore }: {
                 )}
                 <button
                     onClick={() => onRestore(sessionId, session.matchedSpaceId)}
-                    className="flex items-center gap-1.5 px-2 py-1 h-7 rounded-sm bg-background border border-border/50 hover:bg-primary/10 hover:text-primary hover:border-primary/20 text-[10px] font-medium transition-all shadow-sm"
+                    className="flex items-center gap-1.5 px-2 py-1 h-7 rounded-sm bg-background border border-border/50 hover:bg-primary/10 hover:text-primary hover:border-primary/20 text-xxs font-medium transition-colors shadow-sm"
                     title="Restore Session"
                 >
                     <RotateCcw className="w-3 h-3" />

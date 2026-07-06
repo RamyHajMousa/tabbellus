@@ -34,7 +34,7 @@ export const ViewSwitcher = () => {
                             key={tab.id}
                             onClick={() => setActiveView(tab.id)}
                             className={`
-                                relative flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all duration-150 ease-out
+                                relative flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-colors duration-150 ease-out
                                 ${isActive
                                     ? 'bg-background text-indigo-500 shadow-sm'
                                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
@@ -47,7 +47,7 @@ export const ViewSwitcher = () => {
                             {/* Unread Badge for Read Later */}
                             {tab.id === 'read-later' && unreadCount > 0 && (
                                 <span className={`
-                                    absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center text-[9px] font-bold text-white bg-red-500 rounded-full px-0.5 border-2 border-background shadow-sm
+                                    absolute -top-1 -right-1 min-w-badge-size h-badge-size flex items-center justify-center text-super-mini font-bold text-destructive-foreground bg-destructive rounded-full px-0.5 border-2 border-background shadow-sm
                                     animate-in zoom-in duration-200
                                 `}>
                                     {unreadCount > 99 ? '99+' : unreadCount}
