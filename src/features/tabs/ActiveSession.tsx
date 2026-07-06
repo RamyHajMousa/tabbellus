@@ -1,12 +1,13 @@
 import { useState, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
-import { spaceService, db, getGroupColorClasses } from '@/lib';
+import { spaceService, getRecentSessionId, readLaterService, DuplicateReadLaterError } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { Save, LayoutGrid, Ghost } from 'lucide-react';
 import { useCurrentTabs } from './hooks/useCurrentTabs';
 import { TabRow } from './components/TabRow';
 import { GroupRow } from './components/GroupRow';
 import { useCurrentSpace } from '@/hooks/useCurrentSpace';
+import { chromeTabToRowData } from './types';
 
 // A contiguous block of ungrouped tabs sharing a common position segment
 interface UngroupedSegment {
@@ -22,6 +23,125 @@ interface GroupBlock {
 }
 
 type RenderItem = UngroupedSegment | GroupBlock;
+
+// ── Render Strategy Components ───────────────────────────────────────────
+
+const TabRowRenderer: React.FC<{ item: any; [key: string]: any }> = ({ item, activeTabId, handleClose, handleReadLater }) => {
+    const segment = item as UngroupedSegment;
+    const droppableId = `segment-${segment.segmentIndex}`;
+    return (
+        <Droppable
+            droppableId={droppableId}
+            type="ungrouped"
+        >
+            {(provided, snapshot) => (
+                <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className={`space-y-0.5 rounded-md transition-colors ${snapshot.isDraggingOver ? 'bg-accent/30' : ''}`}
+                >
+                    {segment.tabs.map((tab, idx) => (
+                        <Draggable
+                            key={`tab-${tab.id}`}
+                            draggableId={String(tab.id)}
+                            index={idx}
+                        >
+                            {(dragProvided, dragSnapshot) => (
+                                <div
+                                    ref={dragProvided.innerRef}
+                                    {...dragProvided.draggableProps}
+                                >
+                                    <TabRow
+                                        data={chromeTabToRowData(tab, activeTabId)}
+                                        onClose={(e) => handleClose(e, tab)}
+                                        onReadLater={(e) => handleReadLater(e, tab)}
+                                        isDragging={dragSnapshot.isDragging}
+                                        dragHandleProps={dragProvided.dragHandleProps}
+                                    />
+                                </div>
+                            )}
+                        </Draggable>
+                    ))}
+                    {provided.placeholder}
+                </div>
+            )}
+        </Droppable>
+    );
+};
+
+const GroupBlockRenderer: React.FC<{ item: any; [key: string]: any }> = ({
+    item,
+    activeTabId,
+    groups,
+    handleClose,
+    handleReadLater,
+    handleCloseGroup,
+    handleArchiveGroup
+}) => {
+    const groupBlock = item as GroupBlock;
+    const group = groups.get(groupBlock.groupId);
+    if (!group) return null;
+    const droppableId = `group-${groupBlock.groupId}`;
+
+    return (
+        <div className="mb-1">
+            <GroupRow
+                group={group}
+                onClose={(e) => handleCloseGroup(e, groupBlock.tabs)}
+                onArchive={(e) => handleArchiveGroup(e, group, groupBlock.tabs)}
+            />
+
+            {/* Group Children — isolated Droppable prevents cross-group drops */}
+            {!group.collapsed && (
+                <Droppable
+                    droppableId={droppableId}
+                    type={`group-${groupBlock.groupId}`}
+                >
+                    {(provided, snapshot) => (
+                        <GroupRow.Children
+                            ref={provided.innerRef}
+                            color={group.color}
+                            isDraggingOver={snapshot.isDraggingOver}
+                            {...provided.droppableProps}
+                        >
+                            {groupBlock.tabs.map((t, idx) => (
+                                <Draggable
+                                    key={`tab-${t.id}`}
+                                    draggableId={String(t.id)}
+                                    index={idx}
+                                >
+                                    {(dragProvided, dragSnapshot) => (
+                                        <div
+                                            ref={dragProvided.innerRef}
+                                            {...dragProvided.draggableProps}
+                                        >
+                                            <TabRow
+                                                data={chromeTabToRowData(t, activeTabId)}
+                                                onClose={(e) => handleClose(e, t)}
+                                                onReadLater={(e) => handleReadLater(e, t)}
+                                                isDragging={dragSnapshot.isDragging}
+                                                dragHandleProps={dragProvided.dragHandleProps}
+                                            />
+                                        </div>
+                                    )}
+                                </Draggable>
+                            ))}
+                            {provided.placeholder}
+                        </GroupRow.Children>
+                    )}
+                </Droppable>
+            )}
+        </div>
+    );
+};
+
+const ACTIVE_SESSION_RENDERERS: Record<string, React.FC<{ item: any; [key: string]: any }>> = {
+    segment: TabRowRenderer,
+    tab: TabRowRenderer,
+    group: GroupBlockRenderer,
+};
+
+// ── ActiveSession Component ──────────────────────────────────────────────
 
 export const ActiveSession = () => {
     const { tabs, setTabs, groups, activeTabId } = useCurrentTabs();
@@ -160,18 +280,16 @@ export const ActiveSession = () => {
         if (!tab.url || !tab.id) return;
 
         try {
-            await db.readLater.add({
-                url: tab.url,
-                title: tab.title,
-                favicon: tab.favIconUrl,
-                addedAt: Date.now(),
-                status: 'unread'
-            });
+            await readLaterService.addFromTab(tab);
             await chrome.tabs.remove(tab.id).catch(() => { });
             toast("Saved to Read Later", { duration: 1500 });
         } catch (err) {
-            console.error(err);
-            toast("Failed to save to Read Later");
+            if (err instanceof DuplicateReadLaterError) {
+                toast("Already in Read Later", { duration: 2000 });
+            } else {
+                console.error(err);
+                toast("Failed to save to Read Later");
+            }
         }
     };
 
@@ -193,13 +311,8 @@ export const ActiveSession = () => {
                 return;
             }
 
-            // Wait briefly for Chrome to update session stack
-            await new Promise(r => setTimeout(r, 100));
-
-            // Fetch the most recently closed session
-            const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 1 });
-            const session = sessions[0];
-            const sessionId = session?.tab?.sessionId || session?.window?.sessionId;
+            // Poll for the session entry with retry backoff
+            const sessionId = await getRecentSessionId();
 
             if (sessionId) {
                 toast("Tab closed", {
@@ -217,19 +330,29 @@ export const ActiveSession = () => {
         }
     };
 
-    const handleCloseGroup = (e: React.MouseEvent, groupTabs: chrome.tabs.Tab[]) => {
+    const handleCloseGroup = async (e: React.MouseEvent, groupTabs: chrome.tabs.Tab[]) => {
         e.stopPropagation();
         const ids = groupTabs.map(t => t.id).filter((id): id is number => id !== undefined);
+        if (ids.length === 0) return;
 
-        if (ids.length > 0) {
-            chrome.tabs.remove(ids).then(() => {
+        try {
+            await chrome.tabs.remove(ids);
+
+            // Capture sessionId before offering Undo — never call restore() without one
+            const sessionId = await getRecentSessionId();
+
+            if (sessionId) {
                 toast(`Closed group with ${ids.length} tabs`, {
                     duration: 4000,
                     onUndo: () => {
-                        chrome.sessions.restore().catch(console.error);
+                        chrome.sessions.restore(sessionId).catch(console.error);
                     }
                 });
-            }).catch(() => { });
+            } else {
+                toast(`Closed group with ${ids.length} tabs`, { duration: 2000 });
+            }
+        } catch {
+            // Tabs might already be closed
         }
     };
 
@@ -286,106 +409,21 @@ export const ActiveSession = () => {
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0 bg-background/50">
                 <DragDropContext onDragEnd={handleDragEnd}>
                     {renderList.map((item) => {
-                        if (item.type === 'segment') {
-                            const droppableId = `segment-${item.segmentIndex}`;
-                            return (
-                                <Droppable
-                                    key={droppableId}
-                                    droppableId={droppableId}
-                                    type="ungrouped"
-                                >
-                                    {(provided, snapshot) => (
-                                        <div
-                                            ref={provided.innerRef}
-                                            {...provided.droppableProps}
-                                            className={`space-y-0.5 rounded-md transition-colors ${snapshot.isDraggingOver ? 'bg-accent/30' : ''}`}
-                                        >
-                                            {item.tabs.map((tab, idx) => (
-                                                <Draggable
-                                                    key={`tab-${tab.id}`}
-                                                    draggableId={String(tab.id)}
-                                                    index={idx}
-                                                >
-                                                    {(dragProvided, dragSnapshot) => (
-                                                        <div
-                                                            ref={dragProvided.innerRef}
-                                                            {...dragProvided.draggableProps}
-                                                        >
-                                                            <TabRow
-                                                                tab={tab}
-                                                                isActive={tab.id === activeTabId}
-                                                                onClose={(e) => handleClose(e, tab)}
-                                                                onReadLater={(e) => handleReadLater(e, tab)}
-                                                                isDragging={dragSnapshot.isDragging}
-                                                                dragHandleProps={dragProvided.dragHandleProps}
-                                                            />
-                                                        </div>
-                                                    )}
-                                                </Draggable>
-                                            ))}
-                                            {provided.placeholder}
-                                        </div>
-                                    )}
-                                </Droppable>
-                            );
-                        } else {
-                            // Group Block
-                            const group = groups.get(item.groupId);
-                            if (!group) return null;
-                            const colors = getGroupColorClasses(group.color);
-                            const droppableId = `group-${item.groupId}`;
+                        const Renderer = ACTIVE_SESSION_RENDERERS[item.type];
+                        if (!Renderer) return null;
 
-                            return (
-                                <div key={`group-${item.groupId}`} className="mb-1">
-                                    <GroupRow
-                                        group={group}
-                                        onClose={(e) => handleCloseGroup(e, item.tabs)}
-                                        onArchive={(e) => handleArchiveGroup(e, group, item.tabs)}
-                                    />
-
-                                    {/* Group Children — isolated Droppable prevents cross-group drops */}
-                                    {!group.collapsed && (
-                                        <Droppable
-                                            droppableId={droppableId}
-                                            type={`group-${item.groupId}`}
-                                        >
-                                            {(provided, snapshot) => (
-                                                <div
-                                                    ref={provided.innerRef}
-                                                    {...provided.droppableProps}
-                                                    className={`pl-[14px] border-l-2 ml-2 space-y-0.5 mt-0.5 relative ${colors.border} ${snapshot.isDraggingOver ? 'bg-accent/20' : ''}`}
-                                                >
-                                                    {item.tabs.map((t, idx) => (
-                                                        <Draggable
-                                                            key={`tab-${t.id}`}
-                                                            draggableId={String(t.id)}
-                                                            index={idx}
-                                                        >
-                                                            {(dragProvided, dragSnapshot) => (
-                                                                <div
-                                                                    ref={dragProvided.innerRef}
-                                                                    {...dragProvided.draggableProps}
-                                                                >
-                                                                    <TabRow
-                                                                        tab={t}
-                                                                        isActive={t.id === activeTabId}
-                                                                        onClose={(e) => handleClose(e, t)}
-                                                                        onReadLater={(e) => handleReadLater(e, t)}
-                                                                        isDragging={dragSnapshot.isDragging}
-                                                                        dragHandleProps={dragProvided.dragHandleProps}
-                                                                    />
-                                                                </div>
-                                                            )}
-                                                        </Draggable>
-                                                    ))}
-                                                    {provided.placeholder}
-                                                </div>
-                                            )}
-                                        </Droppable>
-                                    )}
-                                </div>
-                            );
-                        }
+                        return (
+                            <Renderer
+                                key={item.type === 'segment' ? `segment-${item.segmentIndex}` : `group-${item.groupId}`}
+                                item={item}
+                                activeTabId={activeTabId}
+                                groups={groups}
+                                handleClose={handleClose}
+                                handleReadLater={handleReadLater}
+                                handleCloseGroup={handleCloseGroup}
+                                handleArchiveGroup={handleArchiveGroup}
+                            />
+                        );
                     })}
                 </DragDropContext>
 

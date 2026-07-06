@@ -1,14 +1,14 @@
 import React from 'react';
 import { Globe, X, Clock, Trash2, Copy, Check, GripVertical } from 'lucide-react';
-import { type Tab, tabService } from '@/lib';
+import { tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
-import { useIsTruncated } from '@/hooks/useIsTruncated';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
+import { type RowTabData } from '../types';
+import { InteractiveRow } from './InteractiveRow';
 
 interface TabRowProps {
-    tab: Tab | chrome.tabs.Tab; // Accept both our DB Type and Chrome Type
+    data: RowTabData;
     isActive?: boolean;
     onClose?: (e: React.MouseEvent) => void;
     onReadLater?: (e: React.MouseEvent) => void;
@@ -17,87 +17,75 @@ interface TabRowProps {
     dragHandleProps?: DraggableProvidedDragHandleProps | null;
 }
 
-export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelete, isDragging, dragHandleProps }: TabRowProps) => {
+export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, dragHandleProps }: TabRowProps) => {
     const { hasCopied, copy } = useClipboard();
-    const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
-
-    const isChromeTab = (t: any): t is chrome.tabs.Tab => 'windowId' in t;
-    const canAddToSpace = isChromeTab(tab);
+    const isActive = propIsActive ?? data.isActive;
+    const canAddToSpace = data.source === 'active';
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (tab.url) {
-            copy(tab.url);
+        if (data.url) {
+            copy(data.url);
         }
     };
 
     return (
-        <div
-            className={`
-                relative group flex items-center gap-2 h-9 px-2 rounded-md transition-colors cursor-pointer text-sm
-                ${isActive
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                }
-                ${isDragging ? 'opacity-50 ring-1 ring-primary/40 shadow-lg' : ''}
-            `}
+        <InteractiveRow
+            size="md"
+            isActive={isActive}
+            isDragging={isDragging}
             onClick={(e) => {
                 e.stopPropagation();
-                if ('spaceId' in tab) {
-                    tabService.focusOrCreate(tab.url || '').catch(() => { });
-                } else if ((tab as chrome.tabs.Tab).id) {
-                    chrome.tabs.update((tab as chrome.tabs.Tab).id!, { active: true }).catch(() => { });
+                if (data.source === 'saved') {
+                    tabService.focusOrCreate(data.url).catch(() => { });
+                } else if (data.chromeTabId !== undefined) {
+                    chrome.tabs.update(data.chromeTabId, { active: true }).catch(() => { });
                 }
             }}
         >
-            {/* Drag Handle — visible on hover only */}
-            {dragHandleProps && (
-                <span
-                    {...dragHandleProps}
-                    className="opacity-0 group-hover:opacity-40 hover:!opacity-100 flex-shrink-0 cursor-grab active:cursor-grabbing transition-opacity -ml-1"
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label="Drag to reorder"
-                >
-                    <GripVertical className="w-3.5 h-3.5" />
-                </span>
-            )}
-            {(tab as any).favIconUrl || (tab as any).favicon ? (
-                <img
-                    src={(tab as any).favIconUrl || (tab as any).favicon}
-                    alt=""
-                    className="w-4 h-4 rounded-sm flex-shrink-0"
-                    onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                        (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                    }}
-                />
-            ) : null}
-            <Globe className={`w-4 h-4 opacity-50 flex-shrink-0 ${(tab as any).favIconUrl || (tab as any).favicon ? 'hidden' : ''}`} />
+            {/* Leading */}
+            <InteractiveRow.Leading>
+                {dragHandleProps && (
+                    <span
+                        {...dragHandleProps}
+                        className="opacity-0 group-hover:opacity-40 hover:!opacity-100 flex-shrink-0 cursor-grab active:cursor-grabbing transition-opacity -ml-1"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Drag to reorder"
+                    >
+                        <GripVertical className="w-3.5 h-3.5" />
+                    </span>
+                )}
+                {data.favicon ? (
+                    <img
+                        src={data.favicon}
+                        alt=""
+                        className="w-4 h-4 rounded-sm flex-shrink-0"
+                        onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                            (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                        }}
+                    />
+                ) : null}
+                <Globe className={`w-4 h-4 opacity-50 flex-shrink-0 ${data.favicon ? 'hidden' : ''}`} />
+            </InteractiveRow.Leading>
 
-            <div className="flex-1 min-w-0 pr-4 flex flex-col justify-center">
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span ref={titleRef} className={`truncate font-medium leading-none ${isActive ? 'text-foreground' : 'text-foreground/90'}`}>
-                                {tab.title || tab.url}
-                            </span>
-                        </TooltipTrigger>
-                        {isTruncated && (
-                            <TooltipContent side="top">
-                                {tab.title || tab.url}
-                            </TooltipContent>
-                        )}
-                    </Tooltip>
-                </TooltipProvider>
-                <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
-                    {tryParseHost(tab.url || '')}
-                </span>
-            </div>
+            {/* Title */}
+            <InteractiveRow.Title
+                className={isActive ? 'text-foreground' : 'text-foreground/90'}
+                subTitle={
+                    <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
+                        {tryParseHost(data.url)}
+                    </span>
+                }
+            >
+                {data.title || data.url}
+            </InteractiveRow.Title>
 
-            {/* Hover Actions */}
-            <div className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 px-1 py-0.5 pl-2 rounded-md transition-all z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${isActive ? 'bg-accent' : 'bg-background group-hover:bg-accent'}`}>
-                {/* Copy URL */}
-                {tab.url && (
+            {/* Actions */}
+            <InteractiveRow.Actions
+                className={`gap-0.5 px-1 py-0.5 pl-2 ${isActive ? 'bg-accent' : 'bg-background group-hover:bg-accent'}`}
+            >
+                {data.url && (
                     <button
                         onClick={handleCopy}
                         className="p-1.5 rounded-md hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100"
@@ -107,9 +95,8 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
                     </button>
                 )}
 
-                {/* Add To Space (Only for Active Tabs) */}
                 {canAddToSpace && (
-                    <AddToSpaceMenu tab={tab} />
+                    <AddToSpaceMenu tab={data} />
                 )}
 
                 {onReadLater && (
@@ -139,9 +126,8 @@ export const TabRow = React.memo(({ tab, isActive, onClose, onReadLater, onDelet
                         <X className="w-4 h-4" />
                     </button>
                 )}
-            </div>
-
-        </div>
+            </InteractiveRow.Actions>
+        </InteractiveRow>
     );
 });
 

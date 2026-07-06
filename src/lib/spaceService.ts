@@ -131,11 +131,8 @@ class SpaceService {
         }
     }
 
-    /**
-     * Adds a single tab to an existing Space.
-     */
-    async addTabToSpace(spaceId: number, tab: chrome.tabs.Tab): Promise<void> {
-        if (!tab.url || !tab.title) return;
+    async addTabToSpace(spaceId: number, tab: { url?: string; title?: string; favIconUrl?: string | null }): Promise<void> {
+        if (!tab.url) return;
 
         try {
             await db.transaction('rw', db.tabs, async () => {

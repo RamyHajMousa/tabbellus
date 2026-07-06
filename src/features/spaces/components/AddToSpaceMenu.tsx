@@ -10,9 +10,10 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { type RowTabData } from '@/features/tabs/types';
 
 interface AddToSpaceMenuProps {
-    tab: chrome.tabs.Tab;
+    tab: RowTabData;
 }
 
 export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
@@ -29,7 +30,11 @@ export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
 
     const handleSelect = async (spaceId: number, spaceName: string) => {
         try {
-            await spaceService.addTabToSpace(spaceId, tab);
+            await spaceService.addTabToSpace(spaceId, {
+                url: tab.url,
+                title: tab.title,
+                favIconUrl: tab.favicon
+            });
             toast(`Saved to "${spaceName}"`);
         } catch (error) {
             console.error(error);

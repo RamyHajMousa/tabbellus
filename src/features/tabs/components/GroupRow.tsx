@@ -1,8 +1,7 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, Layers, X, Archive } from 'lucide-react';
 import { getGroupColorClasses } from '@/lib/colors';
-import { useIsTruncated } from '@/hooks/useIsTruncated';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
+import { InteractiveRow } from './InteractiveRow';
 
 interface GroupRowProps {
     group: chrome.tabGroups.TabGroup;
@@ -10,9 +9,8 @@ interface GroupRowProps {
     onArchive?: (e: React.MouseEvent) => void;
 }
 
-export const GroupRow = React.memo(({ group, onClose, onArchive }: GroupRowProps) => {
+const GroupRowComponent = React.memo(({ group, onClose, onArchive }: GroupRowProps) => {
     const colors = getGroupColorClasses(group.color);
-    const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
 
     const handleToggleCollapse = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -20,39 +18,30 @@ export const GroupRow = React.memo(({ group, onClose, onArchive }: GroupRowProps
     };
 
     return (
-        <div
-            className={`
-                relative group flex items-center gap-2 h-7 px-2 -ml-2 rounded-md text-xs cursor-pointer select-none transition-colors mb-0.5
-                ${colors.row}
-            `}
+        <InteractiveRow
+            size="sm"
+            className={colors.row}
             onClick={handleToggleCollapse}
         >
-            {/* Collapse Icon */}
-            <span className={`opacity-70 group-hover:opacity-100 transition-opacity ${colors.text}`}>
-                {group.collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </span>
-
-            {/* Color Badge */}
-            <div className={`w-2 h-2 rounded-full ${colors.badge} shadow-sm`} />
+            {/* Leading: Collapse Icon & Color Badge */}
+            <InteractiveRow.Leading>
+                <span className={`opacity-70 group-hover:opacity-100 transition-opacity ${colors.text}`}>
+                    {group.collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </span>
+                <div className={`w-2 h-2 rounded-full ${colors.badge} shadow-sm`} />
+            </InteractiveRow.Leading>
 
             {/* Title */}
-            <TooltipProvider>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <span ref={titleRef} className={`font-semibold uppercase tracking-wider ${colors.text} truncate opacity-90 flex-1 min-w-0 pr-4`}>
-                            {group.title || 'Untitled Group'}
-                        </span>
-                    </TooltipTrigger>
-                    {isTruncated && (
-                        <TooltipContent side="top">
-                            {group.title || 'Untitled Group'}
-                        </TooltipContent>
-                    )}
-                </Tooltip>
-            </TooltipProvider>
+            <InteractiveRow.Title
+                className={`font-semibold uppercase tracking-wider ${colors.text} truncate opacity-90`}
+            >
+                {group.title || 'Untitled Group'}
+            </InteractiveRow.Title>
 
-            {/* Actions: Collapse Icon (Visual) & Archive & Close Button */}
-            <div className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pl-2 bg-background ${colors.row} rounded-md opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity`}>
+            {/* Actions */}
+            <InteractiveRow.Actions
+                className={`gap-1 pl-2 bg-background ${colors.row}`}
+            >
                 {group.collapsed && !onArchive && !onClose && (
                     <Layers className={`w-3 h-3 opacity-50 ${colors.text}`} />
                 )}
@@ -76,7 +65,42 @@ export const GroupRow = React.memo(({ group, onClose, onArchive }: GroupRowProps
                         <X className="w-3 h-3" />
                     </button>
                 )}
-            </div>
-        </div>
+            </InteractiveRow.Actions>
+        </InteractiveRow>
     );
 });
+
+// ── GroupRow.Children ────────────────────────────────────────────────────
+
+interface GroupRowChildrenProps extends React.HTMLAttributes<HTMLDivElement> {
+    color: chrome.tabGroups.ColorEnum;
+    isDraggingOver?: boolean;
+    children: React.ReactNode;
+}
+
+export const GroupRowChildren = React.forwardRef<HTMLDivElement, GroupRowChildrenProps>(
+    ({ color, isDraggingOver = false, children, className, ...props }, ref) => {
+        const colors = getGroupColorClasses(color);
+        return (
+            <div
+                ref={ref}
+                className={`
+                    pl-[14px] border-l-2 ml-2 space-y-0.5 mt-0.5 relative
+                    ${colors.border}
+                    ${isDraggingOver ? 'bg-accent/20' : ''}
+                    ${className || ''}
+                `}
+                {...props}
+            >
+                {children}
+            </div>
+        );
+    }
+);
+
+type GroupRowNamespace = typeof GroupRowComponent & {
+    Children: typeof GroupRowChildren;
+};
+
+export const GroupRow = GroupRowComponent as GroupRowNamespace;
+GroupRow.Children = GroupRowChildren;

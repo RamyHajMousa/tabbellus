@@ -18,7 +18,7 @@ export function useIsTruncated<T extends HTMLElement>(): [RefObject<T | null>, b
         const observer = new ResizeObserver(check);
         observer.observe(el);
         return () => observer.disconnect();
-    });
+    }, []); // Stable — ref.current is read inside, not a dependency
 
     return [ref, isTruncated];
 }

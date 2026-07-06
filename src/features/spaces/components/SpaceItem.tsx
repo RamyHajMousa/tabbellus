@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil } from 'lucide-react';
 import { db, type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
-import { TabRow } from '@/features/tabs';
+import { TabRow, savedTabToRowData } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
 import { useIsTruncated } from '@/hooks/useIsTruncated';
@@ -240,7 +240,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                     {tabs.map((tab) => (
                         <TabRow
                             key={tab.id}
-                            tab={tab}
+                            data={savedTabToRowData(tab)}
                             onDelete={(e) => tab.id && handleDeleteTab(e, tab.id)}
                         />
                     ))}
