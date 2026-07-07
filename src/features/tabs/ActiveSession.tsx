@@ -234,10 +234,7 @@ export const ActiveSession = () => {
 
             const [moved] = next.splice(fromIdx, 1);
             // Insert at the absolute target position
-            const toIdx = next.findIndex(t => t.index === newIndex) !== -1
-                ? next.findIndex(t => t.index === newIndex)
-                : newIndex;
-            next.splice(toIdx, 0, moved);
+            next.splice(newIndex, 0, moved);
 
             // Re-assign .index sequentially so sort() doesn't undo the move
             return next.map((t, i) => ({ ...t, index: i }));
