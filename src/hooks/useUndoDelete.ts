@@ -1,5 +1,10 @@
-import { Table } from 'dexie';
 import { useToast } from '@/components/ui/Toaster';
+
+interface UndoDeleteConfig<T> {
+    fetch: (id: any) => Promise<T | undefined>;
+    delete: (id: any) => Promise<void>;
+    restore: (item: T) => Promise<any>;
+}
 
 /**
  * Hook to handle item deletion with undo functionality.
@@ -9,7 +14,7 @@ import { useToast } from '@/components/ui/Toaster';
  * 2. Delete item
  * 3. Show toast with Undo (which re-adds the item)
  */
-export const useUndoDelete = <T>(table: Table<T, any>) => {
+export const useUndoDelete = <T>({ fetch, delete: deleteFn, restore }: UndoDeleteConfig<T>) => {
     const { toast } = useToast();
 
     /**
@@ -20,18 +25,18 @@ export const useUndoDelete = <T>(table: Table<T, any>) => {
     const deleteWithUndo = async (id: any, message: string = "Item deleted") => {
         try {
             // 1. Fetch before delete (Snapshot)
-            const item = await table.get(id);
+            const item = await fetch(id);
             if (!item) return;
 
             // 2. Delete
-            await table.delete(id);
+            await deleteFn(id);
 
             // 3. Toast with Undo
             toast(message, {
                 duration: 4000,
                 onUndo: async () => {
                     try {
-                        await table.add(item);
+                        await restore(item);
                     } catch (e) {
                         console.error("Undo failed:", e);
                         toast("Failed to restore item");

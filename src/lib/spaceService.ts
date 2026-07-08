@@ -1,4 +1,4 @@
-import { db, type Tab } from './db';
+import { db, type Tab, type Space, type SpaceWithTabs, type SavedTabResult } from './db';
 
 export type SpaceRestoreListener = (spaceId: number, windowId: number) => void;
 
@@ -24,6 +24,142 @@ class SpaceService {
                 console.error('SpaceService: Error in restore listener', error);
             }
         });
+    }
+
+    /**
+     * Retrieves a tab by its ID.
+     */
+    async getTabById(tabId: number): Promise<Tab | undefined> {
+        return db.tabs.get(tabId);
+    }
+
+    /**
+     * Deletes a tab by its ID.
+     */
+    async deleteTab(tabId: number): Promise<void> {
+        await db.tabs.delete(tabId);
+    }
+
+    /**
+     * Restores (adds back) a tab record.
+     */
+    async restoreTab(tab: Tab): Promise<void> {
+        await db.tabs.add(tab);
+    }
+
+    /**
+     * Query provider for useSpaces hook (LIFO + pinned priority).
+     */
+    getSpacesOrderedQuery() {
+        return async (): Promise<Space[]> => {
+            const spaces = await db.spaces
+                .filter((space) => !space.deletedAt)
+                .toArray();
+
+            return spaces.sort((a, b) => {
+                const aPinned = a.isPinned ? 1 : 0;
+                const bPinned = b.isPinned ? 1 : 0;
+
+                if (aPinned !== bPinned) {
+                    return bPinned - aPinned;
+                }
+
+                return b.createdAt - a.createdAt;
+            });
+        };
+    }
+
+    /**
+     * Query provider for space list ordered by creation date LIFO.
+     */
+    getSpacesNewestFirstQuery() {
+        return () => db.spaces
+            .orderBy('createdAt')
+            .reverse()
+            .filter(s => !s.deletedAt)
+            .toArray();
+    }
+
+    /**
+     * Query provider for fetching a space by ID.
+     */
+    getSpaceByIdQuery(spaceId: number | undefined) {
+        return () => (spaceId ? db.spaces.get(spaceId) : undefined);
+    }
+
+    /**
+     * Query provider for fetching sorted tabs in a space.
+     */
+    getTabsForSpaceQuery(spaceId: number | undefined) {
+        return () => (spaceId ? db.tabs.where({ spaceId }).sortBy('order') : []);
+    }
+
+    /**
+     * Query provider for spaces with their tabs populated (for history matching).
+     */
+    getSpacesWithTabsQuery(isEnabled: boolean) {
+        return async (): Promise<SpaceWithTabs[]> => {
+            if (!isEnabled) return [];
+            const spaces = await db.spaces.filter((s) => !s.deletedAt).toArray();
+
+            return Promise.all(
+                spaces.map(async (space) => {
+                    const tabs = await db.tabs.where('spaceId').equals(space.id!).toArray();
+                    return { space, tabs };
+                })
+            );
+        };
+    }
+
+    /**
+     * Fetches all active non-deleted spaces.
+     */
+    async getNonDeletedSpaces(): Promise<Space[]> {
+        return db.spaces.filter((s) => !s.deletedAt).toArray();
+    }
+
+    /**
+     * Fetches unique saved tabs across spaces grouped by URL.
+     */
+    async getSavedTabsGroupedByUrl(): Promise<SavedTabResult[]> {
+        const fetchedSpaces = await this.getNonDeletedSpaces();
+        const spaceIds = fetchedSpaces.map((s) => s.id).filter((id): id is number => id !== undefined);
+        if (spaceIds.length === 0) return [];
+
+        try {
+            const allTabs = await db.tabs.where('spaceId').anyOf(spaceIds).toArray();
+            const spaceNameMap = new Map<number, string>();
+            fetchedSpaces.forEach((s) => {
+                if (s.id !== undefined) {
+                    spaceNameMap.set(s.id, s.name);
+                }
+            });
+
+            const tabMap = new Map<string, SavedTabResult>();
+            for (const tab of allTabs) {
+                const spaceName = spaceNameMap.get(tab.spaceId);
+                if (!spaceName) continue;
+
+                const existing = tabMap.get(tab.url);
+                if (existing) {
+                    if (!existing.spaceNames.includes(spaceName)) {
+                        existing.spaceNames.push(spaceName);
+                    }
+                } else {
+                    tabMap.set(tab.url, {
+                        url: tab.url,
+                        title: tab.title,
+                        favicon: tab.favicon,
+                        spaceNames: [spaceName],
+                    });
+                }
+            }
+
+            return Array.from(tabMap.values());
+        } catch (error) {
+            console.error('SpaceService: Error fetching/grouping saved tabs:', error);
+            return [];
+        }
     }
     /**
      * Captures the current window's tabs into a new Space.
@@ -92,6 +228,34 @@ class SpaceService {
         } catch (e) {
             console.error('SpaceService: Failed to toggle space pin', e);
         }
+    }
+
+    /**
+     * Retrieves a space by its ID.
+     */
+    async getSpaceById(spaceId: number): Promise<Space | undefined> {
+        return db.spaces.get(spaceId);
+    }
+
+    /**
+     * Soft deletes a space.
+     */
+    async softDeleteSpace(spaceId: number) {
+        return db.softDeleteSpace(spaceId);
+    }
+
+    /**
+     * Restores a soft-deleted space.
+     */
+    async undoDeleteSpace(spaceId: number) {
+        return db.undoDeleteSpace(spaceId);
+    }
+
+    /**
+     * Hard deletes a space and its tabs.
+     */
+    async hardDeleteSpace(spaceId: number) {
+        return db.hardDeleteSpace(spaceId);
     }
 
     /**

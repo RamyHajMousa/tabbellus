@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil } from 'lucide-react';
-import { db, type Space, spaceService } from '@/lib';
+import { type Space, spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { TabRow, savedTabToRowData } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
@@ -28,11 +28,15 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
 
     // Fetch tabs only for this space
     const tabs = useLiveQuery(
-        () => db.tabs.where({ spaceId: space.id }).sortBy('order'),
+        spaceService.getTabsForSpaceQuery(space.id),
         [space.id]
     );
 
-    const { deleteWithUndo: deleteTab } = useUndoDelete(db.tabs);
+    const { deleteWithUndo: deleteTab } = useUndoDelete({
+        fetch: (id) => spaceService.getTabById(id),
+        delete: (id) => spaceService.deleteTab(id),
+        restore: (tab) => spaceService.restoreTab(tab),
+    });
 
     // Focus input when entering edit mode
     React.useEffect(() => {
@@ -79,22 +83,22 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
         if (!space.id) return;
 
         // 1. Soft Delete
-        await db.softDeleteSpace(space.id);
+        await spaceService.softDeleteSpace(space.id);
 
         // 2. Show Toast with Undo
         toast(`Space "${space.name}" deleted`, {
             duration: 10000,
             onUndo: () => {
-                if (space.id) db.undoDeleteSpace(space.id);
+                if (space.id) spaceService.undoDeleteSpace(space.id);
             }
         });
 
         // 3. Set Hard Delete Timer (Optimistic cleanup)
         setTimeout(async () => {
             // Check if it's still deleted before hard deleting
-            const current = await db.spaces.get(space.id!);
+            const current = await spaceService.getSpaceById(space.id!);
             if (current && current.deletedAt) {
-                await db.hardDeleteSpace(space.id!);
+                await spaceService.hardDeleteSpace(space.id!);
             }
         }, 10001);
     };

@@ -26,6 +26,18 @@ export interface ReadLaterItem {
     status: 'unread' | 'read' | 'archived';
 }
 
+export interface SpaceWithTabs {
+    space: Space;
+    tabs: Tab[];
+}
+
+export interface SavedTabResult {
+    url: string;
+    title?: string;
+    favicon?: string;
+    spaceNames: string[];
+}
+
 export class TabBellusDB extends Dexie {
     spaces!: Table<Space>;
     tabs!: Table<Tab>;

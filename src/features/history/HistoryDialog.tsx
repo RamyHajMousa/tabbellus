@@ -5,7 +5,8 @@ import { useAppStore } from '@/store/appStore';
 import { Globe, RotateCcw, LayoutTemplate, Copy, Layers, Check } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Space, type Tab } from '@/lib/db';
+import { spaceService } from '@/lib/spaceService';
+import type { Space } from '@/lib/db';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -15,10 +16,7 @@ interface EnrichedSession extends chrome.sessions.Session {
     matchedSpaceName?: string;
 }
 
-interface SpaceWithTabs {
-    space: Space;
-    tabs: Tab[];
-}
+
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -112,17 +110,11 @@ export const HistoryDialog = () => {
     }, [isHistoryOpen]);
 
     // 2. Fetch all Spaces + Tabs from Dexie (reactive)
-    const spacesWithTabs = useLiveQuery(async (): Promise<SpaceWithTabs[]> => {
-        if (!isHistoryOpen) return [];
-        const spaces = await db.spaces.filter((s) => !s.deletedAt).toArray();
-
-        return Promise.all(
-            spaces.map(async (space) => {
-                const tabs = await db.tabs.where('spaceId').equals(space.id!).toArray();
-                return { space, tabs };
-            })
-        );
-    }, [isHistoryOpen], []);
+    const spacesWithTabs = useLiveQuery(
+        spaceService.getSpacesWithTabsQuery(isHistoryOpen),
+        [isHistoryOpen],
+        []
+    );
 
     // 3. Fingerprint matching (Array-Sorting approach)
     const enrichedSessions = useMemo((): EnrichedSession[] => {

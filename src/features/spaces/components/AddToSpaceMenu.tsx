@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { FolderPlus } from 'lucide-react';
-import { db, spaceService } from '@/lib';
+import { spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import {
     DropdownMenu,
@@ -21,13 +21,7 @@ export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
     const { toast } = useToast();
 
     // Fetch non-deleted spaces, newest first
-    const spaces = useLiveQuery(
-        () => db.spaces
-            .orderBy('createdAt')
-            .reverse()
-            .filter(s => !s.deletedAt)
-            .toArray()
-    );
+    const spaces = useLiveQuery(spaceService.getSpacesNewestFirstQuery());
 
     const handleSelect = async (spaceId: number, spaceName: string) => {
         try {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Trash2, Archive, CheckCircle2, Globe, Check, Copy } from 'lucide-react';
-import { db, tabService } from '@/lib';
+import { tabService, readLaterService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
@@ -10,19 +10,19 @@ export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
 
     const items = useLiveQuery(
-        () => db.readLater
-            .where('status')
-            .equals(showArchived ? 'archived' : 'unread')
-            .reverse() // Newest first
-            .sortBy('addedAt'),
+        readLaterService.getItemsByStatusQuery(showArchived ? 'archived' : 'unread'),
         [showArchived]
     );
 
-    const { deleteWithUndo: deleteItem } = useUndoDelete(db.readLater);
+    const { deleteWithUndo: deleteItem } = useUndoDelete({
+        fetch: (id) => readLaterService.getItemById(id),
+        delete: (id) => readLaterService.deleteItem(id),
+        restore: (item) => readLaterService.restoreItem(item),
+    });
 
     const toggleStatus = async (id: number, currentStatus: string) => {
         const newStatus = currentStatus === 'unread' ? 'archived' : 'unread';
-        await db.readLater.update(id, { status: newStatus });
+        await readLaterService.updateStatus(id, newStatus);
     };
 
     const handleDelete = async (id: number) => {

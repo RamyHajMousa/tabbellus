@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '@/store/appStore';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
+import { spaceService } from '@/lib/spaceService';
 
 export function useCurrentSpace() {
     const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
@@ -24,7 +24,7 @@ export function useCurrentSpace() {
     const spaceId = spaceIdRaw ? parseInt(spaceIdRaw, 10) : undefined;
 
     const space = useLiveQuery(
-        () => (spaceId ? db.spaces.get(spaceId) : undefined),
+        spaceService.getSpaceByIdQuery(spaceId),
         [spaceId]
     );
 

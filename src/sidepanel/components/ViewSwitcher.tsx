@@ -14,7 +14,7 @@ const TABS = [
 ] as const;
 
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib';
+import { readLaterService } from '@/lib/readLaterService';
 
 // ... (keep TABS array) ...
 
@@ -22,7 +22,7 @@ export const ViewSwitcher = () => {
     const { activeView, setActiveView } = useAppStore();
 
     // Live count of unread items
-    const unreadCount = useLiveQuery(() => db.readLater.where('status').equals('unread').count(), []) || 0;
+    const unreadCount = useLiveQuery(readLaterService.getUnreadCountQuery(), []) || 0;
 
     return (
         <div className="px-4 py-2 border-b border-border bg-background">

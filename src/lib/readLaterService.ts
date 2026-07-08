@@ -2,6 +2,51 @@ import { db, type ReadLaterItem } from './db';
 
 class ReadLaterService {
     /**
+     * Retrieves a read later item by its ID.
+     */
+    async getItemById(itemId: number): Promise<ReadLaterItem | undefined> {
+        return db.readLater.get(itemId);
+    }
+
+    /**
+     * Deletes a read later item by its ID.
+     */
+    async deleteItem(itemId: number): Promise<void> {
+        await db.readLater.delete(itemId);
+    }
+
+    /**
+     * Restores (adds back) a read later item record.
+     */
+    async restoreItem(item: ReadLaterItem): Promise<void> {
+        await db.readLater.add(item);
+    }
+
+    /**
+     * Query provider for useLiveQuery in ReadLaterList.
+     */
+    getItemsByStatusQuery(status: ReadLaterItem['status']) {
+        return () => db.readLater
+            .where('status')
+            .equals(status)
+            .reverse()
+            .sortBy('addedAt');
+    }
+
+    /**
+     * Query provider for unread count in ViewSwitcher.
+     */
+    getUnreadCountQuery() {
+        return () => db.readLater.where('status').equals('unread').count();
+    }
+
+    /**
+     * Fetches all read later items.
+     */
+    async getAllItems(): Promise<ReadLaterItem[]> {
+        return db.readLater.toArray();
+    }
+    /**
      * Saves a Chrome tab to Read Later.
      * Guards against duplicate URLs already in the queue (unread/read).
      *

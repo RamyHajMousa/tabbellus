@@ -10,16 +10,11 @@ import {
 } from '@/components/ui/Command';
 import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
-import { db, spaceService, tabService } from '@/lib';
-import type { Space, ReadLaterItem } from '@/lib/db';
+import { spaceService, tabService, readLaterService } from '@/lib';
+import type { Space, ReadLaterItem, SavedTabResult } from '@/lib/db';
 import { DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 
-interface SavedTabResult {
-    url: string;
-    title?: string;
-    favicon?: string;
-    spaceNames: string[];
-}
+
 
 export const OmniSearch = () => {
     const { isSearchOpen, setSearchOpen } = useUIStore();
@@ -59,60 +54,20 @@ export const OmniSearch = () => {
         // Fetch all tabs
         chrome.tabs.query({}).then(setActiveTabs).catch(() => setActiveTabs([]));
 
-        // Fetch spaces and their tabs
-        db.spaces
-            .filter((s) => !s.deletedAt)
-            .toArray()
-            .then(async (fetchedSpaces) => {
-                setSpaces(fetchedSpaces);
-                const spaceIds = fetchedSpaces.map((s) => s.id).filter((id): id is number => id !== undefined);
-                if (spaceIds.length === 0) {
-                    setSavedTabs([]);
-                    return;
-                }
+        // Fetch spaces using spaceService
+        spaceService.getNonDeletedSpaces()
+            .then(setSpaces)
+            .catch(() => setSpaces([]));
 
-                try {
-                    const allTabs = await db.tabs.where('spaceId').anyOf(spaceIds).toArray();
-                    const spaceNameMap = new Map<number, string>();
-                    fetchedSpaces.forEach((s) => {
-                        if (s.id !== undefined) {
-                            spaceNameMap.set(s.id, s.name);
-                        }
-                    });
+        // Fetch grouped saved tabs using spaceService
+        spaceService.getSavedTabsGroupedByUrl()
+            .then(setSavedTabs)
+            .catch(() => setSavedTabs([]));
 
-                    const tabMap = new Map<string, SavedTabResult>();
-                    for (const tab of allTabs) {
-                        const spaceName = spaceNameMap.get(tab.spaceId);
-                        if (!spaceName) continue;
-
-                        const existing = tabMap.get(tab.url);
-                        if (existing) {
-                            if (!existing.spaceNames.includes(spaceName)) {
-                                existing.spaceNames.push(spaceName);
-                            }
-                        } else {
-                            tabMap.set(tab.url, {
-                                url: tab.url,
-                                title: tab.title,
-                                favicon: tab.favicon,
-                                spaceNames: [spaceName],
-                            });
-                        }
-                    }
-
-                    setSavedTabs(Array.from(tabMap.values()));
-                } catch (error) {
-                    console.error('Error fetching/grouping saved tabs:', error);
-                    setSavedTabs([]);
-                }
-            })
-            .catch(() => {
-                setSpaces([]);
-                setSavedTabs([]);
-            });
-
-        // Fetch read later items
-        db.readLater.toArray().then(setReadLater).catch(() => setReadLater([]));
+        // Fetch read later items using readLaterService
+        readLaterService.getAllItems()
+            .then(setReadLater)
+            .catch(() => setReadLater([]));
     }, [isSearchOpen]);
 
     const handleSelectTab = useCallback(async (tab: chrome.tabs.Tab) => {
