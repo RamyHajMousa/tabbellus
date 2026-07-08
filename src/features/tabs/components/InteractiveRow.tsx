@@ -56,6 +56,24 @@ export const InteractiveRowLeading: React.FC<{ children: React.ReactNode; classN
 };
 InteractiveRowLeading.displayName = 'InteractiveRow.Leading';
 
+// Helper to extract plain text string from React children to prevent inner color-override classes
+// (like text-foreground) from rendering text invisible inside the tooltip popover container.
+function getTextFromChildren(children: React.ReactNode): string {
+    if (children === null || children === undefined) {
+        return '';
+    }
+    if (typeof children === 'string' || typeof children === 'number' || typeof children === 'boolean') {
+        return children.toString();
+    }
+    if (Array.isArray(children)) {
+        return children.map(getTextFromChildren).join('');
+    }
+    if (React.isValidElement(children)) {
+        return getTextFromChildren((children as React.ReactElement<any>).props.children);
+    }
+    return '';
+}
+
 // ── InteractiveRow.Title ─────────────────────────────────────────────────
 
 export const InteractiveRowTitle: React.FC<{
@@ -79,7 +97,7 @@ export const InteractiveRowTitle: React.FC<{
                     </TooltipTrigger>
                     {isTruncated && (
                         <TooltipContent side="top">
-                            {children}
+                            {getTextFromChildren(children)}
                         </TooltipContent>
                     )}
                 </Tooltip>
