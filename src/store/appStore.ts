@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
+import { spaceService } from '@/lib/spaceService';
 
 // 1. Create a Custom Bridge for Chrome Storage
 const chromeStorageAdapter: StateStorage = {
@@ -102,3 +103,8 @@ export const useAppStore = create<AppState>()(
         }
     )
 );
+
+// Subscribe to space restore events from the service layer to register active spaces.
+spaceService.onRestore((spaceId, windowId) => {
+    useAppStore.getState().registerActiveSpace(spaceId, windowId);
+});

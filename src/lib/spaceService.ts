@@ -1,6 +1,30 @@
 import { db, type Tab } from './db';
 
+export type SpaceRestoreListener = (spaceId: number, windowId: number) => void;
+
 class SpaceService {
+    private restoreListeners = new Set<SpaceRestoreListener>();
+
+    /**
+     * Registers a listener to be notified when a space is restored.
+     * @returns A function to unregister the listener.
+     */
+    onRestore(listener: SpaceRestoreListener): () => void {
+        this.restoreListeners.add(listener);
+        return () => {
+            this.restoreListeners.delete(listener);
+        };
+    }
+
+    private emitRestore(spaceId: number, windowId: number): void {
+        this.restoreListeners.forEach(listener => {
+            try {
+                listener(spaceId, windowId);
+            } catch (error) {
+                console.error('SpaceService: Error in restore listener', error);
+            }
+        });
+    }
     /**
      * Captures the current window's tabs into a new Space.
      * @param spaceName The user-provided name for the space.
@@ -84,9 +108,6 @@ class SpaceService {
 
     async restoreSpace(spaceId: number): Promise<void> {
         try {
-            // Avoid import cycle by dynamically accessing store
-            const { useAppStore } = await import('@/store/appStore');
-
             const tabs = await db.tabs.where({ spaceId }).sortBy('order');
             if (tabs.length === 0) return;
 
@@ -97,7 +118,7 @@ class SpaceService {
             });
 
             if (win.id) {
-                useAppStore.getState().registerActiveSpace(spaceId, win.id);
+                this.emitRestore(spaceId, win.id);
 
                 // Automatically open the side panel when a space is fully generated
                 try {
