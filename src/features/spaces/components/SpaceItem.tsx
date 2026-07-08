@@ -172,14 +172,16 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                             className="w-full bg-transparent border-none p-0 text-sm font-semibold focus:outline-none focus:ring-0 text-foreground"
                         />
                     ) : (
-                        <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                        <span className="text-sm font-semibold text-foreground">
                             {space.name}
-                            {space.isPinned && (
-                                <Pin className="w-3 h-3 text-primary fill-current flex-shrink-0" />
-                            )}
                         </span>
                     )}
                 </InteractiveRow.Title>
+
+                {/* Passive Pin Indicator (Hidden on Hover) */}
+                {space.isPinned && !isEditing && (
+                    <Pin className="w-3 h-3 text-primary fill-current flex-shrink-0 mr-2 group-hover:opacity-0 transition-opacity duration-150 pointer-events-none" />
+                )}
 
                 {/* Actions (Visible on Hover) */}
                 <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5">
