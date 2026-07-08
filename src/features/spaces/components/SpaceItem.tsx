@@ -140,6 +140,9 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                     >
                         {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                     </button>
+                    {space.isPinned && (
+                        <Pin className="w-3.5 h-3.5 text-primary fill-current flex-shrink-0" />
+                    )}
                     {isActive && (
                         <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse flex-shrink-0" title="Window is open" />
                     )}
@@ -177,11 +180,6 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
                         </span>
                     )}
                 </InteractiveRow.Title>
-
-                {/* Passive Pin Indicator (Hidden on Hover) */}
-                {space.isPinned && !isEditing && (
-                    <Pin className="w-3 h-3 text-primary fill-current flex-shrink-0 mr-2 group-hover:opacity-0 transition-opacity duration-150 pointer-events-none" />
-                )}
 
                 {/* Actions (Visible on Hover) */}
                 <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5">
