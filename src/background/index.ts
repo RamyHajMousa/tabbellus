@@ -121,6 +121,7 @@ const triggerSync = async (windowId: number) => {
 
         // 2. Schedule single-fire alarm (5 second delay). Re-creating resets native alarm timeout.
         await chrome.alarms.create(`sync-flush-${windowId}`, { delayInMinutes: 1 / 12 });
+        console.log(`Alarm scheduled/reset for window ${windowId}`);
     } catch (err) {
         console.error('Background Sync: Failed to trigger sync', err);
     }
@@ -176,6 +177,7 @@ const performSync = async (windowId: number) => {
 
 // Global alarms listener to handle flushed synchronization
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+    console.log("Background alarm triggered:", alarm.name);
     if (alarm.name.startsWith('sync-flush-')) {
         const windowIdStr = alarm.name.replace('sync-flush-', '');
         const windowId = parseInt(windowIdStr, 10);
@@ -197,36 +199,43 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 // Listeners for Tab Changes
 chrome.tabs.onCreated.addListener((tab) => {
+    console.log("Background intercepted tab mutation event for window:", tab.windowId);
     if (tab.windowId) triggerSync(tab.windowId);
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     if (changeInfo.url || changeInfo.title || changeInfo.favIconUrl || changeInfo.pinned) {
+        console.log("Background intercepted tab mutation event for window:", tab.windowId);
         if (tab.windowId) triggerSync(tab.windowId);
     }
 });
 
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
+    console.log("Background intercepted tab mutation event for window:", removeInfo.windowId);
     if (removeInfo.windowId && !removeInfo.isWindowClosing) {
         triggerSync(removeInfo.windowId);
     }
 });
 
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => {
+    console.log("Background intercepted tab mutation event for window:", moveInfo.windowId);
     if (moveInfo.windowId) triggerSync(moveInfo.windowId);
 });
 
 chrome.tabs.onAttached.addListener((_tabId, attachInfo) => {
+    console.log("Background intercepted tab mutation event for window:", attachInfo.newWindowId);
     if (attachInfo.newWindowId) triggerSync(attachInfo.newWindowId);
 });
 
 chrome.tabs.onDetached.addListener((_tabId, detachInfo) => {
+    console.log("Background intercepted tab mutation event for window:", detachInfo.oldWindowId);
     if (detachInfo.oldWindowId) triggerSync(detachInfo.oldWindowId);
 });
 
 chrome.tabs.onReplaced.addListener(async (addedTabId) => {
     try {
         const tab = await chrome.tabs.get(addedTabId);
+        console.log("Background intercepted tab mutation event for window:", tab.windowId);
         if (tab.windowId) {
             triggerSync(tab.windowId);
         }
