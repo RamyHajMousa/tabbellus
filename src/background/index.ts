@@ -1,15 +1,106 @@
 import { db, type Tab } from '@/lib/db';
 
-
 console.log('TabBellus Service Worker Initialized');
+
+// Helper to check fuzzy URL matching for active spaces reconstruction
+function isFuzzyUrlMatch(urlA: string, urlB: string): boolean {
+    try {
+        const a = new URL(urlA);
+        const b = new URL(urlB);
+        const hostA = a.hostname.replace(/^www\./, '').toLowerCase();
+        const hostB = b.hostname.replace(/^www\./, '').toLowerCase();
+        if (hostA !== hostB) return false;
+
+        const pathA = a.pathname.replace(/\/$/, '') || '/';
+        const pathB = b.pathname.replace(/\/$/, '') || '/';
+        return pathA === pathB || pathA === '/' || pathB === '/' || pathA.startsWith(pathB) || pathB.startsWith(pathA);
+    } catch {
+        return urlA.trim().toLowerCase() === urlB.trim().toLowerCase();
+    }
+}
+
+// Audit all open Chrome windows and match them against saved spaces to reconstruct tracking mappings
+const auditActiveSpacesOnStartup = async () => {
+    try {
+        console.log('Background Sync: Commencing active space startup audit...');
+        const windows = await chrome.windows.getAll({ populate: true });
+        const spaces = await db.spaces.filter(s => !s.deletedAt).toArray();
+        const activeSpaces: Record<number, number> = {};
+
+        for (const space of spaces) {
+            if (!space.id) continue;
+            const spaceTabs = await db.tabs.where('spaceId').equals(space.id).sortBy('order');
+            if (spaceTabs.length === 0) continue;
+
+            const spaceUrls = spaceTabs
+                .map(t => t.url)
+                .filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://') && !u.startsWith('about:'));
+
+            if (spaceUrls.length === 0) continue;
+
+            let bestWindowId: number | null = null;
+            let bestMatchRate = 0;
+
+            for (const win of windows) {
+                if (!win.id || !win.tabs || win.tabs.length === 0) continue;
+                const winUrls = win.tabs
+                    .map(t => t.url || '')
+                    .filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://') && !u.startsWith('about:'));
+
+                if (winUrls.length === 0) continue;
+
+                let matchCount = 0;
+                for (const wUrl of winUrls) {
+                    if (spaceUrls.some(sUrl => isFuzzyUrlMatch(sUrl, wUrl))) {
+                        matchCount++;
+                    }
+                }
+
+                const matchRate = matchCount / spaceUrls.length;
+                if (matchRate >= 0.85 && matchRate > bestMatchRate) {
+                    bestMatchRate = matchRate;
+                    bestWindowId = win.id;
+                }
+            }
+
+            if (bestWindowId !== null) {
+                activeSpaces[space.id] = bestWindowId;
+            }
+        }
+
+        if (Object.keys(activeSpaces).length > 0) {
+            await chrome.storage.session.set({ activeSpaces });
+            console.log('Background Sync: Reconstructed activeSpaces mapping:', activeSpaces);
+
+            // Staggered sync commit for each audited active space
+            for (const spaceIdStr in activeSpaces) {
+                const winId = activeSpaces[parseInt(spaceIdStr, 10)];
+                await performSync(winId);
+            }
+        } else {
+            console.log('Background Sync: Audit finished, no matching active spaces found.');
+        }
+    } catch (error) {
+        console.error('Background Sync: Startup audit failed', error);
+    }
+};
 
 chrome.runtime.onInstalled.addListener(() => {
     console.log('TabBellus Installed');
-    // Initialize default spaces if needed
     db.open().then(() => {
         console.log('DB Connected in Background');
+        auditActiveSpacesOnStartup();
     }).catch(err => {
         console.error('DB Connection Failed', err);
+    });
+});
+
+chrome.runtime.onStartup.addListener(() => {
+    console.log('TabBellus Startup');
+    db.open().then(() => {
+        auditActiveSpacesOnStartup();
+    }).catch(err => {
+        console.error('DB Connection Failed on Startup', err);
     });
 });
 
@@ -18,21 +109,21 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 
 // --- Live Sync Logic ---
 
-// Debounce map: WindowID -> Timeout
-const syncDebounceMap = new Map<number, NodeJS.Timeout>();
+const triggerSync = async (windowId: number) => {
+    try {
+        // 1. Mark windowId as dirty in session storage
+        const res = await chrome.storage.session.get('dirtySyncWindows');
+        const dirtySyncWindows: number[] = res.dirtySyncWindows || [];
+        if (!dirtySyncWindows.includes(windowId)) {
+            dirtySyncWindows.push(windowId);
+            await chrome.storage.session.set({ dirtySyncWindows });
+        }
 
-const triggerSync = (windowId: number) => {
-    if (syncDebounceMap.has(windowId)) {
-        clearTimeout(syncDebounceMap.get(windowId));
+        // 2. Schedule single-fire alarm (5 second delay). Re-creating resets native alarm timeout.
+        await chrome.alarms.create(`sync-flush-${windowId}`, { delayInMinutes: 1 / 12 });
+    } catch (err) {
+        console.error('Background Sync: Failed to trigger sync', err);
     }
-
-    syncDebounceMap.set(
-        windowId,
-        setTimeout(async () => {
-            syncDebounceMap.delete(windowId);
-            await performSync(windowId);
-        }, 500)
-    );
 };
 
 const performSync = async (windowId: number) => {
@@ -83,20 +174,39 @@ const performSync = async (windowId: number) => {
     }
 };
 
+// Global alarms listener to handle flushed synchronization
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name.startsWith('sync-flush-')) {
+        const windowIdStr = alarm.name.replace('sync-flush-', '');
+        const windowId = parseInt(windowIdStr, 10);
+        if (isNaN(windowId)) return;
+
+        try {
+            await performSync(windowId);
+
+            // Clean up from dirtySyncWindows session cache
+            const res = await chrome.storage.session.get('dirtySyncWindows');
+            let dirtySyncWindows: number[] = res.dirtySyncWindows || [];
+            dirtySyncWindows = dirtySyncWindows.filter(id => id !== windowId);
+            await chrome.storage.session.set({ dirtySyncWindows });
+        } catch (err) {
+            console.error('Background Sync: Failed to process alarm sync', err);
+        }
+    }
+});
+
 // Listeners for Tab Changes
 chrome.tabs.onCreated.addListener((tab) => {
     if (tab.windowId) triggerSync(tab.windowId);
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
-    // Only trigger sync on relevant updates (e.g. url, title, but not simple visual loading states initially if possible to avoid spam)
     if (changeInfo.url || changeInfo.title || changeInfo.favIconUrl || changeInfo.pinned) {
         if (tab.windowId) triggerSync(tab.windowId);
     }
 });
 
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
-    // Note: If this was the last tab, the window might close next, handled below
     if (removeInfo.windowId && !removeInfo.isWindowClosing) {
         triggerSync(removeInfo.windowId);
     }
@@ -127,12 +237,6 @@ chrome.tabs.onReplaced.addListener(async (addedTabId) => {
 
 // Listener for Window Closed (Cleanup tracked space mapping)
 chrome.windows.onRemoved.addListener(async (windowId) => {
-    // Clear any pending debounces
-    if (syncDebounceMap.has(windowId)) {
-        clearTimeout(syncDebounceMap.get(windowId));
-        syncDebounceMap.delete(windowId);
-    }
-
     try {
         const activeSpaces = await chrome.storage.session.get('activeSpaces').then(res => res.activeSpaces || {});
         let modified = false;
@@ -146,9 +250,8 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 
         if (modified) {
             await chrome.storage.session.set({ activeSpaces });
-            // Let the store know directly if possible, though React hooks listen to session
         }
     } catch (e) {
-        console.error('Failed to cleanup active spaces on window close', e);
+        console.error('Background Sync: Failed to clean up window map', e);
     }
 });
