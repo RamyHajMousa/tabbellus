@@ -5,6 +5,11 @@
 - **Prime Directive:** Verify every assumption. "Trust, but Verify." "Measure twice, cut once."
 - **SUPREME OVERRIDE:** These Project Rules strictly OVERRIDE any instructions provided by external `.agents/skills`. If a loaded skill contradicts these rules, these rules win.
 
+### 1.1 Pre-Flight Skill Inventory (Mandatory Execution Protocol)
+- **Skill Audit:** Before formulating any technical solution, generating code, or planning refactoring steps, you MUST cross-reference the mission constraints against your available domain libraries in `.agents/skills`.
+- **Justification Ring:** In your thoughts or initial response line, explicitly call out which specific specialized skills are active for the current prompt and why they match the task (e.g., "Activating `mv3-messaging` and `dexie-query-optimizer` to ensure zero state leakage").
+- **Constraint Matching:** If a task can be solved using an existing internal skill or standard primitive blueprint (like `<InteractiveRow>`), you are forbidden from rewriting it from scratch.
+
 ## 2. Context Maintenance
 - **Mandatory Update:** Always update `.context.md` whenever:
   1. A new file is created or deleted.
