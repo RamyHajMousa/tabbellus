@@ -29,6 +29,7 @@ import { useActiveSpacesSync } from '@/hooks/useActiveSpacesSync';
 import { OmniSearch } from '@/features/search';
 import { HistoryDialog } from '@/features/history/HistoryDialog';
 import { SettingsDialog } from '@/features/settings';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { initUsageTracking } from '@/lib/usageTracker';
 
 // ...
@@ -81,10 +82,12 @@ const SidePanel = () => {
             <ActiveSpaceAnchor />
             <ViewSwitcher />
 
-            <div className="flex-1 overflow-y-auto">
-                {activeView === 'active' && <ActiveSession />}
-                {activeView === 'spaces' && <SpaceList />}
-                {activeView === 'read-later' && <ReadLaterList />}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <ErrorBoundary>
+                    {activeView === 'active' && <ActiveSession />}
+                    {activeView === 'spaces' && <SpaceList />}
+                    {activeView === 'read-later' && <ReadLaterList />}
+                </ErrorBoundary>
             </div>
 
             <OmniSearch />
