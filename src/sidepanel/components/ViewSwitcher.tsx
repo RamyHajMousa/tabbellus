@@ -25,8 +25,8 @@ export const ViewSwitcher = () => {
     const unreadCount = useLiveQuery(() => db.readLater.where('status').equals('unread').count(), []) || 0;
 
     return (
-        <div className="px-4 py-2 border-b border-border/40 bg-background">
-            <div className="flex p-1 bg-muted/40 rounded-lg">
+        <div className="px-4 py-2 border-b border-border bg-background">
+            <div className="flex p-1 bg-muted rounded-lg">
                 {TABS.map((tab) => {
                     const isActive = activeView === tab.id;
                     return (
@@ -36,8 +36,8 @@ export const ViewSwitcher = () => {
                             className={`
                                 relative flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-colors duration-150 ease-out
                                 ${isActive
-                                    ? 'bg-background text-indigo-500 shadow-sm'
-                                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                                    ? 'bg-background text-primary'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                                 }
                             `}
                         >
@@ -47,7 +47,7 @@ export const ViewSwitcher = () => {
                             {/* Unread Badge for Read Later */}
                             {tab.id === 'read-later' && unreadCount > 0 && (
                                 <span className={`
-                                    absolute -top-1 -right-1 min-w-badge-size h-badge-size flex items-center justify-center text-super-mini font-bold text-destructive-foreground bg-destructive rounded-full px-0.5 border-2 border-background shadow-sm
+                                    absolute -top-1 -right-1 min-w-badge-size h-badge-size flex items-center justify-center text-super-mini font-bold text-destructive-foreground bg-destructive rounded-full px-0.5 border-2 border-background
                                     animate-in zoom-in duration-200
                                 `}>
                                     {unreadCount > 99 ? '99+' : unreadCount}

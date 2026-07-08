@@ -28,7 +28,7 @@ const GroupRowComponent = React.memo(({ group, onClose, onArchive }: GroupRowPro
                 <span className={`opacity-70 group-hover:opacity-100 transition-opacity ${colors.text}`}>
                     {group.collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </span>
-                <div className={`w-2 h-2 rounded-full ${colors.badge} shadow-sm`} />
+                <div className={`w-2 h-2 rounded-full ${colors.badge}`} />
             </InteractiveRow.Leading>
 
             {/* Title */}
@@ -87,7 +87,7 @@ export const GroupRowChildren = React.forwardRef<HTMLDivElement, GroupRowChildre
                 className={`
                     pl-[14px] border-l-2 ml-2 space-y-0.5 mt-0.5 relative
                     ${colors.border}
-                    ${isDraggingOver ? 'bg-accent/20' : ''}
+                    ${isDraggingOver ? 'bg-muted' : ''}
                     ${className || ''}
                 `}
                 {...props}

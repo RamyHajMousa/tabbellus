@@ -8,7 +8,7 @@ TabBellus is a high-density, flat-utility workspace and tab manager for power us
 ## 1. Visual & Design Tokens
 
 ### Harmony Color Palette
-We utilize a clean, high-contrast, flat monochromatic HSL color palette optimized for rendering speed and visual clarity. The theme eliminates all translucent blurs and ambient shadows, relying on solid opaque fills and sharp 1px structural lines, offset with a single Electric Indigo focus accent.
+We utilize a clean, high-contrast, flat monochromatic HSL color palette optimized for rendering speed and visual clarity. The theme eliminates all translucent blurs and ambient shadows, relying on solid opaque fills and sharp 1px structural lines, offset with a single Monochrome focus accent.
 
 *   **Background (Light Mode):** `hsl(0 0% 100%)` (Pure Solid White)
 *   **Background (Dark Mode):** `hsl(0 0% 0%)` (Pure Pitch Black Base)
@@ -16,7 +16,8 @@ We utilize a clean, high-contrast, flat monochromatic HSL color palette optimize
 *   **Popover/Dialogs (Dark Mode):** `hsl(0 0% 5%)` (Solid High-Contrast Floating Overlay Base)
 *   **Foreground / Primary Text:** `hsl(0 0% 98%)` (Pure White text)
 *   **Secondary Text:** `hsl(0 0% 63.9%)` (Muted Zinc Silver)
-*   **Accent / Focus Color:** `hsl(263.4 70% 50.4%)` (Deep Electric Indigo sole focus accent)
+*   **Accent / Focus Color (Light Mode):** `hsl(0 0% 9%)` (Solid dark charcoal sole focus accent)
+*   **Accent / Focus Color (Dark Mode):** `hsl(0 0% 98%)` (Pure white/silver sole focus accent)
 *   **Border / Divider:** `hsl(0 0% 15%)` (Crisp 1px Structural Divider Line)
 *   **Hover State (Dark Mode):** `hsl(0 0% 9%)` (Dense Hover Row State)
 *   **Group Badges (Chrome colors mapping):**
@@ -54,13 +55,13 @@ graph TD
 
 ### A. Global Header (Sticky Top)
 *   A flat, opaque header row:
-    *   Typographic logo: **TabBellus** in `Outfit` with a vibrant indigo dot.
+    *   Typographic logo: **TabBellus** in `Outfit` with a vibrant monochrome dot.
     *   Search trigger button (`Ctrl+K` shortcut indicator) with solid background and transition.
     *   Action bar containing: "New Tab" shortcut button, "History" icon (with matched space restore), and "Settings" gear.
 
 ### B. Active Space Anchor (Context Bar)
 *   Identity row that anchors beneath the Global Header if the current window is bound to a Space.
-*   Background: Solid high-contrast indigo tint (`bg-primary/10`) with a sharp 1px border.
+*   Background: Solid high-contrast background (`bg-muted`) with a sharp 1px border.
 *   Text: "Linked Space: [Space Name]" with a release button.
 
 ### C. View Switcher (Segmented Control)

@@ -38,7 +38,7 @@ const TabRowRenderer: React.FC<{ item: any; [key: string]: any }> = ({ item, act
                 <div
                     ref={provided.innerRef}
                     {...provided.droppableProps}
-                    className={`space-y-0.5 rounded-md transition-colors ${snapshot.isDraggingOver ? 'bg-accent/30' : ''}`}
+                    className={`space-y-0.5 rounded-md transition-colors ${snapshot.isDraggingOver ? 'bg-muted' : ''}`}
                 >
                     {segment.tabs.map((tab, idx) => (
                         <Draggable
@@ -371,7 +371,7 @@ export const ActiveSession = () => {
     return (
         <div className="flex flex-col h-full select-none">
             {/* Capture Header */}
-            <div className="p-4 bg-card border-b border-border shadow-sm flex-shrink-0 z-10 w-full">
+            <div className="p-4 bg-card border-b border-border flex-shrink-0 z-10 w-full">
                 <div className="flex items-center gap-2 mb-3">
                     <LayoutGrid className="w-5 h-5 text-primary" />
                     <h2 className="font-semibold text-sm truncate max-w-[200px]" title={currentSpace ? `Active Space: ${currentSpace.name}` : `Active Session`}>
@@ -394,7 +394,7 @@ export const ActiveSession = () => {
                     <button
                         onClick={handleCapture}
                         disabled={!spaceName.trim() || isSaving}
-                        className="h-9 w-9 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        className="h-9 w-9 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-colors"
                         title="Save Space"
                     >
                         <Save className="w-4 h-4" />
@@ -403,7 +403,7 @@ export const ActiveSession = () => {
             </div>
 
             {/* Scrollable Tab List */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0 bg-background/50">
+            <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0 bg-background">
                 <DragDropContext onDragEnd={handleDragEnd}>
                     {renderList.map((item) => {
                         const Renderer = ACTIVE_SESSION_RENDERERS[item.type];

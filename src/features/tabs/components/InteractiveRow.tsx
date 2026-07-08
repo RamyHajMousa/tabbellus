@@ -20,7 +20,7 @@ const InteractiveRowRoot = React.forwardRef<HTMLDivElement, InteractiveRowProps>
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground';
 
         const draggingClasses = isDragging
-            ? 'opacity-50 ring-1 ring-primary/40 shadow-lg'
+            ? 'opacity-50 ring-1 ring-primary'
             : '';
 
         return (
@@ -40,6 +40,7 @@ const InteractiveRowRoot = React.forwardRef<HTMLDivElement, InteractiveRowProps>
         );
     }
 );
+InteractiveRowRoot.displayName = 'InteractiveRow';
 
 // ── InteractiveRow.Leading ───────────────────────────────────────────────
 
@@ -53,6 +54,7 @@ export const InteractiveRowLeading: React.FC<{ children: React.ReactNode; classN
         </div>
     );
 };
+InteractiveRowLeading.displayName = 'InteractiveRow.Leading';
 
 // ── InteractiveRow.Title ─────────────────────────────────────────────────
 
@@ -86,6 +88,7 @@ export const InteractiveRowTitle: React.FC<{
         </div>
     );
 };
+InteractiveRowTitle.displayName = 'InteractiveRow.Title';
 
 // ── InteractiveRow.Actions ───────────────────────────────────────────────
 
@@ -105,15 +108,56 @@ export const InteractiveRowActions: React.FC<{ children: React.ReactNode; classN
         </div>
     );
 };
+InteractiveRowActions.displayName = 'InteractiveRow.Actions';
+
+// ── InteractiveRow.Action ────────────────────────────────────────────────
+
+export interface InteractiveRowActionProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+    icon: React.ComponentType<{ className?: string }>;
+    title: string;
+    variant?: 'neutral' | 'destructive' | 'primary';
+}
+
+export const InteractiveRowAction = React.forwardRef<HTMLButtonElement, InteractiveRowActionProps>(
+    ({ icon: Icon, onClick, title, variant = 'neutral', className = '', ...props }, ref) => {
+        const variantClasses = {
+            neutral: 'text-muted-foreground hover:text-foreground hover:bg-muted',
+            destructive: 'text-muted-foreground hover:text-destructive-foreground hover:bg-destructive',
+            primary: 'text-muted-foreground hover:text-primary-foreground hover:bg-primary',
+        }[variant];
+
+        return (
+            <button
+                ref={ref}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onClick?.(e);
+                }}
+                className={`
+                    flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-150 outline-none shrink-0
+                    ${variantClasses}
+                    ${className}
+                `}
+                title={title}
+                {...props}
+            >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+            </button>
+        );
+    }
+);
+InteractiveRowAction.displayName = 'InteractiveRow.Action';
 
 // Attach sub-components to InteractiveRow namespace
 type InteractiveRowComponent = typeof InteractiveRowRoot & {
     Leading: typeof InteractiveRowLeading;
     Title: typeof InteractiveRowTitle;
     Actions: typeof InteractiveRowActions;
+    Action: typeof InteractiveRowAction;
 };
 
 export const InteractiveRow = InteractiveRowRoot as InteractiveRowComponent;
 InteractiveRow.Leading = InteractiveRowLeading;
 InteractiveRow.Title = InteractiveRowTitle;
 InteractiveRow.Actions = InteractiveRowActions;
+InteractiveRow.Action = InteractiveRowAction;

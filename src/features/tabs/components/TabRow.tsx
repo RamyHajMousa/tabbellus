@@ -86,13 +86,13 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                 className={`gap-0.5 px-1 py-0.5 pl-2 ${isActive ? 'bg-accent' : 'bg-background group-hover:bg-accent'}`}
             >
                 {data.url && (
-                    <button
+                    <InteractiveRow.Action
+                        icon={hasCopied ? Check : Copy}
                         onClick={handleCopy}
-                        className="p-1.5 rounded-md hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100"
                         title="Copy URL"
-                    >
-                        {hasCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                    </button>
+                        variant="neutral"
+                        className={hasCopied ? "text-green-500 hover:text-green-500" : ""}
+                    />
                 )}
 
                 {canAddToSpace && (
@@ -100,31 +100,28 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                 )}
 
                 {onReadLater && (
-                    <button
+                    <InteractiveRow.Action
+                        icon={Clock}
                         onClick={onReadLater}
-                        className="p-1.5 rounded-md hover:bg-background text-muted-foreground hover:text-primary transition-colors focus:opacity-100"
                         title="Read Later"
-                    >
-                        <Clock className="w-4 h-4" />
-                    </button>
+                        variant="primary"
+                    />
                 )}
                 {onDelete && (
-                    <button
+                    <InteractiveRow.Action
+                        icon={Trash2}
                         onClick={onDelete}
-                        className="p-1.5 rounded-md hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
                         title="Delete Tab from Space"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
+                        variant="destructive"
+                    />
                 )}
                 {onClose && (
-                    <button
+                    <InteractiveRow.Action
+                        icon={X}
                         onClick={onClose}
-                        className="p-1.5 rounded-md hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors focus:opacity-100"
                         title="Close Tab"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
+                        variant="destructive"
+                    />
                 )}
             </InteractiveRow.Actions>
         </InteractiveRow>

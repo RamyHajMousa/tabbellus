@@ -11,6 +11,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { type RowTabData } from '@/features/tabs/types';
+import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
 
 interface AddToSpaceMenuProps {
     tab: RowTabData;
@@ -45,13 +46,11 @@ export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <button
-                    className="p-1.5 rounded-md hover:bg-background text-muted-foreground hover:text-blue-500 transition-colors focus:opacity-100 outline-none"
+                <InteractiveRow.Action
+                    icon={FolderPlus}
                     title="Save to Space"
-                    onClick={(e) => e.stopPropagation()} // Prevent row click
-                >
-                    <FolderPlus className="w-4 h-4" />
-                </button>
+                    variant="primary"
+                />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                 <DropdownMenuLabel>Save to Space</DropdownMenuLabel>

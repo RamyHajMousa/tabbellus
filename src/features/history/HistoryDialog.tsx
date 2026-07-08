@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
-import { Globe, RotateCcw, LayoutTemplate, Copy, Layers } from 'lucide-react';
+import { Globe, RotateCcw, LayoutTemplate, Copy, Layers, Check } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Space, type Tab } from '@/lib/db';
+import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -275,59 +276,63 @@ const HistoryItem = ({ session, onRestore }: {
     const [imgError, setImgError] = useState(false);
 
     return (
-        <div className="relative group flex items-center gap-3 p-2 rounded-md hover:bg-accent transition-colors">
+        <InteractiveRow
+            size="md"
+            onClick={() => onRestore(sessionId, session.matchedSpaceId)}
+        >
             {/* Icon / Favicon */}
-            <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-                {isTab ? (
-                    faviconUrl && !imgError ? (
-                        <img
-                            src={faviconUrl}
-                            alt=""
-                            className="w-4 h-4 rounded-sm"
-                            onError={() => setImgError(true)}
-                        />
+            <InteractiveRow.Leading>
+                <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+                    {isTab ? (
+                        faviconUrl && !imgError ? (
+                            <img
+                                src={faviconUrl}
+                                alt=""
+                                className="w-4 h-4 rounded-sm"
+                                onError={() => setImgError(true)}
+                            />
+                        ) : (
+                            <Globe className="w-4 h-4 text-muted-foreground" />
+                        )
+                    ) : isMatchedSpace ? (
+                        <Layers className="w-4 h-4 text-primary" />
                     ) : (
-                        <Globe className="w-4 h-4 text-muted-foreground" />
-                    )
-                ) : isMatchedSpace ? (
-                    <Layers className="w-4 h-4 text-blue-500" />
-                ) : (
-                    <LayoutTemplate className="w-4 h-4 text-muted-foreground" />
-                )}
-            </div>
+                        <LayoutTemplate className="w-4 h-4 text-muted-foreground" />
+                    )}
+                </div>
+            </InteractiveRow.Leading>
 
             {/* Content */}
-            <div className="flex-1 min-w-0 pr-4 flex flex-col justify-center">
-                <span className={`truncate font-medium text-sm ${isMatchedSpace ? 'text-blue-500' : 'text-foreground/90'}`}>
-                    {title}
-                </span>
-                {subtitle && (
-                    <span className="truncate text-xxs text-muted-foreground/70">
+            <InteractiveRow.Title
+                subTitle={subtitle && (
+                    <span className="truncate text-xxs text-muted-foreground">
                         {subtitle}
                     </span>
                 )}
-            </div>
+            >
+                <span className={isMatchedSpace ? 'text-primary font-semibold' : 'text-foreground'}>
+                    {title}
+                </span>
+            </InteractiveRow.Title>
 
             {/* Actions */}
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pl-2 bg-background group-hover:bg-accent opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity rounded-md z-10">
+            <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-1">
                 {url && (
-                    <button
+                    <InteractiveRow.Action
+                        icon={hasCopied ? Check : Copy}
                         onClick={handleCopy}
-                        className="p-1.5 rounded-sm hover:bg-background text-muted-foreground hover:text-foreground transition-colors focus:opacity-100"
                         title="Copy URL"
-                    >
-                        {hasCopied ? <Copy className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
+                        variant="neutral"
+                        className={hasCopied ? "text-green-500 hover:text-green-500" : ""}
+                    />
                 )}
-                <button
+                <InteractiveRow.Action
+                    icon={RotateCcw}
                     onClick={() => onRestore(sessionId, session.matchedSpaceId)}
-                    className="flex items-center gap-1.5 px-2 py-1 h-7 rounded-sm bg-background border border-border/50 hover:bg-primary/10 hover:text-primary hover:border-primary/20 text-xxs font-medium transition-colors shadow-sm"
                     title="Restore Session"
-                >
-                    <RotateCcw className="w-3 h-3" />
-                    Restore
-                </button>
-            </div>
-        </div>
+                    variant="primary"
+                />
+            </InteractiveRow.Actions>
+        </InteractiveRow>
     );
 };

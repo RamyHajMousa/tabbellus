@@ -2,13 +2,9 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Trash2, Archive, CheckCircle2, Globe, Check, Copy } from 'lucide-react';
 import { db, tabService } from '@/lib';
-
 import { useClipboard } from '@/hooks/useClipboard';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
-import { useIsTruncated } from '@/hooks/useIsTruncated';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
-
-
+import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
 
 export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
@@ -40,18 +36,18 @@ export const ReadLaterList = () => {
     return (
         <div className="flex flex-col h-full bg-background">
             {/* Header / Filter Toggle */}
-            <div className="p-4 border-b border-border/40 flex-shrink-0">
-                <div className="flex bg-muted/50 p-1 rounded-lg">
+            <div className="p-4 border-b border-border flex-shrink-0">
+                <div className="flex bg-muted p-1 rounded-lg">
                     <button
                         onClick={() => setShowArchived(false)}
-                        className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all ${!showArchived ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all ${!showArchived ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >
                         Unread
                     </button>
                     <button
                         onClick={() => setShowArchived(true)}
-                        className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all ${showArchived ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all ${showArchived ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >
                         Archived
@@ -62,9 +58,14 @@ export const ReadLaterList = () => {
             {/* List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
                 {items?.map((item) => (
-                    <ReadLaterItem key={item.id} item={item} toggleStatus={toggleStatus} handleDelete={handleDelete} handleOpen={handleOpen} />
+                    <ReadLaterItem
+                        key={item.id}
+                        item={item}
+                        toggleStatus={toggleStatus}
+                        handleDelete={handleDelete}
+                        handleOpen={handleOpen}
+                    />
                 ))}
-
 
                 {items?.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-48 text-center px-8">
@@ -81,87 +82,86 @@ export const ReadLaterList = () => {
             </div>
         </div>
     );
-
-
 };
 
 // Extracted for clean hook usage
 const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) => {
     const { hasCopied, copy } = useClipboard();
-    const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
         copy(item.url);
     };
 
-    return (
-        <div
-            className="relative group flex items-center gap-3 p-2 rounded-md hover:bg-accent border border-transparent transition-colors"
-        >
-            {/* Checkbox */}
-            <button
-                onClick={() => item.id && toggleStatus(item.id, item.status)}
-                className={`
-                    flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-200
-                    ${item.status === 'archived'
-                        ? 'bg-primary border-primary text-primary-foreground'
-                        : 'border-muted-foreground/30 hover:border-primary/50 text-transparent'
-                    }
-                `}
-                title={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
-            >
-                {item.status === 'archived' && <Check className="w-3 h-3" />}
-            </button>
+    const host = (() => {
+        try {
+            return new URL(item.url).hostname;
+        } catch {
+            return '';
+        }
+    })();
 
-            {/* Content */}
-            <div
-                className="flex-1 min-w-0 pr-4 cursor-pointer"
-                onClick={() => handleOpen(item.url)}
+    return (
+        <InteractiveRow
+            size="md"
+            onClick={() => handleOpen(item.url)}
+        >
+            {/* Checkbox & Favicon */}
+            <InteractiveRow.Leading>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (item.id) toggleStatus(item.id, item.status);
+                    }}
+                    className={`
+                        flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all duration-200
+                        ${item.status === 'archived'
+                            ? 'bg-primary border-primary text-primary-foreground'
+                            : 'border-border hover:border-primary text-transparent'
+                        }
+                    `}
+                    title={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
+                >
+                    {item.status === 'archived' && <Check className="w-2.5 h-2.5" />}
+                </button>
+                {item.favicon ? (
+                    <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm" />
+                ) : (
+                    <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+                )}
+            </InteractiveRow.Leading>
+
+            {/* Title / Info */}
+            <InteractiveRow.Title
+                subTitle={(
+                    <span className="text-xxs text-muted-foreground">
+                        {host} • {new Date(item.addedAt).toLocaleDateString()}
+                    </span>
+                )}
             >
-                <div className="flex items-center gap-2">
-                    {item.favicon ? (
-                        <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm opacity-80" />
-                    ) : (
-                        <Globe className="w-3.5 h-3.5 text-muted-foreground opacity-50" />
-                    )}
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <span ref={titleRef} className={`block text-sm truncate transition-colors ${item.status === 'archived' ? 'text-muted-foreground line-through decoration-zinc-500/30' : 'text-foreground'}`}>
-                                    {item.title || item.url}
-                                </span>
-                            </TooltipTrigger>
-                            {isTruncated && (
-                                <TooltipContent side="top">
-                                    {item.title || item.url}
-                                </TooltipContent>
-                            )}
-                        </Tooltip>
-                    </TooltipProvider>
-                </div>
-                <div className="text-xxs text-muted-foreground/50 mt-0.5 ml-0.5 truncate w-full">
-                    {new URL(item.url).hostname} • {new Date(item.addedAt).toLocaleDateString()}
-                </div>
-            </div>
+                <span className={item.status === 'archived' ? 'text-muted-foreground line-through' : 'text-foreground'}>
+                    {item.title || item.url}
+                </span>
+            </InteractiveRow.Title>
 
             {/* Actions */}
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 px-1 py-0.5 pl-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-colors bg-background group-hover:bg-accent rounded-md">
-                <button
+            <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5">
+                <InteractiveRow.Action
+                    icon={hasCopied ? Check : Copy}
                     onClick={handleCopy}
-                    className="p-1.5 rounded-md text-muted-foreground hover:bg-background hover:text-blue-500 transition-colors focus:opacity-100"
                     title="Copy URL"
-                >
-                    {hasCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                </button>
-                <button
-                    onClick={() => item.id && handleDelete(item.id)}
-                    className="p-1.5 rounded-md text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors focus:opacity-100"
+                    variant="neutral"
+                    className={hasCopied ? "text-green-500 hover:text-green-500" : ""}
+                />
+                <InteractiveRow.Action
+                    icon={Trash2}
+                    onClick={() => {
+                        if (item.id) handleDelete(item.id);
+                    }}
                     title="Delete"
-                >
-                    <Trash2 className="w-4 h-4" />
-                </button>
-            </div>
-        </div>
+                    variant="destructive"
+                />
+            </InteractiveRow.Actions>
+        </InteractiveRow>
     );
 };

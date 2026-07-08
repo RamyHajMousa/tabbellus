@@ -26,7 +26,7 @@ export const GlobalHeader = () => {
 
     return (
         <TooltipProvider delayDuration={300}>
-            <header className="h-12 flex items-center px-4 border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
+            <header className="h-12 flex items-center px-4 border-b border-border bg-background sticky top-0 z-10">
 
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -43,11 +43,11 @@ export const GlobalHeader = () => {
 
                 <button
                     onClick={() => setSearchOpen(true)}
-                    className="relative flex-1 max-w-md h-8 flex items-center px-3 text-xs bg-muted/50 hover:bg-muted/80 border border-transparent hover:border-primary/20 rounded-md transition-colors text-muted-foreground/50"
+                    className="relative flex-1 max-w-md h-8 flex items-center px-3 text-xs bg-muted hover:bg-accent border border-transparent hover:border-primary rounded-md transition-colors text-muted-foreground"
                 >
                     <Search className="w-4 h-4 mr-2 flex-shrink-0" />
                     <span className="flex-1 text-left truncate">Search...</span>
-                    <span className="ml-2 px-1.5 py-0.5 bg-background/80 border border-border/50 rounded text-xxs font-medium flex-shrink-0">
+                    <span className="ml-2 px-1.5 py-0.5 bg-background border border-border rounded text-xxs font-medium flex-shrink-0">
                         ⌘K
                     </span>
                 </button>
@@ -55,7 +55,7 @@ export const GlobalHeader = () => {
                     <TooltipTrigger asChild>
                         <button
                             onClick={handleNewTab}
-                            className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+                            className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
                         >
                             <Plus className="w-4 h-4" />
                         </button>
@@ -66,14 +66,14 @@ export const GlobalHeader = () => {
                 </Tooltip>
                 <button
                     onClick={toggleHistory}
-                    className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+                    className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
                     title="Recently Closed"
                 >
                     <History className="w-4 h-4" />
                 </button>
                 <button
                     onClick={() => setSettingsOpen(true)}
-                    className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+                    className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
                 >
                     <Settings className="w-4 h-4" />
                 </button>

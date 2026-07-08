@@ -46,7 +46,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                 {toasts.map((t) => (
                     <div
                         key={t.id}
-                        className="bg-popover text-popover-foreground border border-border rounded-lg shadow-lg p-4 min-w-[300px] flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
+                        className="bg-popover text-popover-foreground border border-border rounded-lg p-4 min-w-[300px] flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
                     >
                         <span className="text-sm font-medium">{t.message}</span>
                         <div className="flex items-center gap-3">
@@ -56,7 +56,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                                         t.onUndo?.();
                                         removeToast(t.id);
                                     }}
-                                    className="text-sm font-bold text-indigo-400 hover:text-indigo-300 hover:underline transition-colors"
+                                    className="text-sm font-bold text-primary hover:underline transition-colors"
                                 >
                                     Undo
                                 </button>
