@@ -236,6 +236,11 @@ export default config;
 }
 ```
 
+### 3.3 TypeScript Configuration (`tsconfig.json`)
+
+To ensure robust path alias resolution and code quality across both development and test suites, `tsconfig.json` includes:
+- **`include`**: `["src", "tests"]` — mapping both application sources and testing/E2E environments so path aliases (like `@/*` -> `./src/*`) resolve cleanly in tests, shims, and E2E fixtures.
+
 ---
 
 ## 4. Architectural Rules & Engineering Protocols
@@ -296,7 +301,27 @@ The project recently underwent 5 phases of refactoring to align components and l
 
 ---
 
-## 6. Development Status & Roadmap
+## 6. Testing & Quality Assurance Infrastructure
+
+TabBellus enforces a comprehensive testing infrastructure to guarantee data integrity, transaction safety, and regression-free user flows.
+
+### 6.1 Unit & Integration Testing (Vitest)
+*   **Configuration (`vitest.config.ts`):** Operates on a standard Node environment with in-memory SQLite/IndexedDB bindings.
+*   **Global Setup (`tests/setup.ts`):** Imports `fake-indexeddb/auto` to shim the global database engine. Resets the IndexedDB tables (`spaces`, `tabs`, `readLater`) after every test case to ensure transaction boundary isolation.
+*   **Core Suites:**
+    *   [sessionUtils.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/sessionUtils.test.ts) — Validates fuzzy matching heuristics, host normalizations, and extension links (10 tests).
+    *   [spaceService.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/spaceService.test.ts) — Verifies Dexie transaction lifecycles, soft-deletes, restorations, tab index shifting, and title/fallback resolution (8 tests).
+*   **Execution Commands:** `npm test` (one-shot), `npm run test:watch` (active watch mode).
+
+### 6.2 End-to-End Testing (Playwright)
+*   **Configuration (`playwright.config.ts`):** Controls single-worker headed Chromium instances (headed mode is mandatory for loading Chrome Extension APIs).
+*   **Runtime Fixture ([extension.ts](file:///d:/Projects/tabbellus/tests/fixtures/extension.ts)):** Bootstraps Chromium with extension parameters, loads the compiled package from `./dist`, and dynamically resolves the extension ID from the active service worker's target URL.
+*   **E2E Specs ([spaces.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/spaces.spec.ts)):** Inspects layout hydration guards, logo visual assets, GlobalHeader/ViewSwitcher visibility, and interactive navigation flows (e.g. empty-state render triggers).
+*   **Requirement:** Tests run against compiled production builds. The command `npm run test:e2e` automatically builds the extension first to prevent testing stale source codes.
+
+---
+
+## 7. Development Status & Roadmap
 
 ### Current Status (Done)
 - **Phase 1: Hook Decomposition** - Complete. Active tab tracking is fully modularized.
