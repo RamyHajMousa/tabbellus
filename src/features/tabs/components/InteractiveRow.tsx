@@ -1,6 +1,6 @@
 import React from 'react';
 import { useIsTruncated } from '@/hooks/useIsTruncated';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip';
+import { TooltipOverflow } from '@/components/ui/Tooltip';
 
 interface InteractiveRowProps extends React.HTMLAttributes<HTMLDivElement> {
     size?: 'sm' | 'md';
@@ -85,23 +85,18 @@ export const InteractiveRowTitle: React.FC<{
 
     return (
         <div className="flex-1 min-w-0 pr-4 flex flex-col justify-center">
-            <TooltipProvider>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <span
-                            ref={titleRef}
-                            className={`truncate font-medium leading-none ${className || ''}`}
-                        >
-                            {children}
-                        </span>
-                    </TooltipTrigger>
-                    {isTruncated && (
-                        <TooltipContent side="top">
-                            {getTextFromChildren(children)}
-                        </TooltipContent>
-                    )}
-                </Tooltip>
-            </TooltipProvider>
+            <TooltipOverflow
+                text={getTextFromChildren(children)}
+                isTruncated={isTruncated}
+                side="top"
+            >
+                <span
+                    ref={titleRef}
+                    className={`truncate font-medium leading-none ${className || ''}`}
+                >
+                    {children}
+                </span>
+            </TooltipOverflow>
             {subTitle}
         </div>
     );

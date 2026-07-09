@@ -27,3 +27,58 @@ const TooltipContent = React.forwardRef<
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+
+interface TooltipSimpleProps {
+    children: React.ReactNode;
+    content: React.ReactNode;
+    side?: 'top' | 'right' | 'bottom' | 'left';
+    align?: 'start' | 'center' | 'end';
+}
+
+export const TooltipSimple: React.FC<TooltipSimpleProps> = ({
+    children,
+    content,
+    side = 'top',
+    align = 'center'
+}) => {
+    return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>{children}</TooltipTrigger>
+                <TooltipContent side={side} align={align}>
+                    {content}
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    );
+};
+
+interface TooltipOverflowProps {
+    children: React.ReactNode;
+    text: string;
+    isTruncated: boolean;
+    side?: 'top' | 'right' | 'bottom' | 'left';
+    align?: 'start' | 'center' | 'end';
+}
+
+export const TooltipOverflow: React.FC<TooltipOverflowProps> = ({
+    children,
+    text,
+    isTruncated,
+    side = 'top',
+    align = 'center'
+}) => {
+    return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>{children}</TooltipTrigger>
+                {isTruncated && (
+                    <TooltipContent side={side} align={align}>
+                        {text}
+                    </TooltipContent>
+                )}
+            </Tooltip>
+        </TooltipProvider>
+    );
+};
+
