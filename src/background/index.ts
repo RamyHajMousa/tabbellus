@@ -1,23 +1,7 @@
 import { db, type Tab } from '@/lib/db';
+import { isFuzzyMatch } from '@/lib/sessionUtils';
 
 console.log('TabBellus Service Worker Initialized');
-
-// Helper to check fuzzy URL matching for active spaces reconstruction
-function isFuzzyUrlMatch(urlA: string, urlB: string): boolean {
-    try {
-        const a = new URL(urlA);
-        const b = new URL(urlB);
-        const hostA = a.hostname.replace(/^www\./, '').toLowerCase();
-        const hostB = b.hostname.replace(/^www\./, '').toLowerCase();
-        if (hostA !== hostB) return false;
-
-        const pathA = a.pathname.replace(/\/$/, '') || '/';
-        const pathB = b.pathname.replace(/\/$/, '') || '/';
-        return pathA === pathB || pathA === '/' || pathB === '/' || pathA.startsWith(pathB) || pathB.startsWith(pathA);
-    } catch {
-        return urlA.trim().toLowerCase() === urlB.trim().toLowerCase();
-    }
-}
 
 // Audit all open Chrome windows and match them against saved spaces to reconstruct tracking mappings
 const auditActiveSpacesOnStartup = async () => {
@@ -51,7 +35,7 @@ const auditActiveSpacesOnStartup = async () => {
 
                 let matchCount = 0;
                 for (const wUrl of winUrls) {
-                    if (spaceUrls.some(sUrl => isFuzzyUrlMatch(sUrl, wUrl))) {
+                    if (spaceUrls.some(sUrl => isFuzzyMatch(sUrl, wUrl))) {
                         matchCount++;
                     }
                 }
