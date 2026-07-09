@@ -1,5 +1,6 @@
 import { test as base, type BrowserContext, chromium } from '@playwright/test';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 /**
  * Custom Playwright fixture that launches Chromium with TabBellus loaded
@@ -9,6 +10,10 @@ import path from 'path';
  * is more reliable than parsing the chrome://extensions page DOM, which
  * can race against reflows during boot.
  */
+
+// ESM-compatible __dirname equivalent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Resolve the compiled extension directory (relative to project root)
 const EXTENSION_PATH = path.resolve(__dirname, '../../dist');
