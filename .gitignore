@@ -34,3 +34,7 @@ dist-ssr/
 # Build output
 dist
 *.zip
+
+# Test artifacts
+playwright-report/
+test-results/

@@ -1,65 +1,64 @@
-import assert from 'node:assert';
-import { describe, it } from 'node:test';
+import { describe, it, expect } from 'vitest';
 import { isFuzzyMatch, isValidUrl, tryParseHost } from '../sessionUtils';
 
 describe('isValidUrl', () => {
     it('should return true for valid HTTP/HTTPS URLs', () => {
-        assert.strictEqual(isValidUrl('https://example.com'), true);
-        assert.strictEqual(isValidUrl('http://github.com/foo'), true);
+        expect(isValidUrl('https://example.com')).toBe(true);
+        expect(isValidUrl('http://github.com/foo')).toBe(true);
     });
 
     it('should return false for empty or undefined URLs', () => {
-        assert.strictEqual(isValidUrl(''), false);
-        assert.strictEqual(isValidUrl(undefined), false);
+        expect(isValidUrl('')).toBe(false);
+        expect(isValidUrl(undefined)).toBe(false);
     });
 
     it('should return false for internal browser pages', () => {
-        assert.strictEqual(isValidUrl('chrome://settings'), false);
-        assert.strictEqual(isValidUrl('edge://extensions'), false);
-        assert.strictEqual(isValidUrl('chrome-extension://abc/popup.html'), false);
-        assert.strictEqual(isValidUrl('about:blank'), false);
+        expect(isValidUrl('chrome://settings')).toBe(false);
+        expect(isValidUrl('edge://extensions')).toBe(false);
+        expect(isValidUrl('chrome-extension://abc/popup.html')).toBe(false);
+        expect(isValidUrl('about:blank')).toBe(false);
     });
 });
 
 describe('tryParseHost', () => {
     it('should extract hostname with www. stripped', () => {
-        assert.strictEqual(tryParseHost('https://www.example.com/path'), 'example.com');
-        assert.strictEqual(tryParseHost('http://example.org/'), 'example.org');
+        expect(tryParseHost('https://www.example.com/path')).toBe('example.com');
+        expect(tryParseHost('http://example.org/')).toBe('example.org');
     });
 
     it('should lowercase the hostname', () => {
-        assert.strictEqual(tryParseHost('HTTPS://SUB.EXAMPLE.COM'), 'sub.example.com');
+        expect(tryParseHost('HTTPS://SUB.EXAMPLE.COM')).toBe('sub.example.com');
     });
 
     it('should return empty string for invalid URLs', () => {
-        assert.strictEqual(tryParseHost('not-a-url'), '');
+        expect(tryParseHost('not-a-url')).toBe('');
     });
 });
 
 describe('isFuzzyMatch', () => {
     it('should match exact URL strings', () => {
-        assert.strictEqual(isFuzzyMatch('https://example.com/foo', 'https://example.com/foo'), true);
+        expect(isFuzzyMatch('https://example.com/foo', 'https://example.com/foo')).toBe(true);
     });
 
     it('should normalize and match subdomains', () => {
         // www normalization
-        assert.strictEqual(isFuzzyMatch('https://www.example.com/foo', 'https://example.com/foo'), true);
+        expect(isFuzzyMatch('https://www.example.com/foo', 'https://example.com/foo')).toBe(true);
         // subdomain matching
-        assert.strictEqual(isFuzzyMatch('https://internetbank.swedbank.se/home', 'https://swedbank.se/home'), true);
-        assert.strictEqual(isFuzzyMatch('https://swedbank.se/home', 'https://internetbank.swedbank.se/home'), true);
+        expect(isFuzzyMatch('https://internetbank.swedbank.se/home', 'https://swedbank.se/home')).toBe(true);
+        expect(isFuzzyMatch('https://swedbank.se/home', 'https://internetbank.swedbank.se/home')).toBe(true);
     });
 
     it('should check path compatibility', () => {
         // root path matches anything on the domain
-        assert.strictEqual(isFuzzyMatch('https://example.com/', 'https://example.com/some/deep/path'), true);
+        expect(isFuzzyMatch('https://example.com/', 'https://example.com/some/deep/path')).toBe(true);
         // path extension / SPA subroutes
-        assert.strictEqual(isFuzzyMatch('https://example.com/maps', 'https://example.com/maps/place/123'), true);
+        expect(isFuzzyMatch('https://example.com/maps', 'https://example.com/maps/place/123')).toBe(true);
         // common path prefix matching (first path segment)
-        assert.strictEqual(isFuzzyMatch('https://example.com/maps/place/abc', 'https://example.com/maps/place/xyz'), true);
+        expect(isFuzzyMatch('https://example.com/maps/place/abc', 'https://example.com/maps/place/xyz')).toBe(true);
     });
 
     it('should return false for non-matching hosts or paths', () => {
-        assert.strictEqual(isFuzzyMatch('https://example.com/maps', 'https://google.com/maps'), false);
-        assert.strictEqual(isFuzzyMatch('https://example.com/maps', 'https://example.com/settings'), false);
+        expect(isFuzzyMatch('https://example.com/maps', 'https://google.com/maps')).toBe(false);
+        expect(isFuzzyMatch('https://example.com/maps', 'https://example.com/settings')).toBe(false);
     });
 });
