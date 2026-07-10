@@ -156,3 +156,37 @@ describe('SpaceService — Dexie Integration', () => {
     expect(space!.name).toBe('New Name');
   });
 });
+
+describe('SpaceService Performance Stress Tests', () => {
+  it('should read and process 500 tabs within a 16ms frame budget', async () => {
+    const spaceId = (await db.spaces.add({
+      name: 'Performance Test Space',
+      createdAt: Date.now(),
+    })) as number;
+
+    const mockTabs = [];
+    for (let i = 0; i < 500; i++) {
+      mockTabs.push({
+        spaceId,
+        url: `https://example.com/tab-${i}`,
+        title: `Tab Title ${i}`,
+        favicon: `https://example.com/favicon-${i}.ico`,
+        order: i,
+      });
+    }
+
+    await db.tabs.bulkAdd(mockTabs);
+
+    const queryFn = spaceService.getTabsForSpaceQuery(spaceId);
+
+    const startTime = performance.now();
+    const result = await queryFn();
+    const endTime = performance.now();
+
+    const duration = endTime - startTime;
+
+    expect(result).toHaveLength(500);
+    expect(duration).toBeLessThan(16);
+  });
+});
+
