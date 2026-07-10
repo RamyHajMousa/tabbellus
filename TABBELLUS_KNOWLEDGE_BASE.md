@@ -321,7 +321,7 @@ TabBellus enforces a comprehensive testing infrastructure to guarantee data inte
 *   **E2E Specs:**
     *   [spaces.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/spaces.spec.ts) — Inspects layout hydration guards, logo visual assets, GlobalHeader/ViewSwitcher visibility, and interactive navigation flows (e.g. empty-state render triggers) (2 tests).
     *   [capture.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/capture.spec.ts) — Tests space capture inputs, form submissions, and active view switching to verify that new space rows render dynamically and hide empty states (1 test).
-    *   [performance.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/performance.spec.ts) — Tests high-volume rendering performance budgets (<100ms) and checks DOM virtuoso node-recycling safety gates (<30 active InteractiveRow nodes in DOM for 500 tabs in DB) (1 test).
+    *   [performance.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/performance.spec.ts) — Tests high-volume rendering performance budgets (<1000ms), row expansion, and checks DOM virtuoso node-recycling safety gates (<30 active InteractiveRow nodes in DOM for 500 tabs in DB) (1 test).
 *   **Requirement:** Tests run against compiled production builds. The command `npm run test:e2e` automatically builds the extension first to prevent testing stale source codes.
 
 ---
