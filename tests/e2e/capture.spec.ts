@@ -1,6 +1,6 @@
 import { test, expect } from '../fixtures/extension';
 
-test.describe('Space Capture & Management Lifecycle', () => {
+test.describe('Workspace Capture & View Management Lifecycle', () => {
   test('should capture the active session as a space, switch to Spaces view, and verify it exists', async ({
     page,
     context,
