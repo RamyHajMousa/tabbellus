@@ -180,7 +180,7 @@ describe('SpaceService Performance Stress Tests', () => {
     const queryFn = spaceService.getTabsForSpaceQuery(spaceId);
 
     const startTime = performance.now();
-    const result = await queryFn();
+    const result = await db.transaction('r', [db.tabs], () => queryFn());
     const endTime = performance.now();
 
     const duration = endTime - startTime;
