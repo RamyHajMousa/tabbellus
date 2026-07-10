@@ -159,11 +159,13 @@ describe('SpaceService — Dexie Integration', () => {
 
 describe('SpaceService Performance Stress Tests', () => {
   it('should read and process 500 tabs within a 16ms frame budget', async () => {
+    // 1. Initialize a clean target workspace parent row
     const spaceId = (await db.spaces.add({
       name: 'Performance Test Space',
       createdAt: Date.now(),
     })) as number;
 
+    // 2. Programmatically generate 500 dense mock tab records
     const mockTabs = [];
     for (let i = 0; i < 500; i++) {
       mockTabs.push({
@@ -175,18 +177,26 @@ describe('SpaceService Performance Stress Tests', () => {
       });
     }
 
+    // 3. Batch insert rows instantly using high-speed bulk allocation
     await db.tabs.bulkAdd(mockTabs);
 
+    // 4. Resolve the target query provider closure function
     const queryFn = spaceService.getTabsForSpaceQuery(spaceId);
 
+    // 5. Run a high-precision performance duration evaluation
     const startTime = performance.now();
+    
+    // Force a deep read transaction pass to actively resolve the database records
     const result = await db.transaction('r', [db.tabs], () => queryFn());
+    
     const endTime = performance.now();
-
     const duration = endTime - startTime;
 
+    // 6. Assert structural completeness and execution velocity limits
     expect(result).toHaveLength(500);
     expect(duration).toBeLessThan(16);
+    
+    console.log(`\x1b[32m[PERF] Successfully processed 500 database tabs in: ${duration.toFixed(2)}ms\x1b[0m`);
   });
 });
 
