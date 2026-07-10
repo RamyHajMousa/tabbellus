@@ -318,7 +318,9 @@ TabBellus enforces a comprehensive testing infrastructure to guarantee data inte
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Controls single-worker headed Chromium instances (headed mode is mandatory for loading Chrome Extension APIs).
 *   **Runtime Fixture ([extension.ts](file:///d:/Projects/tabbellus/tests/fixtures/extension.ts)):** Bootstraps Chromium with extension parameters, loads the compiled package from `./dist`, and dynamically resolves the extension ID from the active service worker's target URL.
-*   **E2E Specs ([spaces.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/spaces.spec.ts)):** Inspects layout hydration guards, logo visual assets, GlobalHeader/ViewSwitcher visibility, and interactive navigation flows (e.g. empty-state render triggers).
+*   **E2E Specs:**
+    *   [spaces.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/spaces.spec.ts) — Inspects layout hydration guards, logo visual assets, GlobalHeader/ViewSwitcher visibility, and interactive navigation flows (e.g. empty-state render triggers) (2 tests).
+    *   [capture.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/capture.spec.ts) — Tests space capture inputs, form submissions, and active view switching to verify that new space rows render dynamically and hide empty states (1 test).
 *   **Requirement:** Tests run against compiled production builds. The command `npm run test:e2e` automatically builds the extension first to prevent testing stale source codes.
 
 ---
