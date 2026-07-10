@@ -312,6 +312,7 @@ TabBellus enforces a comprehensive testing infrastructure to guarantee data inte
     *   [sessionUtils.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/sessionUtils.test.ts) — Validates fuzzy matching heuristics, host normalizations, and extension links (10 tests).
     *   [spaceService.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/spaceService.test.ts) — Verifies Dexie transaction lifecycles, soft-deletes, restorations, tab index shifting, and title/fallback resolution (8 tests).
     *   [readLaterService.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/readLaterService.test.ts) — Verifies Read Later CRUD, URL deduplication rules, status updates, live query filters, and live unread counts (5 tests).
+    *   [dataService.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/dataService.test.ts) — Verifies backup exporting structures, database table clearing, and relational JSON importing with foreign key re-mapping (3 tests).
 *   **Execution Commands:** `npm test` (one-shot), `npm run test:watch` (active watch mode).
 
 ### 6.2 End-to-End Testing (Playwright)

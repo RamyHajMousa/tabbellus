@@ -1,0 +1,189 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { dataService } from '@/lib/dataService';
+import { db } from '@/lib/db';
+
+describe('DataService — Backup & Restore Integration', () => {
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    // Ensure cleanup of any leftover tables
+    await dataService.clearData();
+  });
+
+  // Helper to seed standard test data
+  async function seedTestData() {
+    const spaceId1 = await db.spaces.add({
+      name: 'Work Space',
+      createdAt: Date.now() - 10000,
+    }) as number;
+
+    const spaceId2 = await db.spaces.add({
+      name: 'Personal Space',
+      createdAt: Date.now() - 5000,
+    }) as number;
+
+    await db.tabs.bulkAdd([
+      { spaceId: spaceId1, url: 'https://work1.com', title: 'Work 1', order: 0 },
+      { spaceId: spaceId1, url: 'https://work2.com', title: 'Work 2', order: 1 },
+      { spaceId: spaceId2, url: 'https://personal1.com', title: 'Personal 1', order: 0 },
+      { spaceId: spaceId2, url: 'https://personal2.com', title: 'Personal 2', order: 1 },
+    ]);
+
+    await db.readLater.bulkAdd([
+      { url: 'https://read1.com', title: 'Read Later 1', addedAt: Date.now(), status: 'unread' },
+      { url: 'https://read2.com', title: 'Read Later 2', addedAt: Date.now(), status: 'read' },
+    ]);
+
+    return { spaceId1, spaceId2 };
+  }
+
+  // ── Test Case 1: Export Validation ─────────────────────────────
+  it('should export all spaces, tabs, and read-later items into a valid JSON structure', async () => {
+    await seedTestData();
+
+    const originalDocument = globalThis.document;
+    const originalURL = globalThis.URL;
+    const originalBlob = globalThis.Blob;
+
+    let exportedPayload: any = null;
+
+    // Mock DOM anchor and click triggers
+    const mockAnchor = {
+      href: '',
+      download: '',
+      click: vi.fn(),
+    };
+
+    globalThis.document = {
+      body: {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      },
+      createElement: vi.fn().mockReturnValue(mockAnchor),
+    } as any;
+
+    globalThis.URL = {
+      createObjectURL: vi.fn().mockReturnValue('blob:mock-download-url'),
+      revokeObjectURL: vi.fn(),
+    } as any;
+
+    // Mock Blob constructor to capture the serialized backup string
+    class MockBlob extends originalBlob {
+      constructor(chunks: any[], options?: any) {
+        super(chunks, options);
+        exportedPayload = JSON.parse(chunks[0]);
+      }
+    }
+    globalThis.Blob = MockBlob as any;
+
+    try {
+      await dataService.exportData();
+
+      expect(exportedPayload).toBeDefined();
+      expect(exportedPayload.version).toBe(1);
+      expect(exportedPayload.date).toBeDefined();
+
+      // Check spaces
+      expect(exportedPayload.spaces).toHaveLength(2);
+      expect(exportedPayload.spaces[0].name).toBe('Work Space');
+      expect(exportedPayload.spaces[1].name).toBe('Personal Space');
+
+      // Check tabs
+      expect(exportedPayload.tabs).toHaveLength(4);
+      expect(exportedPayload.tabs[0].url).toBe('https://work1.com');
+      expect(exportedPayload.tabs[2].url).toBe('https://personal1.com');
+
+      // Check readLater items
+      expect(exportedPayload.readLater).toHaveLength(2);
+      expect(exportedPayload.readLater[0].url).toBe('https://read1.com');
+      expect(exportedPayload.readLater[1].status).toBe('read');
+    } finally {
+      // Restore global objects to avoid test leaks
+      globalThis.document = originalDocument;
+      globalThis.URL = originalURL;
+      globalThis.Blob = originalBlob;
+    }
+  });
+
+  // ── Test Case 2: Destructive Cleansing ──────────────────────────
+  it('should clear all database tables completely', async () => {
+    await seedTestData();
+
+    // Verify database has data before purge
+    expect(await db.spaces.count()).toBe(2);
+    expect(await db.tabs.count()).toBe(4);
+    expect(await db.readLater.count()).toBe(2);
+
+    await dataService.clearData();
+
+    // Assert everything is empty
+    expect(await db.spaces.count()).toBe(0);
+    expect(await db.tabs.count()).toBe(0);
+    expect(await db.readLater.count()).toBe(0);
+  });
+
+  // ── Test Case 3: Relational Import & Foreign Key Re-mapping ─────
+  it('should import data and correctly re-map tab spaceId foreign keys to the new auto-incremented space IDs', async () => {
+    // 1. Seed database with relations and capture payload
+    const { spaceId1, spaceId2 } = await seedTestData();
+
+    const spaces = await db.spaces.toArray();
+    const tabs = await db.tabs.toArray();
+    const readLater = await db.readLater.toArray();
+
+    const payload = {
+      version: 1,
+      date: new Date().toISOString(),
+      spaces,
+      tabs,
+      readLater,
+    };
+
+    // 2. Wipe database
+    await dataService.clearData();
+
+    // 3. Mock File and perform Import
+    const mockFile = {
+      text: async () => JSON.stringify(payload),
+    } as unknown as File;
+
+    const importResult = await dataService.importData(mockFile);
+    expect(importResult.spacesCount).toBe(2);
+    expect(importResult.tabsCount).toBe(4);
+    expect(importResult.readLaterCount).toBe(2);
+
+    // 4. Retrieve imported spaces and build name map to new IDs
+    const importedSpaces = await db.spaces.toArray();
+    expect(importedSpaces).toHaveLength(2);
+
+    const workSpace = importedSpaces.find((s) => s.name === 'Work Space');
+    const personalSpace = importedSpaces.find((s) => s.name === 'Personal Space');
+
+    expect(workSpace).toBeDefined();
+    expect(personalSpace).toBeDefined();
+
+    // Ensure the new space IDs are newly generated (likely different, but definitely valid auto-increment numbers)
+    const newWorkSpaceId = workSpace!.id!;
+    const newPersonalSpaceId = personalSpace!.id!;
+
+    // 5. Retrieve imported tabs and verify correct mapping
+    const importedTabs = await db.tabs.toArray();
+    expect(importedTabs).toHaveLength(4);
+
+    // Filter tabs by their new spaceId assignment
+    const workTabs = importedTabs.filter((t) => t.spaceId === newWorkSpaceId);
+    const personalTabs = importedTabs.filter((t) => t.spaceId === newPersonalSpaceId);
+
+    expect(workTabs).toHaveLength(2);
+    expect(personalTabs).toHaveLength(2);
+
+    // Assert that the tabs correspond to the correct parent space contents
+    expect(workTabs.map((t) => t.url)).toContain('https://work1.com');
+    expect(workTabs.map((t) => t.url)).toContain('https://work2.com');
+    expect(personalTabs.map((t) => t.url)).toContain('https://personal1.com');
+    expect(personalTabs.map((t) => t.url)).toContain('https://personal2.com');
+
+    // Make sure old IDs do not bleed into the imported tab records
+    expect(workTabs.every((t) => t.spaceId !== spaceId1)).toBe(true);
+    expect(personalTabs.every((t) => t.spaceId !== spaceId2)).toBe(true);
+  });
+});
