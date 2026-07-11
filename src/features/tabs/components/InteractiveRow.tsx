@@ -114,6 +114,7 @@ export const InteractiveRowActions: React.FC<{ children: React.ReactNode; classN
             className={`
                 absolute right-2 top-1/2 -translate-y-1/2 flex items-center rounded-md transition-all z-10
                 opacity-0 group-hover:opacity-100 focus-within:opacity-100
+                pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto
                 ${className || ''}
             `}
         >

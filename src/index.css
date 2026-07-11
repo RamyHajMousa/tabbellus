@@ -82,3 +82,17 @@
     @apply bg-muted-foreground/30 hover:bg-muted-foreground/50 rounded-full;
   }
 }
+
+@layer utilities {
+  /* Grey badge accessibility override to meet contrast thresholds in dark mode */
+  .dark .bg-zinc-500 {
+    background-color: hsl(240 5% 65%) !important;
+  }
+  .dark .text-zinc-500 {
+    color: hsl(240 5% 65%) !important;
+  }
+  .dark .border-zinc-500 {
+    border-color: hsl(240 5% 65%) !important;
+  }
+}
+

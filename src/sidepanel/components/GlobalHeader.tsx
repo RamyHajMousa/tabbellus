@@ -51,24 +51,30 @@ export const GlobalHeader = () => {
             <TooltipSimple content="New Tab (Alt+T)" side="bottom">
                 <button
                     onClick={handleNewTab}
+                    aria-label="Create new tab"
                     className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
                 >
                     <Plus className="w-4 h-4" />
                 </button>
             </TooltipSimple>
-            <button
-                onClick={toggleHistory}
-                className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-                title="Recently Closed"
-            >
-                <History className="w-4 h-4" />
-            </button>
-            <button
-                onClick={() => setSettingsOpen(true)}
-                className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-            >
-                <Settings className="w-4 h-4" />
-            </button>
+            <TooltipSimple content="Recently Closed" side="bottom">
+                <button
+                    onClick={toggleHistory}
+                    aria-label="Recently closed tabs history"
+                    className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                >
+                    <History className="w-4 h-4" />
+                </button>
+            </TooltipSimple>
+            <TooltipSimple content="Settings" side="bottom">
+                <button
+                    onClick={() => setSettingsOpen(true)}
+                    aria-label="Open settings"
+                    className="ml-1 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                >
+                    <Settings className="w-4 h-4" />
+                </button>
+            </TooltipSimple>
         </header>
     );
 };
