@@ -186,8 +186,6 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                     </ContextMenuItem>
                 )}
 
-
-
                 {onReadLater && (
                     <ContextMenuItem onClick={onReadLater}>
                         <Clock className="mr-2 h-4 w-4" />

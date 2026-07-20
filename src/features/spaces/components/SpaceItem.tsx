@@ -192,7 +192,7 @@ export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
             </InteractiveRow.Title>
 
             {/* Actions (Visible on Hover) */}
-            <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5">
+            <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5 px-1 py-0.5">
                 <InteractiveRow.Action
                     icon={ExternalLink}
                     onClick={handleClick}

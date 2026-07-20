@@ -69,9 +69,13 @@ export const dataService = {
         const text = await file.text();
         const data = JSON.parse(text);
 
-        // Basic validation
-        if (!data.spaces || !Array.isArray(data.spaces)) {
-            throw new Error('Invalid backup file: missing spaces array');
+        // Support both multi-space backups (data.spaces) and single-space exports (data.space)
+        const spacesRaw = Array.isArray(data.spaces)
+            ? data.spaces
+            : (data.space ? [data.space] : []);
+
+        if (spacesRaw.length === 0) {
+            throw new Error('Invalid backup file: missing spaces data');
         }
 
         let spacesCount = 0;
@@ -82,7 +86,6 @@ export const dataService = {
         await db.transaction('rw', db.spaces, db.tabs, db.readLater, async () => {
             // 1. Import Spaces & Build ID Map
             const spaceIdMap = new Map<number, number>();
-            const spacesRaw = data.spaces || [];
 
             for (const s of spacesRaw) {
                 const { id: oldId, ...rest } = s;

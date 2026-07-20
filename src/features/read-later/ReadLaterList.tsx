@@ -154,7 +154,7 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                     </InteractiveRow.Title>
 
                     {/* Actions */}
-                    <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5">
+                    <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5 px-1 py-0.5">
                         <InteractiveRow.Action
                             icon={Trash2}
                             onClick={() => {
