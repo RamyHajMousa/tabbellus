@@ -101,17 +101,8 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                                 alt=""
                                 className="w-4 h-4 rounded-sm flex-shrink-0"
                                 onError={(e) => {
-                                    const img = e.target as HTMLImageElement;
-                                    if (data.url && !img.dataset.triedFallback) {
-                                        img.dataset.triedFallback = 'true';
-                                        try {
-                                            const hostname = new URL(data.url).hostname;
-                                            img.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
-                                            return;
-                                        } catch {}
-                                    }
-                                    img.style.display = 'none';
-                                    img.nextElementSibling?.classList.remove('hidden');
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
                                 }}
                             />
                         ) : null}

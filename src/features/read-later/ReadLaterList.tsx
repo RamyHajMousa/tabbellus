@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Trash2, Archive, CheckCircle2, Globe, Check, Copy, Clock } from 'lucide-react';
-import { tabService, readLaterService, getFaviconUrl } from '@/lib';
+import { tabService, readLaterService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
@@ -12,6 +12,7 @@ import {
     ContextMenuItem,
     ContextMenuSeparator,
 } from '@/components/ui/context-menu';
+import { getFallbackFavicon } from '@/features/tabs/types';
 
 export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
@@ -108,7 +109,7 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
         }
     })();
 
-    const faviconUrl = getFaviconUrl(item.url, item.favicon);
+    const faviconUrl = item.favicon || getFallbackFavicon(item.url);
 
     return (
         <ContextMenu>
@@ -139,19 +140,10 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                             <img
                                 src={faviconUrl}
                                 alt=""
-                                className="w-3.5 h-3.5 rounded-sm"
+                                className="w-3.5 h-3.5 rounded-sm flex-shrink-0"
                                 onError={(e) => {
-                                    const img = e.target as HTMLImageElement;
-                                    if (item.url && !img.dataset.triedFallback) {
-                                        img.dataset.triedFallback = 'true';
-                                        try {
-                                            const hostname = new URL(item.url).hostname;
-                                            img.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
-                                            return;
-                                        } catch {}
-                                    }
-                                    img.style.display = 'none';
-                                    img.nextElementSibling?.classList.remove('hidden');
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
                                 }}
                             />
                         ) : null}

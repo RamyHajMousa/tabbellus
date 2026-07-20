@@ -16,7 +16,7 @@ export default defineManifest({
         "tabGroups",
         "sessions",
         "alarms",
-        "_favicon"
+        "favicon"
     ],
     action: {
         default_popup: "src/popup/index.html",
