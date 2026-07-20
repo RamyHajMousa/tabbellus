@@ -97,3 +97,26 @@ export const openSupportHub = async () => {
         chrome.tabs.create({ url: EXTERNAL_LINKS.SUPPORT, active: true }).catch(() => {});
     }
 };
+
+/**
+ * Resolves a reliable favicon URL for a given webpage URL.
+ * Prefers the provided favicon string if available, then falls back to Chrome's native _favicon API,
+ * and finally to Google's public favicon service.
+ */
+export const getFaviconUrl = (url?: string, favicon?: string | null): string | null => {
+    if (favicon && favicon.trim().length > 0) {
+        return favicon;
+    }
+    if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        try {
+            if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+                return `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(url)}&size=32`;
+            }
+            const hostname = new URL(url).hostname;
+            return `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
