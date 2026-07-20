@@ -15,7 +15,8 @@ export default defineManifest({
         "unlimitedStorage",
         "tabGroups",
         "sessions",
-        "alarms"
+        "alarms",
+        "favicon"
     ],
     action: {
         default_popup: "src/popup/index.html",
@@ -23,6 +24,12 @@ export default defineManifest({
     side_panel: {
         default_path: "src/sidepanel/index.html"
     },
+    web_accessible_resources: [
+        {
+            resources: ["_favicon/*"],
+            matches: ["<all_urls>"]
+        }
+    ],
     background: {
         service_worker: "src/background/index.ts",
         type: "module",

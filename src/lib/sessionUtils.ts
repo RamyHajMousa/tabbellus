@@ -96,17 +96,21 @@ export function isFuzzyMatch(savedUrl: string, closedUrl: string): boolean {
 }
 
 /**
- * Resolves the favicon URL, falling back to Google Favicon API if missing or empty.
+ * Resolves the favicon URL, falling back to Chrome's native favicon cache.
  */
 export function getFaviconUrl(url?: string, chromeFavicon?: string | null): string | null {
+    // 1. If Chrome provides a valid, direct URL, use it immediately
     if (chromeFavicon && chromeFavicon.trim() !== '') {
         return chromeFavicon;
     }
+
+    // 2. Fallback to Chrome's internal local favicon cache
     if (!url) return null;
     try {
-        const domain = new URL(url).hostname;
-        if (!domain) return null;
-        return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+        const faviconUrl = new URL(chrome.runtime.getURL('/_favicon/'));
+        faviconUrl.searchParams.set('pageUrl', url);
+        faviconUrl.searchParams.set('size', '32');
+        return faviconUrl.toString();
     } catch {
         return null;
     }

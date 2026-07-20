@@ -27,3 +27,4 @@
 - Keep responses concise, direct, and stripped of fluff.
 - Provide clear technical justifications for architectural choices (e.g., "Used `chrome.tabs.onReplaced` to prevent Edge Reader Mode ghost IDs").
 - End key implementation steps with a clear decision gate (e.g., "Feature [X] is verified. Shall I proceed to [Y]?").
+- Don't commit or push code to the repository unless explicitly asked to do so.
