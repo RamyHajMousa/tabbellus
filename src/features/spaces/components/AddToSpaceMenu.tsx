@@ -1,7 +1,4 @@
-import { useLiveQuery } from 'dexie-react-hooks';
 import { FolderPlus } from 'lucide-react';
-import { spaceService } from '@/lib';
-import { useToast } from '@/components/ui/Toaster';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -12,30 +9,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { type RowTabData } from '@/features/tabs/types';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
+import { useAddToSpaceAction } from '../hooks/useAddToSpaceAction';
 
 interface AddToSpaceMenuProps {
     tab: RowTabData;
 }
 
 export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
-    const { toast } = useToast();
-
-    // Fetch non-deleted spaces, newest first
-    const spaces = useLiveQuery(spaceService.getSpacesNewestFirstQuery());
-
-    const handleSelect = async (spaceId: number, spaceName: string) => {
-        try {
-            await spaceService.addTabToSpace(spaceId, {
-                url: tab.url,
-                title: tab.title,
-                favIconUrl: tab.favicon
-            });
-            toast(`Saved to "${spaceName}"`);
-        } catch (error) {
-            console.error(error);
-            toast("Failed to save to space");
-        }
-    };
+    const { spaces, addToSpace } = useAddToSpaceAction(tab);
 
     return (
         <DropdownMenu>
@@ -53,7 +34,7 @@ export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
                     {spaces?.map((space) => (
                         <DropdownMenuItem
                             key={space.id}
-                            onClick={() => space.id && handleSelect(space.id, space.name)}
+                            onClick={() => space.id && addToSpace(space.id, space.name)}
                             className="cursor-pointer"
                         >
                             <span className="truncate">{space.name}</span>

@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Trash2, Archive, CheckCircle2, Globe, Check, Copy } from 'lucide-react';
+import { Trash2, Archive, CheckCircle2, Globe, Check, Copy, Clock } from 'lucide-react';
 import { tabService, readLaterService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
+import {
+    ContextMenu,
+    ContextMenuTrigger,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuSeparator,
+} from '@/components/ui/context-menu';
 
 export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
@@ -86,7 +93,7 @@ export const ReadLaterList = () => {
 
 // Extracted for clean hook usage
 const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) => {
-    const { hasCopied, copy } = useClipboard();
+    const { copy } = useClipboard();
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -102,66 +109,86 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
     })();
 
     return (
-        <InteractiveRow
-            size="md"
-            onClick={() => handleOpen(item.url)}
-        >
-            {/* Checkbox & Favicon */}
-            <InteractiveRow.Leading>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (item.id) toggleStatus(item.id, item.status);
-                    }}
-                    className={`
-                        flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all duration-200
-                        ${item.status === 'archived'
-                            ? 'bg-primary border-primary text-primary-foreground'
-                            : 'border-border hover:border-primary text-transparent'
-                        }
-                    `}
-                    title={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
+        <ContextMenu>
+            <ContextMenuTrigger asChild>
+                <InteractiveRow
+                    size="md"
+                    onClick={() => handleOpen(item.url)}
                 >
-                    {item.status === 'archived' && <Check className="w-2.5 h-2.5" />}
-                </button>
-                {item.favicon ? (
-                    <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm" />
-                ) : (
-                    <Globe className="w-3.5 h-3.5 text-muted-foreground" />
-                )}
-            </InteractiveRow.Leading>
+                    {/* Checkbox & Favicon */}
+                    <InteractiveRow.Leading>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (item.id) toggleStatus(item.id, item.status);
+                            }}
+                            className={`
+                                flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all duration-200
+                                ${item.status === 'archived'
+                                    ? 'bg-primary border-primary text-primary-foreground'
+                                    : 'border-border hover:border-primary text-transparent'
+                                }
+                            `}
+                            title={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
+                        >
+                            {item.status === 'archived' && <Check className="w-2.5 h-2.5" />}
+                        </button>
+                        {item.favicon ? (
+                            <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm" />
+                        ) : (
+                            <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+                        )}
+                    </InteractiveRow.Leading>
 
-            {/* Title / Info */}
-            <InteractiveRow.Title
-                subTitle={(
-                    <span className="text-xxs text-muted-foreground">
-                        {host} • {new Date(item.addedAt).toLocaleDateString()}
-                    </span>
-                )}
-            >
-                <span className={item.status === 'archived' ? 'text-muted-foreground line-through' : 'text-foreground'}>
-                    {item.title || item.url}
-                </span>
-            </InteractiveRow.Title>
+                    {/* Title / Info */}
+                    <InteractiveRow.Title
+                        subTitle={(
+                            <span className="text-xxs text-muted-foreground">
+                                {host} • {new Date(item.addedAt).toLocaleDateString()}
+                            </span>
+                        )}
+                    >
+                        <span className={item.status === 'archived' ? 'text-muted-foreground line-through' : 'text-foreground'}>
+                            {item.title || item.url}
+                        </span>
+                    </InteractiveRow.Title>
 
-            {/* Actions */}
-            <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5">
-                <InteractiveRow.Action
-                    icon={hasCopied ? Check : Copy}
-                    onClick={handleCopy}
-                    title="Copy URL"
-                    variant="neutral"
-                    className={hasCopied ? "text-green-500 hover:text-green-500" : ""}
-                />
-                <InteractiveRow.Action
-                    icon={Trash2}
-                    onClick={() => {
-                        if (item.id) handleDelete(item.id);
-                    }}
-                    title="Delete"
-                    variant="destructive"
-                />
-            </InteractiveRow.Actions>
-        </InteractiveRow>
+                    {/* Actions */}
+                    <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5">
+                        <InteractiveRow.Action
+                            icon={Trash2}
+                            onClick={() => {
+                                if (item.id) handleDelete(item.id);
+                            }}
+                            title="Delete"
+                            variant="destructive"
+                        />
+                    </InteractiveRow.Actions>
+                </InteractiveRow>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-48">
+                <ContextMenuItem onClick={() => handleOpen(item.url)}>
+                    <Globe className="mr-2 h-4 w-4" />
+                    Open
+                </ContextMenuItem>
+                <ContextMenuItem onClick={handleCopy}>
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy URL
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => item.id && toggleStatus(item.id, item.status)}>
+                    <Clock className="mr-2 h-4 w-4" />
+                    {item.status === 'unread' ? 'Mark as Read' : 'Mark as Unread'}
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                    onClick={() => item.id && handleDelete(item.id)}
+                    className="text-destructive focus:text-destructive"
+                >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                </ContextMenuItem>
+            </ContextMenuContent>
+        </ContextMenu>
     );
 };

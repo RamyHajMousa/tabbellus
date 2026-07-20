@@ -334,6 +334,7 @@ TabBellus enforces a comprehensive testing infrastructure to guarantee data inte
 - **Phase 3: Type Safety** - Complete. Implemented unified typescript rows mapping.
 - **Phase 4: Render Registry** - Complete. Config-driven tab/group tree rendering.
 - **Phase 5: Primitive Composition** - Complete. Unified layout spacing using compound rows.
+- **Phase 6: Context Menus & Sub-menus** - Complete. Wrapped `TabRow`, `SpaceItem`, and `ReadLaterItem` in custom Radix context menus with sub-menus.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**

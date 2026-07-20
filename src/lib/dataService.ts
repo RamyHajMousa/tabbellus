@@ -33,6 +33,35 @@ export const dataService = {
     },
 
     /**
+     * Export a single space and its tabs to a JSON file.
+     */
+    async exportSpaceAsJson(spaceId: number): Promise<void> {
+        const space = await db.spaces.get(spaceId);
+        if (!space) {
+            throw new Error(`Space with ID ${spaceId} not found`);
+        }
+        const tabs = await db.tabs.where('spaceId').equals(spaceId).toArray();
+
+        const backup = {
+            version: 1,
+            date: new Date().toISOString(),
+            space,
+            tabs,
+        };
+
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const safeSpaceName = space.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        a.href = url;
+        a.download = `tabbellus-space-${safeSpaceName}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    /**
      * Import data from a JSON backup file.
      * Removes IDs to let Dexie auto-generate new ones.
      */

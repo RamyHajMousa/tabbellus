@@ -8,6 +8,8 @@ export interface RowTabData {
   source: 'active' | 'saved' | 'synced' | 'suggestion'; // Discriminant string literal
   isActive?: boolean;
   chromeTabId?: number; // Kept only for live Chrome tab interactions
+  pinned?: boolean; // Chrome tab pinned state (context menu toggle)
+  mutedInfo?: chrome.tabs.MutedInfo; // Chrome tab muted state (context menu toggle)
 }
 
 export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | null): RowTabData {
@@ -19,6 +21,8 @@ export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | 
     source: 'active',
     isActive: tab.id !== undefined && activeTabId !== undefined && tab.id === activeTabId,
     chromeTabId: tab.id,
+    pinned: tab.pinned,
+    mutedInfo: tab.mutedInfo,
   };
 }
 

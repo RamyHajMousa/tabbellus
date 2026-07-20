@@ -51,7 +51,14 @@ export function useTabLifecycle(
         const onTabUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
             if (tab.windowId !== windowId) return;
             // Intentionally check strict/shallow updates to prevent over-rendering
-            if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl || changeInfo.groupId || changeInfo.pinned || changeInfo.audible) {
+            if (
+                changeInfo.status ||
+                changeInfo.title ||
+                changeInfo.favIconUrl ||
+                changeInfo.groupId !== undefined ||
+                changeInfo.pinned !== undefined ||
+                changeInfo.audible !== undefined
+            ) {
                 setTabs(prev => prev.map(t => (t.id === _tabId ? tab : t)).sort((a, b) => a.index - b.index));
             }
         };
