@@ -12,7 +12,6 @@ import {
     ContextMenuItem,
     ContextMenuSeparator,
 } from '@/components/ui/context-menu';
-import { getFallbackFavicon } from '@/features/tabs/types';
 
 export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
@@ -109,8 +108,6 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
         }
     })();
 
-    const faviconUrl = item.favicon || getFallbackFavicon(item.url);
-
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
@@ -136,18 +133,11 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                         >
                             {item.status === 'archived' && <Check className="w-2.5 h-2.5" />}
                         </button>
-                        {faviconUrl ? (
-                            <img
-                                src={faviconUrl}
-                                alt=""
-                                className="w-3.5 h-3.5 rounded-sm flex-shrink-0"
-                                onError={(e) => {
-                                    (e.target as HTMLImageElement).style.display = 'none';
-                                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                                }}
-                            />
-                        ) : null}
-                        <Globe className={`w-3.5 h-3.5 text-muted-foreground ${faviconUrl ? 'hidden' : ''}`} />
+                        {item.favicon ? (
+                            <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm" />
+                        ) : (
+                            <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+                        )}
                     </InteractiveRow.Leading>
 
                     {/* Title / Info */}

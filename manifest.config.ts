@@ -15,8 +15,7 @@ export default defineManifest({
         "unlimitedStorage",
         "tabGroups",
         "sessions",
-        "alarms",
-        "favicon"
+        "alarms"
     ],
     action: {
         default_popup: "src/popup/index.html",

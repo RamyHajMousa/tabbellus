@@ -94,3 +94,20 @@ export function isFuzzyMatch(savedUrl: string, closedUrl: string): boolean {
         return savedUrl.trim().toLowerCase() === closedUrl.trim().toLowerCase();
     }
 }
+
+/**
+ * Resolves the favicon URL, falling back to Google Favicon API if missing or empty.
+ */
+export function getFaviconUrl(url?: string, chromeFavicon?: string | null): string | null {
+    if (chromeFavicon && chromeFavicon.trim() !== '') {
+        return chromeFavicon;
+    }
+    if (!url) return null;
+    try {
+        const domain = new URL(url).hostname;
+        if (!domain) return null;
+        return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+    } catch {
+        return null;
+    }
+}

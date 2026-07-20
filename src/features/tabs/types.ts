@@ -1,4 +1,5 @@
 import { type Tab } from '@/lib/db';
+import { getFaviconUrl } from '@/lib/sessionUtils';
 
 export interface RowTabData {
   id: string; // Unified string identifier
@@ -17,7 +18,7 @@ export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | 
     id: `chrome-${tab.id ?? Math.random()}`,
     url: tab.url ?? '',
     title: tab.title ?? '',
-    favicon: tab.favIconUrl || getFallbackFavicon(tab.url),
+    favicon: getFaviconUrl(tab.url, tab.favIconUrl),
     source: 'active',
     isActive: tab.id !== undefined && activeTabId !== undefined && tab.id === activeTabId,
     chromeTabId: tab.id,
@@ -31,20 +32,8 @@ export function savedTabToRowData(tab: Tab): RowTabData {
     id: `saved-${tab.id ?? Math.random()}`,
     url: tab.url,
     title: tab.title ?? '',
-    favicon: tab.favicon || getFallbackFavicon(tab.url),
+    favicon: getFaviconUrl(tab.url, tab.favicon),
     source: 'saved',
     isActive: false,
   };
-}
-
-export function getFallbackFavicon(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    const parsedUrl = new URL(url);
-    if (parsedUrl.protocol.startsWith('http')) {
-      const extensionId = typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.id : 'mock-extension-id';
-      return `chrome-extension://${extensionId}/_favicon/?pageUrl=${encodeURIComponent(url)}&size=32`;
-    }
-  } catch {}
-  return null;
 }
