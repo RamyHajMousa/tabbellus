@@ -57,7 +57,8 @@ export function useTabLifecycle(
                 changeInfo.favIconUrl ||
                 changeInfo.groupId !== undefined ||
                 changeInfo.pinned !== undefined ||
-                changeInfo.audible !== undefined
+                changeInfo.audible !== undefined ||
+                changeInfo.mutedInfo !== undefined
             ) {
                 setTabs(prev => prev.map(t => (t.id === _tabId ? tab : t)).sort((a, b) => a.index - b.index));
             }

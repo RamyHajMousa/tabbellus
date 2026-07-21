@@ -37,7 +37,6 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
     };
 
     const isPinned = data.pinned;
-    const isMuted = data.mutedInfo?.muted;
 
     const handleDuplicate = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -57,13 +56,6 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
         e.stopPropagation();
         if (data.chromeTabId) {
             chrome.tabs.update(data.chromeTabId, { pinned: !isPinned }).catch(() => { });
-        }
-    };
-
-    const handleToggleMute = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (data.chromeTabId) {
-            chrome.tabs.update(data.chromeTabId, { muted: !isMuted }).catch(() => { });
         }
     };
 
@@ -168,8 +160,14 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                         <ContextMenuItem onClick={handleTogglePin}>
                             {isPinned ? 'Unpin Tab' : 'Pin Tab'}
                         </ContextMenuItem>
-                        <ContextMenuItem onClick={handleToggleMute}>
-                            {isMuted ? 'Unmute Tab' : 'Mute Tab'}
+                        <ContextMenuItem
+                            onSelect={() => {
+                                if (data.chromeTabId !== undefined) {
+                                    chrome.tabs.update(data.chromeTabId, { muted: !data.mutedInfo?.muted }).catch(() => { });
+                                }
+                            }}
+                        >
+                            {data.mutedInfo?.muted ? "Unmute Tab" : "Mute Tab"}
                         </ContextMenuItem>
                         <ContextMenuItem onClick={handleDuplicate}>
                             Duplicate
