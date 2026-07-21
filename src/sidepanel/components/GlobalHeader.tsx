@@ -1,28 +1,13 @@
-import { useEffect, useCallback } from 'react';
-import { Search, Settings, History, Plus } from 'lucide-react';
+import { Search, Settings, History, Library } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useCurrentSpace } from '@/hooks/useCurrentSpace';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { BookmarkPopoverContent } from '@/features/bookmarks/BookmarkPopoverContent';
 
 export const GlobalHeader = () => {
     const { setSearchOpen, setSettingsOpen, toggleHistory } = useUIStore();
     const currentSpace = useCurrentSpace();
-
-    const handleNewTab = useCallback(() => {
-        chrome.tabs.create({ active: true });
-    }, []);
-
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.altKey && e.key.toLowerCase() === 't') {
-                e.preventDefault();
-                handleNewTab();
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleNewTab]);
 
     return (
         <header className="h-12 flex items-center px-4 border-b border-border bg-background sticky top-0 z-10">
@@ -48,15 +33,24 @@ export const GlobalHeader = () => {
                     ⌘K
                 </span>
             </button>
-            <TooltipSimple content="New Tab (Alt+T)" side="bottom">
-                <button
-                    onClick={handleNewTab}
-                    aria-label="Create new tab"
-                    className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-                >
-                    <Plus className="w-4 h-4" />
-                </button>
-            </TooltipSimple>
+
+            <Popover>
+                <PopoverTrigger asChild>
+                    <button
+                        aria-label="Bookmarks library"
+                        className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                    >
+                        <Library className="w-4 h-4" />
+                    </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 p-2">
+                    <div className="text-xs font-semibold px-2 py-1.5 border-b border-border mb-1 text-foreground">
+                        Bookmarks
+                    </div>
+                    <BookmarkPopoverContent />
+                </PopoverContent>
+            </Popover>
+
             <TooltipSimple content="Recently Closed" side="bottom">
                 <button
                     onClick={toggleHistory}
