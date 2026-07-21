@@ -10,6 +10,7 @@ export interface RowTabData {
   chromeTabId?: number; // Kept only for live Chrome tab interactions
   pinned?: boolean; // Chrome tab pinned state (context menu toggle)
   mutedInfo?: chrome.tabs.MutedInfo; // Chrome tab muted state (context menu toggle)
+  discarded?: boolean; // Chrome tab suspended/discarded state
 }
 
 export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | null): RowTabData {
@@ -23,6 +24,7 @@ export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | 
     chromeTabId: tab.id,
     pinned: tab.pinned,
     mutedInfo: tab.mutedInfo,
+    discarded: tab.discarded || false,
   };
 }
 

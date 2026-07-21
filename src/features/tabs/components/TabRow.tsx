@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, X, Clock, Trash2, Copy, GripVertical, Pin } from 'lucide-react';
+import { Globe, X, Clock, Trash2, Copy, GripVertical, Pin, VolumeX } from 'lucide-react';
 import { tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
@@ -74,6 +74,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                     size="md"
                     isActive={isActive}
                     isDragging={isDragging}
+                    className={data.discarded ? "opacity-50 grayscale" : ""}
                     onClick={(e) => {
                         e.stopPropagation();
                         if (data.source === 'saved') {
@@ -120,6 +121,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                     >
                         <span className="flex items-center gap-1 min-w-0">
                             {data.pinned && <Pin className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+                            {data.mutedInfo?.muted && <VolumeX className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
                             <span className="truncate">{data.title || data.url}</span>
                         </span>
                     </InteractiveRow.Title>
