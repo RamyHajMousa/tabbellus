@@ -17,10 +17,18 @@ import {
 
 interface SpaceItemProps {
     space: Space;
+    isExpanded?: boolean;
 }
 
-export const SpaceItem = React.memo(({ space }: SpaceItemProps) => {
-    const [isOpen, setIsOpen] = React.useState(false);
+export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
+    const [isOpen, setIsOpen] = React.useState(isExpanded ?? false);
+
+    React.useEffect(() => {
+        if (isExpanded !== undefined) {
+            setIsOpen(isExpanded);
+        }
+    }, [isExpanded]);
+
     const { toast } = useToast();
 
     // Editing State

@@ -13,8 +13,12 @@ import {
     ContextMenuSeparator,
 } from '@/components/ui/context-menu';
 
+import { useToast } from '@/components/ui/Toaster';
+import { ReadLaterToolbar } from './components/ReadLaterToolbar';
+
 export const ReadLaterList = () => {
     const [showArchived, setShowArchived] = useState(false);
+    const { toast } = useToast();
 
     const items = useLiveQuery(
         readLaterService.getItemsByStatusQuery(showArchived ? 'archived' : 'unread'),
@@ -40,8 +44,22 @@ export const ReadLaterList = () => {
         await tabService.focusOrCreate(url);
     };
 
+    const handleMarkAllAsRead = async () => {
+        const count = await readLaterService.markAllAsRead();
+        if (count > 0) {
+            toast(`Marked ${count} items as read`);
+        }
+    };
+
+    const handleClearAllArchived = async () => {
+        const count = await readLaterService.clearAllArchived();
+        if (count > 0) {
+            toast(`Cleared ${count} archived items`);
+        }
+    };
+
     return (
-        <div className="flex flex-col h-full bg-background">
+        <div className="flex flex-col h-full bg-background select-none">
             {/* Header / Filter Toggle */}
             <div className="p-4 border-b border-border flex-shrink-0">
                 <div className="flex bg-muted p-1 rounded-lg">
@@ -61,6 +79,12 @@ export const ReadLaterList = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Local Toolbar */}
+            <ReadLaterToolbar
+                onMarkAllAsRead={handleMarkAllAsRead}
+                onClearAllArchived={handleClearAllArchived}
+            />
 
             {/* List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">

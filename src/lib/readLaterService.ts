@@ -82,6 +82,31 @@ class ReadLaterService {
     async updateStatus(id: number, status: ReadLaterItem['status']): Promise<void> {
         await db.readLater.update(id, { status });
     }
+
+    /**
+     * Marks all unread items as archived (read).
+     */
+    async markAllAsRead(): Promise<number> {
+        const unreadItems = await db.readLater.where('status').equals('unread').toArray();
+        if (unreadItems.length === 0) return 0;
+        await db.transaction('rw', db.readLater, async () => {
+            for (const item of unreadItems) {
+                if (item.id) await db.readLater.update(item.id, { status: 'archived' });
+            }
+        });
+        return unreadItems.length;
+    }
+
+    /**
+     * Clears (deletes) all archived items.
+     */
+    async clearAllArchived(): Promise<number> {
+        const archivedItems = await db.readLater.where('status').equals('archived').toArray();
+        if (archivedItems.length === 0) return 0;
+        const ids = archivedItems.map(i => i.id!).filter(id => id !== undefined);
+        await db.readLater.bulkDelete(ids);
+        return ids.length;
+    }
 }
 
 /**

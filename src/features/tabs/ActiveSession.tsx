@@ -8,6 +8,7 @@ import { TabRow } from './components/TabRow';
 import { GroupRow } from './components/GroupRow';
 import { useCurrentSpace } from '@/hooks/useCurrentSpace';
 import { chromeTabToRowData } from './types';
+import { ActiveToolbar } from './components/ActiveToolbar';
 
 // A contiguous block of ungrouped tabs sharing a common position segment
 interface UngroupedSegment {
@@ -401,6 +402,9 @@ export const ActiveSession = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Active View Local Toolbar */}
+            <ActiveToolbar tabs={tabs} activeTabId={activeTabId} />
 
             {/* Scrollable Tab List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0 bg-background">
