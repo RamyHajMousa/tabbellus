@@ -89,11 +89,18 @@ const config = {
     				to: {
     					height: '0'
     				}
+    			},
+    			'audio-bounce': {
+    				'0%, 100%': { transform: 'scaleY(0.4)' },
+    				'50%': { transform: 'scaleY(1)' }
     			}
     		},
     		animation: {
     			'accordion-down': 'accordion-down 0.2s ease-out',
-    			'accordion-up': 'accordion-up 0.2s ease-out'
+    			'accordion-up': 'accordion-up 0.2s ease-out',
+    			'audio-bounce-1': 'audio-bounce 1.2s ease-in-out infinite',
+    			'audio-bounce-2': 'audio-bounce 0.9s ease-in-out infinite 0.2s',
+    			'audio-bounce-3': 'audio-bounce 1.1s ease-in-out infinite 0.4s'
     		}
     	}
     },
