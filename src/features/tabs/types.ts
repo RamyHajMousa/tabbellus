@@ -1,5 +1,4 @@
 import { type Tab } from '@/lib/db';
-import { getFaviconUrl } from '@/lib/sessionUtils';
 
 export interface RowTabData {
   id: string; // Unified string identifier
@@ -18,7 +17,7 @@ export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | 
     id: `chrome-${tab.id ?? Math.random()}`,
     url: tab.url ?? '',
     title: tab.title ?? '',
-    favicon: getFaviconUrl(tab.url, tab.favIconUrl),
+    favicon: tab.favIconUrl ?? null,
     source: 'active',
     isActive: tab.id !== undefined && activeTabId !== undefined && tab.id === activeTabId,
     chromeTabId: tab.id,
@@ -32,7 +31,7 @@ export function savedTabToRowData(tab: Tab): RowTabData {
     id: `saved-${tab.id ?? Math.random()}`,
     url: tab.url,
     title: tab.title ?? '',
-    favicon: getFaviconUrl(tab.url, tab.favicon),
+    favicon: tab.favicon ?? null,
     source: 'saved',
     isActive: false,
   };
