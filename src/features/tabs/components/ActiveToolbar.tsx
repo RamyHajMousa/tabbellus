@@ -44,6 +44,16 @@ export const ActiveToolbar: React.FC<ActiveToolbarProps> = ({ tabs, activeTabId 
         <div className="h-8 flex items-center justify-between px-3 bg-background border-b border-border flex-shrink-0 z-10 select-none">
             {/* Left Group Navigation */}
             <div className="flex items-center gap-0.5">
+                <TooltipSimple content="New Tab" side="bottom">
+                    <button
+                        onClick={handleNewTab}
+                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                        aria-label="Open new tab"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                    </button>
+                </TooltipSimple>
+
                 <TooltipSimple content="Back" side="bottom">
                     <button
                         onClick={handleGoBack}
@@ -80,16 +90,6 @@ export const ActiveToolbar: React.FC<ActiveToolbarProps> = ({ tabs, activeTabId 
 
             {/* Right Group Actions */}
             <div className="flex items-center gap-0.5">
-                <TooltipSimple content="New Tab" side="bottom">
-                    <button
-                        onClick={handleNewTab}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-                        aria-label="Open new tab"
-                    >
-                        <Plus className="w-3.5 h-3.5" />
-                    </button>
-                </TooltipSimple>
-
                 <TooltipSimple content="Close All Unpinned" side="bottom">
                     <button
                         onClick={handleCloseUnpinned}
