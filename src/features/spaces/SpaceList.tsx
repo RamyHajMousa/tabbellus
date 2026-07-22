@@ -5,11 +5,21 @@ import { Layers } from 'lucide-react';
 import { SpaceItem } from './components/SpaceItem';
 import { SpacesToolbar } from './components/SpacesToolbar';
 import { spaceService } from '@/lib/spaceService';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from '@/components/ui/Dialog';
 
 export const SpaceList = () => {
     const rawSpaces = useSpaces();
     const [sortOrder, setSortOrder] = useState<'newest' | 'alpha'>('newest');
     const [isAllExpanded, setIsAllExpanded] = useState(false);
+    const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+    const [newSpaceName, setNewSpaceName] = useState('');
 
     const sortedSpaces = useMemo(() => {
         if (!rawSpaces) return [];
@@ -19,10 +29,15 @@ export const SpaceList = () => {
         return [...rawSpaces].sort((a, b) => b.createdAt - a.createdAt);
     }, [rawSpaces, sortOrder]);
 
-    const handleAddSpace = async () => {
-        const name = prompt('Enter a name for the new space:');
-        if (name && name.trim()) {
-            await spaceService.captureCurrentWindow(name.trim());
+    const handleCreateSpace = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newSpaceName.trim()) return;
+        try {
+            await spaceService.captureCurrentWindow(newSpaceName.trim());
+            setNewSpaceName('');
+            setIsAddDialogOpen(false);
+        } catch (error) {
+            console.error('Failed to create space:', error);
         }
     };
 
@@ -37,12 +52,53 @@ export const SpaceList = () => {
     return (
         <div className="flex flex-col h-full bg-background select-none">
             <SpacesToolbar
-                onAddSpace={handleAddSpace}
+                onAddSpace={() => setIsAddDialogOpen(true)}
                 sortOrder={sortOrder}
                 onToggleSort={handleToggleSort}
                 isAllExpanded={isAllExpanded}
                 onToggleExpandAll={handleToggleExpandAll}
             />
+
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <DialogContent className="max-w-sm p-5">
+                    <form onSubmit={handleCreateSpace}>
+                        <DialogHeader className="mb-3">
+                            <DialogTitle className="text-sm font-semibold">Create New Space</DialogTitle>
+                            <DialogDescription className="text-xs">
+                                Save all open tabs in this window to a new space.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="py-2">
+                            <input
+                                autoFocus
+                                type="text"
+                                value={newSpaceName}
+                                onChange={(e) => setNewSpaceName(e.target.value)}
+                                placeholder="Space name..."
+                                className="w-full h-8 px-3 rounded-md border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            />
+                        </div>
+
+                        <DialogFooter className="mt-4 flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setIsAddDialogOpen(false)}
+                                className="h-7 px-3 text-xs font-medium border border-input bg-background hover:bg-accent text-foreground rounded-md transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!newSpaceName.trim()}
+                                className="h-7 px-3 text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 rounded-md transition-colors"
+                            >
+                                Create Space
+                            </button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
 
             <div className="flex-1 min-h-0">
                 {sortedSpaces.length === 0 ? (
