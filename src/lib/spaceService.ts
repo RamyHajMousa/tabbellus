@@ -162,6 +162,30 @@ class SpaceService {
         }
     }
     /**
+     * Creates an empty space with no initial tabs.
+     * @param spaceName The user-provided name for the space.
+     * @returns The newly created space ID.
+     */
+    async createEmptySpace(spaceName: string): Promise<number> {
+        if (!spaceName.trim()) {
+            throw new Error('Space name cannot be empty.');
+        }
+
+        try {
+            const spaceId = await db.spaces.add({
+                name: spaceName.trim(),
+                createdAt: Date.now()
+            });
+
+            console.log(`Empty space "${spaceName}" created successfully with ID: ${spaceId}`);
+            return spaceId as number;
+        } catch (error) {
+            console.error('SpaceService: Failed to create empty space', error);
+            throw error instanceof Error ? error : new Error('Failed to create space.');
+        }
+    }
+
+    /**
      * Captures the current window's tabs into a new Space.
      * @param spaceName The user-provided name for the space.
      * @throws Error if no valid tabs are found or database transaction fails.

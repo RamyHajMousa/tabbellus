@@ -33,7 +33,7 @@ export const SpaceList = () => {
         e.preventDefault();
         if (!newSpaceName.trim()) return;
         try {
-            await spaceService.captureCurrentWindow(newSpaceName.trim());
+            await spaceService.createEmptySpace(newSpaceName.trim());
             setNewSpaceName('');
             setIsAddDialogOpen(false);
         } catch (error) {
@@ -65,7 +65,7 @@ export const SpaceList = () => {
                         <DialogHeader className="mb-3">
                             <DialogTitle className="text-sm font-semibold">Create New Space</DialogTitle>
                             <DialogDescription className="text-xs">
-                                Save all open tabs in this window to a new space.
+                                Create a new empty space to organize your tabs.
                             </DialogDescription>
                         </DialogHeader>
 
