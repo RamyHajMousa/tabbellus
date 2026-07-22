@@ -21,14 +21,16 @@ export const GlobalHeader = () => {
             </button>
 
             <Popover>
-                <PopoverTrigger asChild>
-                    <button
-                        aria-label="Bookmarks library"
-                        className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-                    >
-                        <Library className="w-4 h-4" />
-                    </button>
-                </PopoverTrigger>
+                <TooltipSimple content="Bookmarks" side="bottom">
+                    <PopoverTrigger asChild>
+                        <button
+                            aria-label="Bookmarks library"
+                            className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                        >
+                            <Library className="w-4 h-4" />
+                        </button>
+                    </PopoverTrigger>
+                </TooltipSimple>
                 <PopoverContent align="end" className="w-80 p-2">
                     <div className="text-xs font-semibold px-2 py-1.5 border-b border-border mb-1 text-foreground">
                         Bookmarks

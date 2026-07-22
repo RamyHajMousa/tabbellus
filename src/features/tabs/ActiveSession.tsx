@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { spaceService, getRecentSessionId, readLaterService, DuplicateReadLaterError } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
+import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Save, Ghost } from 'lucide-react';
 import { useCurrentTabs } from './hooks/useCurrentTabs';
 import { TabRow } from './components/TabRow';
@@ -385,14 +386,16 @@ export const ActiveSession = () => {
                     <span className="text-xxs font-medium text-muted-foreground bg-secondary px-1.5 py-1 rounded-md shrink-0 whitespace-nowrap">
                         {tabs.length} Tabs
                     </span>
-                    <button
-                        onClick={handleCapture}
-                        disabled={!spaceName.trim() || isSaving}
-                        className="h-7 w-7 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-colors shrink-0"
-                        title={currentSpace ? "Update Space" : "Save Space"}
-                    >
-                        <Save className="w-3.5 h-3.5" />
-                    </button>
+                    <TooltipSimple content={currentSpace ? "Update Space" : "Save Space"} side="bottom">
+                        <button
+                            onClick={handleCapture}
+                            disabled={!spaceName.trim() || isSaving}
+                            className="h-7 w-7 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-colors shrink-0"
+                            aria-label={currentSpace ? "Update Space" : "Save Space"}
+                        >
+                            <Save className="w-3.5 h-3.5" />
+                        </button>
+                    </TooltipSimple>
                 </div>
             </div>
 

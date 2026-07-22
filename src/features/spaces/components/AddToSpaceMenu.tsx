@@ -1,4 +1,5 @@
 import { FolderPlus } from 'lucide-react';
+import { TooltipSimple } from '@/components/ui/Tooltip';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -20,13 +21,14 @@ export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <InteractiveRow.Action
-                    icon={FolderPlus}
-                    title="Save to Space"
-                    variant="primary"
-                />
-            </DropdownMenuTrigger>
+            <TooltipSimple content="Save to Space" side="top">
+                <DropdownMenuTrigger asChild>
+                    <InteractiveRow.Action
+                        icon={FolderPlus}
+                        variant="primary"
+                    />
+                </DropdownMenuTrigger>
+            </TooltipSimple>
             <DropdownMenuContent align="end" className="w-56" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                 <DropdownMenuLabel>Save to Space</DropdownMenuLabel>
                 <DropdownMenuSeparator />

@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toaster';
 import { TabRow, savedTabToRowData } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
+import { TooltipSimple } from '@/components/ui/Tooltip';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
 import {
     ContextMenu,
@@ -201,12 +202,13 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
 
             {/* Actions (Visible on Hover) */}
             <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5 px-1 py-0.5">
-                <InteractiveRow.Action
-                    icon={ExternalLink}
-                    onClick={handleClick}
-                    title={isActive ? "Focus Window" : "Restore Space"}
-                    variant="primary"
-                />
+                <TooltipSimple content={isActive ? "Focus Window" : "Restore Space"} side="top">
+                    <InteractiveRow.Action
+                        icon={ExternalLink}
+                        onClick={handleClick}
+                        variant="primary"
+                    />
+                </TooltipSimple>
             </InteractiveRow.Actions>
         </InteractiveRow>
     );

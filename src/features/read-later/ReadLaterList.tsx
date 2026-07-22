@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/context-menu';
 
 import { useToast } from '@/components/ui/Toaster';
+import { TooltipSimple } from '@/components/ui/Tooltip';
 import { ReadLaterToolbar } from './components/ReadLaterToolbar';
 
 export const ReadLaterList = () => {
@@ -141,22 +142,24 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                 >
                     {/* Checkbox & Favicon */}
                     <InteractiveRow.Leading>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (item.id) toggleStatus(item.id, item.status);
-                            }}
-                            className={`
-                                flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all duration-200
-                                ${item.status === 'archived'
-                                    ? 'bg-primary border-primary text-primary-foreground'
-                                    : 'border-border hover:border-primary text-transparent'
-                                }
-                            `}
-                            title={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
-                        >
-                            {item.status === 'archived' && <Check className="w-2.5 h-2.5" />}
-                        </button>
+                        <TooltipSimple content={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"} side="top">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (item.id) toggleStatus(item.id, item.status);
+                                }}
+                                className={`
+                                    flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all duration-200
+                                    ${item.status === 'archived'
+                                        ? 'bg-primary border-primary text-primary-foreground'
+                                        : 'border-border hover:border-primary text-transparent'
+                                    }
+                                `}
+                                aria-label={item.status === 'unread' ? "Mark as Read" : "Mark as Unread"}
+                            >
+                                {item.status === 'archived' && <Check className="w-2.5 h-2.5" />}
+                            </button>
+                        </TooltipSimple>
                         {item.favicon ? (
                             <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm" />
                         ) : (
@@ -179,14 +182,15 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
 
                     {/* Actions */}
                     <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5 px-1 py-0.5">
-                        <InteractiveRow.Action
-                            icon={Trash2}
-                            onClick={() => {
-                                if (item.id) handleDelete(item.id);
-                            }}
-                            title="Delete"
-                            variant="destructive"
-                        />
+                        <TooltipSimple content="Delete Item" side="top">
+                            <InteractiveRow.Action
+                                icon={Trash2}
+                                onClick={() => {
+                                    if (item.id) handleDelete(item.id);
+                                }}
+                                variant="destructive"
+                            />
+                        </TooltipSimple>
                     </InteractiveRow.Actions>
                 </InteractiveRow>
             </ContextMenuTrigger>

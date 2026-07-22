@@ -4,6 +4,7 @@ import { tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
+import { TooltipSimple } from '@/components/ui/Tooltip';
 import { type RowTabData } from '../types';
 import { InteractiveRow } from './InteractiveRow';
 import { AnimatedAudioIcon } from './AnimatedAudioIcon';
@@ -134,7 +135,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                     >
                         <span className="flex items-center gap-1 min-w-0">
                             {data.pinned && <Pin className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-                            <span className="truncate">{data.title || data.url}</span>
+                            <span className="whitespace-nowrap">{data.title || data.url}</span>
                         </span>
                     </InteractiveRow.Title>
 
@@ -147,28 +148,31 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                         )}
 
                         {onReadLater && (
-                            <InteractiveRow.Action
-                                icon={Clock}
-                                onClick={onReadLater}
-                                title="Read Later"
-                                variant="primary"
-                            />
+                            <TooltipSimple content="Read Later" side="top">
+                                <InteractiveRow.Action
+                                    icon={Clock}
+                                    onClick={onReadLater}
+                                    variant="primary"
+                                />
+                            </TooltipSimple>
                         )}
                         {onDelete && (
-                            <InteractiveRow.Action
-                                icon={Trash2}
-                                onClick={onDelete}
-                                title="Delete Tab from Space"
-                                variant="destructive"
-                            />
+                            <TooltipSimple content="Delete Tab from Space" side="top">
+                                <InteractiveRow.Action
+                                    icon={Trash2}
+                                    onClick={onDelete}
+                                    variant="destructive"
+                                />
+                            </TooltipSimple>
                         )}
                         {onClose && (
-                            <InteractiveRow.Action
-                                icon={X}
-                                onClick={onClose}
-                                title="Close Tab"
-                                variant="destructive"
-                            />
+                            <TooltipSimple content="Close Tab" side="top">
+                                <InteractiveRow.Action
+                                    icon={X}
+                                    onClick={onClose}
+                                    variant="destructive"
+                                />
+                            </TooltipSimple>
                         )}
                     </InteractiveRow.Actions>
                 </InteractiveRow>

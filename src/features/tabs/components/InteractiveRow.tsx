@@ -92,7 +92,7 @@ export const InteractiveRowTitle: React.FC<{
             >
                 <span
                     ref={titleRef}
-                    className={`truncate font-medium leading-none ${className || ''}`}
+                    className={`truncate block w-full font-medium leading-none ${className || ''}`}
                 >
                     {children}
                 </span>
@@ -128,7 +128,7 @@ InteractiveRowActions.displayName = 'InteractiveRow.Actions';
 
 export interface InteractiveRowActionProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
     icon: React.ComponentType<{ className?: string }>;
-    title: string;
+    title?: string;
     variant?: 'neutral' | 'destructive' | 'primary';
 }
 
@@ -152,7 +152,7 @@ export const InteractiveRowAction = React.forwardRef<HTMLButtonElement, Interact
                     ${variantClasses}
                     ${className}
                 `}
-                title={title}
+                title={title || undefined}
                 {...props}
             >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
