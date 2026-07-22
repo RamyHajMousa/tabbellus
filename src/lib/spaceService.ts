@@ -284,11 +284,22 @@ class SpaceService {
             if (win.id) {
                 this.emitRestore(spaceId, win.id);
 
+                // Configure Side Panel Options Declaratively
+                try {
+                    await chrome.sidePanel.setOptions({
+                        windowId: win.id,
+                        path: 'src/sidepanel/index.html',
+                        enabled: true
+                    } as any);
+                } catch (err) {
+                    console.warn('[SpaceService] Failed to set sidePanel options:', err);
+                }
+
                 // Automatically open the side panel when a space is fully generated
                 try {
                     await chrome.sidePanel.open({ windowId: win.id });
-                } catch (error) {
-                    console.error('SpaceService: Failed to open side panel', error);
+                } catch (err) {
+                    console.warn('[SpaceService] sidePanel.open skipped (user gesture expired):', err);
                 }
 
                 const remainingTabs = tabs.slice(1);
