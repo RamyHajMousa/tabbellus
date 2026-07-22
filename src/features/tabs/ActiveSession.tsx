@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { spaceService, getRecentSessionId, readLaterService, DuplicateReadLaterError } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
-import { Save, LayoutGrid, Ghost } from 'lucide-react';
+import { Save, Ghost } from 'lucide-react';
 import { useCurrentTabs } from './hooks/useCurrentTabs';
 import { TabRow } from './components/TabRow';
 import { GroupRow } from './components/GroupRow';
@@ -372,33 +372,26 @@ export const ActiveSession = () => {
     return (
         <div className="flex flex-col h-full select-none">
             {/* Capture Header */}
-            <div className="p-4 bg-card border-b border-border flex-shrink-0 z-10 w-full">
-                <div className="flex items-center gap-2 mb-3">
-                    <LayoutGrid className="w-5 h-5 text-primary" />
-                    <h2 className="font-semibold text-sm truncate max-w-[200px]" title={currentSpace ? `Active Space: ${currentSpace.name}` : `Active Session`}>
-                        {currentSpace ? `Active Space: ${currentSpace.name}` : 'Active Session'}
-                    </h2>
-                    <span className="ml-auto text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
-                        {tabs.length} Tabs
-                    </span>
-                </div>
-
-                <div className="flex gap-2">
+            <div className="p-2 bg-card border-b border-border flex-shrink-0 z-10 w-full">
+                <div className="flex items-center gap-1.5">
                     <input
                         type="text"
                         value={spaceName}
                         onChange={(e) => setSpaceName(e.target.value)}
-                        placeholder="Name this space..."
-                        className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        placeholder={currentSpace ? `Update "${currentSpace.name}"...` : "Name this space..."}
+                        className="flex-1 h-7 px-2 rounded-md border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-w-0"
                         onKeyDown={(e) => e.key === 'Enter' && handleCapture()}
                     />
+                    <span className="text-xxs font-medium text-muted-foreground bg-secondary px-1.5 py-1 rounded-md shrink-0 whitespace-nowrap">
+                        {tabs.length} Tabs
+                    </span>
                     <button
                         onClick={handleCapture}
                         disabled={!spaceName.trim() || isSaving}
-                        className="h-9 w-9 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-colors"
-                        title="Save Space"
+                        className="h-7 w-7 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-colors shrink-0"
+                        title={currentSpace ? "Update Space" : "Save Space"}
                     >
-                        <Save className="w-4 h-4" />
+                        <Save className="w-3.5 h-3.5" />
                     </button>
                 </div>
             </div>

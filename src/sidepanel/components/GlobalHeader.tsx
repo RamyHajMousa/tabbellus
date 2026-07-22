@@ -1,31 +1,17 @@
 import { Search, Settings, History, Library } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
 import { TooltipSimple } from '@/components/ui/Tooltip';
-import { useCurrentSpace } from '@/hooks/useCurrentSpace';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { BookmarkPopoverContent } from '@/features/bookmarks/BookmarkPopoverContent';
 
 export const GlobalHeader = () => {
     const { setSearchOpen, setSettingsOpen, toggleHistory } = useUIStore();
-    const currentSpace = useCurrentSpace();
 
     return (
         <header className="h-12 flex items-center px-4 border-b border-border bg-background sticky top-0 z-10">
-
-            <TooltipSimple
-                content={currentSpace ? `Currently viewing: ${currentSpace.name}` : 'TabBellus Workstation'}
-                side="bottom"
-            >
-                <img
-                    src="/icons/icon-48.png"
-                    alt="TabBellus Logo"
-                    className="w-5 h-5 mr-3 cursor-help flex-shrink-0"
-                />
-            </TooltipSimple>
-
             <button
                 onClick={() => setSearchOpen(true)}
-                className="relative flex-1 max-w-md h-8 flex items-center px-3 text-xs bg-muted hover:bg-accent border border-transparent hover:border-primary rounded-md transition-colors text-muted-foreground"
+                className="relative flex-1 h-8 flex items-center px-3 text-xs bg-muted hover:bg-accent border border-transparent hover:border-primary rounded-md transition-colors text-muted-foreground"
             >
                 <Search className="w-4 h-4 mr-2 flex-shrink-0" />
                 <span className="flex-1 text-left truncate">Search...</span>
