@@ -76,7 +76,7 @@ const BookmarkNode = ({ node, depth }: BookmarkNodeProps) => {
             <Globe className="w-3 h-3 text-muted-foreground/60 flex-shrink-0" />
             <span className="truncate flex-1 font-normal text-foreground/90">{node.title || tryParseDomain(node.url || '')}</span>
             {node.url && (
-                <span className="text-[10px] text-muted-foreground/40 font-normal pr-1 truncate max-w-[100px] hidden sm:inline">
+                <span className="text-[10px] text-muted-foreground/40 font-normal pr-1 truncate max-w-[100px] inline-block">
                     {tryParseDomain(node.url)}
                 </span>
             )}

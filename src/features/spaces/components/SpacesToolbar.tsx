@@ -10,7 +10,7 @@ interface SpacesToolbarProps {
     onToggleExpandAll: () => void;
 }
 
-export const SpacesToolbar: React.FC<SpacesToolbarProps> = ({
+export const SpacesToolbar = React.memo<SpacesToolbarProps>(({
     onAddSpace,
     sortOrder,
     onToggleSort,
@@ -60,4 +60,4 @@ export const SpacesToolbar: React.FC<SpacesToolbarProps> = ({
             </div>
         </div>
     );
-};
+});

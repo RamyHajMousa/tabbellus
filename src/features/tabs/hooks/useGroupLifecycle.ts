@@ -49,10 +49,18 @@ export function useGroupLifecycle(
             });
         };
 
+        const onGroupMoved = (group: chrome.tabGroups.TabGroup) => {
+            if (group.windowId !== windowId) return;
+            setGroups(prev => new Map(prev).set(group.id, group));
+        };
+
         // Register
         chrome.tabGroups.onCreated.addListener(onGroupCreated);
         chrome.tabGroups.onUpdated.addListener(onGroupUpdated);
         chrome.tabGroups.onRemoved.addListener(onGroupRemoved);
+        if (chrome.tabGroups.onMoved) {
+            chrome.tabGroups.onMoved.addListener(onGroupMoved);
+        }
 
         // Cleanup
         return () => {
@@ -60,6 +68,9 @@ export function useGroupLifecycle(
             chrome.tabGroups.onCreated.removeListener(onGroupCreated);
             chrome.tabGroups.onUpdated.removeListener(onGroupUpdated);
             chrome.tabGroups.onRemoved.removeListener(onGroupRemoved);
+            if (chrome.tabGroups.onMoved) {
+                chrome.tabGroups.onMoved.removeListener(onGroupMoved);
+            }
         };
     }, [windowId]);
 

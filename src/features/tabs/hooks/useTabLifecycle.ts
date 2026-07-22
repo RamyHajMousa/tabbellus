@@ -58,7 +58,8 @@ export function useTabLifecycle(
                 changeInfo.groupId !== undefined ||
                 changeInfo.pinned !== undefined ||
                 changeInfo.audible !== undefined ||
-                changeInfo.mutedInfo !== undefined
+                changeInfo.mutedInfo !== undefined ||
+                changeInfo.discarded !== undefined
             ) {
                 setTabs(prev => prev.map(t => (t.id === _tabId ? tab : t)).sort((a, b) => a.index - b.index));
             }

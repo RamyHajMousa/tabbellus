@@ -7,7 +7,7 @@ interface ReadLaterToolbarProps {
     onClearAllArchived: () => void;
 }
 
-export const ReadLaterToolbar: React.FC<ReadLaterToolbarProps> = ({
+export const ReadLaterToolbar = React.memo<ReadLaterToolbarProps>(({
     onMarkAllAsRead,
     onClearAllArchived,
 }) => {
@@ -40,4 +40,4 @@ export const ReadLaterToolbar: React.FC<ReadLaterToolbarProps> = ({
             </div>
         </div>
     );
-};
+});

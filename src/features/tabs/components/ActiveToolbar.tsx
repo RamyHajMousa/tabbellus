@@ -14,7 +14,7 @@ interface ActiveToolbarProps {
     activeTabId?: number | null;
 }
 
-export const ActiveToolbar: React.FC<ActiveToolbarProps> = ({ tabs, activeTabId }) => {
+export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId }) => {
     const { toast } = useToast();
 
     const handleGoBack = () => {
@@ -211,4 +211,4 @@ export const ActiveToolbar: React.FC<ActiveToolbarProps> = ({ tabs, activeTabId 
             </div>
         </div>
     );
-};
+});
