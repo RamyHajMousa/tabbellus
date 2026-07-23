@@ -305,6 +305,15 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Implemented 4-tier in-memory sort algorithm for Spaces view: Current Window Active -> Any Window Active -> Pinned Spaces -> Alphabetical/Newest.
     *   Standardized `TooltipSimple` wrappers across action buttons and fixed text truncation detection (`block w-full`).
 
+### Phase 10: 1-to-1 Window Binding, Group Undo Restoration, History Folding & Drag-and-Drop Performance
+*   **Outcome:**
+    *   Enforced strict 1-to-1 Window-to-Space binding in Zustand `useAppStore` by deleting pre-existing space mappings for a target `windowId` before registration.
+    *   Upgraded startup window fingerprinting in `background/index.ts` (`auditActiveSpacesOnStartup`) to evaluate all candidate spaces per window, ranking them by match score and tab length difference to pick the single best match.
+    *   Added duplicate space tab prevention in `addTabToSpace` throwing `DUPLICATE_TAB` error, and updated `Toaster` with educational subtitle descriptions (`description?: string`).
+    *   Upgraded group closure in `ActiveSession.tsx` to snapshot metadata and perform full group restoration (tabs + native tab group + title & color) on Undo.
+    *   Implemented visual folding of recently closed group tabs in `HistoryDialog.tsx` into `"Closed Group (X tabs)"` entries with domain host summaries.
+    *   Eliminated `[Violation] mousemove` re-render cascades during drag-and-drop by adding custom primitive comparators to `React.memo` in `TabRow` and `GroupRow`, memoizing sub-renderers, and stabilizing action callbacks with `useCallback()`.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -337,6 +346,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 7: Global Bookmarks Integration** - Complete.
 - **Phase 8: Context-Aware Local Toolbars** - Complete.
 - **Phase 9: UI Compaction, Smart Fallback Icons & 4-Tier Space Sorting** - Complete.
+- **Phase 10: 1-to-1 Window Binding, Group Undo Restoration, History Folding & Drag-and-Drop Performance** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
