@@ -14,6 +14,7 @@ tabbellus/
 │   └── AGENTS.md               # Supreme Override project rules
 ├── .context.md                 # Active Project Context Manifest
 ├── DESIGN.md                   # Visual design & layout specifications
+├── TECH_DEBT_REPORT.md         # Forensic code audit & tech debt findings
 ├── tailwind.config.ts          # Tailwind compiler configuration
 ├── manifest.config.ts          # Chrome Extension Manifest V3 configuration
 ├── package.json                # Project dependencies and release scripts
@@ -21,16 +22,17 @@ tabbellus/
 │   ├── background/             # Background service workers (chrome.runtime, tab/session listeners)
 │   ├── config/                 # External links and site configurations
 │   ├── components/
-│   │   └── ui/                 # Reusable Radix / shadcn visual primitives (Command, Dialog, Tooltip, Dropdown)
+│   │   └── ui/                 # Reusable Radix / shadcn visual primitives (Command, Dialog, Tooltip, Dropdown, Popover, SmartFallbackIcon)
 │   ├── features/               # Domain-specific logic & feature sub-systems (using Barrel imports)
+│   │   ├── bookmarks/          # Read-only browser bookmarks popover tree view
 │   │   ├── history/            # Chrome session retrieval, space fingerprinting, and window restoration
-│   │   ├── read-later/         # Inbox queue for deferred reading lists (unread/read/archived tags)
+│   │   ├── read-later/         # Inbox queue for deferred reading lists + ReadLaterToolbar
 │   │   ├── search/             # Command-K OmniSearch (cmdk search over spaces, tabs, read-later)
 │   │   ├── settings/           # UI settings, appearance tab, legal privacy policy, and backup imports/exports
-│   │   ├── spaces/             # Workspace listing, soft-delete UI, inline renaming, and pin states
-│   │   └── tabs/               # Tab lists, Drag & Drop trees, Group headers, and render strategies
-│   ├── hooks/                  # Global hooks (useClipboard, useUndoDelete, useIsTruncated, etc.)
-│   ├── lib/                    # Core service layer (db, spaceService, tabService, platform, dataService, sessionUtils)
+│   │   ├── spaces/             # Workspace listing, 4-tier sorting, Radix empty space dialog + SpacesToolbar
+│   │   └── tabs/               # Tab lists, Drag & Drop trees, Group headers, render strategies + ActiveToolbar
+│   ├── hooks/                  # Global hooks (useClipboard, useUndoDelete, useIsTruncated, useWindowId, etc.)
+│   ├── lib/                    # Core service layer (db, spaceService, tabService, bookmarkService, platform, dataService, sessionUtils)
 │   ├── store/                  # Zustand stores (appStore.ts for persistence, uiStore.ts for layout views)
 │   └── sidepanel/              # Sidebar chrome container (GlobalHeader, ViewSwitcher, ActiveSpaceAnchor)
 ```
@@ -238,8 +240,7 @@ export default config;
 
 ### 3.3 TypeScript Configuration (`tsconfig.json`)
 
-To ensure robust path alias resolution and code quality across both development and test suites, `tsconfig.json` includes:
-- **`include`**: `["src", "tests"]` — mapping both application sources and testing/E2E environments so path aliases (like `@/*` -> `./src/*`) resolve cleanly in tests, shims, and E2E fixtures.
+Includes `["src", "tests"]` so path aliases (`@/*` -> `./src/*`) resolve cleanly across source code, unit tests, and Playwright fixtures.
 
 ---
 
@@ -264,77 +265,78 @@ TabBellus code evolution requires strict alignment with the rules stored in `.ag
 
 ---
 
-## 5. Architectural Alignment Audit Findings
+## 5. Architectural Alignment Audit Findings & Refactoring History
 
-The project recently underwent 5 phases of refactoring to align components and libraries with a clean, modular structure.
+The project has completed major refactoring phases to optimize performance, clean up technical debt, and establish consistent UI patterns.
 
 ### Phase 1: Hook Decomposition
-*   **Outcome:** Extracted massive inline state loops from component trees.
-*   **Implementation:** Refactored the core `useCurrentTabs` hook (`src/features/tabs/hooks/useCurrentTabs.ts`) into a thin orchestration layer. It delegates tasks to isolated micro-hooks: `useWindowId` (gets current context), `useTabLifecycle` (subscribes to tab events and stores tab states), and `useGroupLifecycle` (tracks Chrome Tab Groups). 
-*   **Optimization:** Derived `activeTabId` directly from the tab array (the element marked `active`) to prevent redundant event hook registrations.
+*   **Outcome:** Extracted massive inline state loops from component trees into modular hooks (`useWindowId`, `useTabLifecycle`, `useGroupLifecycle`).
 
 ### Phase 2: Service Boundary
-*   **Outcome:** Isolated data operations and browser bindings into a stateless library tier.
-*   **Implementation:** Component files are forbidden from making direct Dexie database writes or low-level `chrome.*` calls. Instead, transactions are channeled through standalone service modules in `src/lib/`:
-    *   `db.ts`: Declares schema versions and soft/hard deletion wrappers.
-    *   `spaceService.ts`: Manages atomic space capturing, fallback names, and tab storm prevention (staggered window restores).
-    *   `tabService.ts`: Standardizes URL matching and duplicate focusing.
-    *   `readLaterService.ts`: Safely handles link additions and status transitions with duplicate checking.
-    *   `dataService.ts`: Performs secure JSON exporting and schema mapping for imports.
+*   **Outcome:** Isolated data operations into stateless service modules (`spaceService.ts`, `tabService.ts`, `readLaterService.ts`, `bookmarkService.ts`, `dataService.ts`).
 
 ### Phase 3: Type Safety
-*   **Outcome:** Established type alignment for components displaying raw chrome payloads alongside saved model records.
-*   **Implementation:** Created a unified interface `RowTabData` in `src/features/tabs/types.ts`. All render rows consume this model, using explicit converters:
-    *   `chromeTabToRowData(tab, activeTabId)`: Normalizes native chrome tab states.
-    *   `savedTabToRowData(tab)`: Normalizes Dexie schema records.
-*   **Result:** Prevented runtime properties leaks, standardizing component APIs.
+*   **Outcome:** Established unified `RowTabData` model for normalized rendering of native Chrome tabs and Dexie database tab records.
 
 ### Phase 4: Render Registry
-*   **Outcome:** Replaced multi-layer nested branches with configuration-driven rendering.
-*   **Implementation:** Designed a declarative render strategy registry `ACTIVE_SESSION_RENDERERS` in `src/features/tabs/ActiveSession.tsx`.
-*   **Mechanism:** Maps segment identifiers (`segment`, `tab`, `group`) to dedicated components (`TabRowRenderer` and `GroupBlockRenderer`). This decouples tree builders, allows strict droppable boundaries, and makes extending tree-item types simple.
+*   **Outcome:** Designed declarative render strategy registry `ACTIVE_SESSION_RENDERERS` in `ActiveSession.tsx`.
 
 ### Phase 5: Primitive Composition
-*   **Outcome:** Unified styling and interactive states into standard compounds.
-*   **Implementation:** Created `<InteractiveRow>` (`src/features/tabs/components/InteractiveRow.tsx`), which exports compound subcomponents: `.Leading` (for icons/drag handles), `.Title` (includes custom hover tooltips bound to `useIsTruncated`), and `.Actions` (displays absolute overlay actions on row hover).
-*   **Composition:** `TabRow` and `GroupRow` compose `InteractiveRow` at size `md` and `sm` respectively, ensuring identical hover effects, padding grids, and interaction boundaries.
+*   **Outcome:** Unified styling via `<InteractiveRow>` compound component (`.Leading`, `.Title`, `.Actions`).
+
+### Phase 6: Radix Context Menus
+*   **Outcome:** Replaced inline context actions with Radix `ContextMenu` wrappers for `TabRow`, `SpaceItem`, and `ReadLaterItem` featuring nested submenus (Save to Space).
+
+### Phase 7: Global Bookmarks Integration
+*   **Outcome:** Integrated `"bookmarks"` permission in manifest, built `bookmarkService.ts`, and rendered a read-only recursive bookmark tree in `BookmarkPopoverContent.tsx` triggered from `GlobalHeader.tsx`.
+
+### Phase 8: Context-Aware Local Toolbars
+*   **Outcome:** Created memoized dedicated toolbars for each primary view:
+    *   `ActiveToolbar`: New tab, navigation controls, reload, tab sorting by domain/name, bulk close unpinned tabs with snapshot Undo toast.
+    *   `SpacesToolbar`: Add empty space trigger, sort order toggle, expand/collapse all toggle.
+    *   `ReadLaterToolbar`: Bulk mark all as read and clear read items.
+
+### Phase 9: Layout Compactions, Smart Fallback Icons & 4-Tier Space Sorting
+*   **Outcome:**
+    *   Compacted `ActiveSession.tsx` header to a dense 28px row.
+    *   Removed redundant custom logo from `GlobalHeader.tsx` to expand OmniSearch trigger button.
+    *   Created `SmartFallbackIcon.tsx` for URL scheme-aware favicon fallback rendering (`chrome://extensions`, `chrome://settings`, `chrome://`, `file://*.pdf`, `file://*`).
+    *   Replaced native `window.prompt` in Spaces view with custom Radix `<Dialog>` modal creating empty spaces via `spaceService.createEmptySpace`.
+    *   Implemented 4-tier in-memory sort algorithm for Spaces view: Current Window Active -> Any Window Active -> Pinned Spaces -> Alphabetical/Newest.
+    *   Standardized `TooltipSimple` wrappers across action buttons and fixed text truncation detection (`block w-full`).
 
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
 
-TabBellus enforces a comprehensive testing infrastructure to guarantee data integrity, transaction safety, and regression-free user flows.
-
 ### 6.1 Unit & Integration Testing (Vitest)
-*   **Configuration (`vitest.config.ts`):** Operates on a standard Node environment with in-memory SQLite/IndexedDB bindings.
-*   **Global Setup (`tests/setup.ts`):** Imports `fake-indexeddb/auto` to shim the global database engine. Resets the IndexedDB tables (`spaces`, `tabs`, `readLater`) after every test case to ensure transaction boundary isolation.
+*   **Configuration (`vitest.config.ts`):** Standard Node environment with in-memory IndexedDB bindings (`fake-indexeddb/auto`).
 *   **Core Suites:**
-    *   [sessionUtils.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/sessionUtils.test.ts) — Validates fuzzy matching heuristics, host normalizations, and extension links (10 tests).
-    *   [spaceService.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/spaceService.test.ts) — Verifies Dexie transaction lifecycles, soft-deletes, restorations, tab index shifting, title/fallback resolution, and 16ms budget query performance stress tests (9 tests).
-    *   [readLaterService.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/readLaterService.test.ts) — Verifies Read Later CRUD, URL deduplication rules, status updates, live query filters, and live unread counts (5 tests).
-    *   [dataService.test.ts](file:///d:/Projects/tabbellus/src/lib/__tests__/dataService.test.ts) — Verifies backup exporting structures, database table clearing, and relational JSON importing with foreign key re-mapping (3 tests).
-*   **Execution Commands:** `npm test` (one-shot), `npm run test:watch` (active watch mode).
+    *   `sessionUtils.test.ts` (10 tests)
+    *   `spaceService.test.ts` (9 tests)
+    *   `readLaterService.test.ts` (5 tests)
+    *   `dataService.test.ts` (3 tests)
+*   **Execution Command:** `npm test` (27/27 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
-*   **Configuration (`playwright.config.ts`):** Controls single-worker headed Chromium instances (headed mode is mandatory for loading Chrome Extension APIs).
-*   **Runtime Fixture ([extension.ts](file:///d:/Projects/tabbellus/tests/fixtures/extension.ts)):** Bootstraps Chromium with extension parameters, loads the compiled package from `./dist`, and dynamically resolves the extension ID from the active service worker's target URL.
-*   **E2E Specs:**
-    *   [spaces.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/spaces.spec.ts) — Inspects layout hydration guards, logo visual assets, GlobalHeader/ViewSwitcher visibility, and interactive navigation flows (e.g. empty-state render triggers) (2 tests).
-    *   [capture.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/capture.spec.ts) — Tests space capture inputs, form submissions, and active view switching to verify that new space rows render dynamically and hide empty states (1 test).
-    *   [performance.spec.ts](file:///d:/Projects/tabbellus/tests/e2e/performance.spec.ts) — Tests high-volume rendering performance budgets (<1000ms), row expansion, and checks DOM virtuoso node-recycling safety gates (<30 active InteractiveRow nodes in DOM for 500 tabs in DB) (1 test).
-*   **Requirement:** Tests run against compiled production builds. The command `npm run test:e2e` automatically builds the extension first to prevent testing stale source codes.
+*   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
+*   **E2E Specs:** `spaces.spec.ts` (2 tests), `capture.spec.ts` (1 test), `performance.spec.ts` (1 test).
+*   **Execution Command:** `npm run test:e2e` (automatically builds extension first).
 
 ---
 
 ## 7. Development Status & Roadmap
 
 ### Current Status (Done)
-- **Phase 1: Hook Decomposition** - Complete. Active tab tracking is fully modularized.
-- **Phase 2: Service Boundary** - Complete. Core Services isolated inside `src/lib/`.
-- **Phase 3: Type Safety** - Complete. Implemented unified typescript rows mapping.
-- **Phase 4: Render Registry** - Complete. Config-driven tab/group tree rendering.
-- **Phase 5: Primitive Composition** - Complete. Unified layout spacing using compound rows.
-- **Phase 6: Context Menus & Sub-menus** - Complete. Wrapped `TabRow`, `SpaceItem`, and `ReadLaterItem` in custom Radix context menus with sub-menus.
+- **Phase 1: Hook Decomposition** - Complete.
+- **Phase 2: Service Boundary** - Complete.
+- **Phase 3: Type Safety** - Complete.
+- **Phase 4: Render Registry** - Complete.
+- **Phase 5: Primitive Composition** - Complete.
+- **Phase 6: Radix Context Menus** - Complete.
+- **Phase 7: Global Bookmarks Integration** - Complete.
+- **Phase 8: Context-Aware Local Toolbars** - Complete.
+- **Phase 9: UI Compaction, Smart Fallback Icons & 4-Tier Space Sorting** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
