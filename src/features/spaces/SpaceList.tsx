@@ -5,6 +5,8 @@ import { Layers } from 'lucide-react';
 import { SpaceItem } from './components/SpaceItem';
 import { SpacesToolbar } from './components/SpacesToolbar';
 import { spaceService } from '@/lib/spaceService';
+import { useAppStore } from '@/store/appStore';
+import { useWindowId } from '@/features/tabs/hooks/useWindowId';
 import {
     Dialog,
     DialogContent,
@@ -15,19 +17,42 @@ import {
 } from '@/components/ui/Dialog';
 
 export const SpaceList = () => {
-    const rawSpaces = useSpaces();
+    const spaces = useSpaces();
+    const activeSpaces = useAppStore((state) => state.activeSpaces) || {};
+    const currentWindowId = useWindowId();
     const [sortOrder, setSortOrder] = useState<'newest' | 'alpha'>('newest');
     const [isAllExpanded, setIsAllExpanded] = useState(false);
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [newSpaceName, setNewSpaceName] = useState('');
 
     const sortedSpaces = useMemo(() => {
-        if (!rawSpaces) return [];
-        if (sortOrder === 'alpha') {
-            return [...rawSpaces].sort((a, b) => a.name.localeCompare(b.name));
-        }
-        return [...rawSpaces].sort((a, b) => b.createdAt - a.createdAt);
-    }, [rawSpaces, sortOrder]);
+        if (!spaces) return [];
+        return [...spaces].sort((a, b) => {
+            // 1. Current Window Active
+            const aCurrentActive = activeSpaces[a.id!] === currentWindowId;
+            const bCurrentActive = activeSpaces[b.id!] === currentWindowId;
+            if (aCurrentActive && !bCurrentActive) return -1;
+            if (!aCurrentActive && bCurrentActive) return 1;
+
+            // 2. Any Window Active
+            const aAnyActive = !!activeSpaces[a.id!];
+            const bAnyActive = !!activeSpaces[b.id!];
+            if (aAnyActive && !bAnyActive) return -1;
+            if (!aAnyActive && bAnyActive) return 1;
+
+            // 3. Pinned (Using correct DB schema 'isPinned')
+            const aPinned = a.isPinned || false;
+            const bPinned = b.isPinned || false;
+            if (aPinned && !bPinned) return -1;
+            if (!aPinned && bPinned) return 1;
+
+            // 4. Standard Sort Preference (Fallback)
+            if (sortOrder === 'alpha') {
+                return (a.name || '').localeCompare(b.name || '');
+            }
+            return (b.createdAt || 0) - (a.createdAt || 0); // newest
+        });
+    }, [spaces, activeSpaces, currentWindowId, sortOrder]);
 
     const handleCreateSpace = async (e: React.FormEvent) => {
         e.preventDefault();
