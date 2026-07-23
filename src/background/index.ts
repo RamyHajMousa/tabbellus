@@ -9,29 +9,40 @@ const auditActiveSpacesOnStartup = async () => {
         console.log('Background Sync: Commencing active space startup audit...');
         const windows = await chrome.windows.getAll({ populate: true });
         const spaces = await db.spaces.filter(s => !s.deletedAt).toArray();
+        if (spaces.length === 0 || windows.length === 0) return;
+
+        // Fetch tabs for all non-deleted spaces up front
+        const spacesWithTabs = await Promise.all(
+            spaces.map(async (space) => {
+                if (!space.id) return null;
+                const tabs = await db.tabs.where('spaceId').equals(space.id).sortBy('order');
+                const spaceUrls = tabs
+                    .map(t => t.url)
+                    .filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://') && !u.startsWith('about:'));
+                return { space, spaceUrls };
+            })
+        );
+
+        const validSpacesWithTabs = spacesWithTabs.filter(
+            (item): item is { space: typeof spaces[0]; spaceUrls: string[] } =>
+                item !== null && item.spaceUrls.length > 0
+        );
+
         const activeSpaces: Record<number, number> = {};
+        const claimedSpaces = new Set<number>();
 
-        for (const space of spaces) {
-            if (!space.id) continue;
-            const spaceTabs = await db.tabs.where('spaceId').equals(space.id).sortBy('order');
-            if (spaceTabs.length === 0) continue;
-
-            const spaceUrls = spaceTabs
-                .map(t => t.url)
+        for (const win of windows) {
+            if (!win.id || !win.tabs || win.tabs.length === 0) continue;
+            const winUrls = win.tabs
+                .map(t => t.url || '')
                 .filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://') && !u.startsWith('about:'));
 
-            if (spaceUrls.length === 0) continue;
+            if (winUrls.length === 0) continue;
 
-            let bestWindowId: number | null = null;
-            let bestMatchRate = 0;
+            const spaceScores: { spaceId: number; score: number; matchCount: number; lengthDiff: number }[] = [];
 
-            for (const win of windows) {
-                if (!win.id || !win.tabs || win.tabs.length === 0) continue;
-                const winUrls = win.tabs
-                    .map(t => t.url || '')
-                    .filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://') && !u.startsWith('about:'));
-
-                if (winUrls.length === 0) continue;
+            for (const { space, spaceUrls } of validSpacesWithTabs) {
+                if (!space.id || claimedSpaces.has(space.id)) continue;
 
                 let matchCount = 0;
                 for (const wUrl of winUrls) {
@@ -40,15 +51,36 @@ const auditActiveSpacesOnStartup = async () => {
                     }
                 }
 
-                const matchRate = matchCount / spaceUrls.length;
-                if (matchRate >= 0.85 && matchRate > bestMatchRate) {
-                    bestMatchRate = matchRate;
-                    bestWindowId = win.id;
+                if (matchCount === 0) continue;
+
+                const spaceCoverage = matchCount / spaceUrls.length;
+
+                // Threshold check (85% space coverage required)
+                if (spaceCoverage >= 0.85) {
+                    const lengthDiff = Math.abs(spaceUrls.length - winUrls.length);
+                    spaceScores.push({
+                        spaceId: space.id,
+                        score: spaceCoverage,
+                        matchCount,
+                        lengthDiff
+                    });
                 }
             }
 
-            if (bestWindowId !== null) {
-                activeSpaces[space.id] = bestWindowId;
+            if (spaceScores.length > 0) {
+                // Best match wins: exact tab length difference first, then highest score/match count
+                spaceScores.sort((a, b) => {
+                    const aExact = a.lengthDiff === 0 ? 0 : 1;
+                    const bExact = b.lengthDiff === 0 ? 0 : 1;
+                    if (aExact !== bExact) return aExact - bExact;
+                    if (b.score !== a.score) return b.score - a.score;
+                    if (b.matchCount !== a.matchCount) return b.matchCount - a.matchCount;
+                    return a.lengthDiff - b.lengthDiff;
+                });
+
+                const bestMatch = spaceScores[0];
+                activeSpaces[bestMatch.spaceId] = win.id;
+                claimedSpaces.add(bestMatch.spaceId);
             }
         }
 

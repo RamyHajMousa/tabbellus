@@ -64,9 +64,16 @@ export const useAppStore = create<AppState>()(
             setHydrated: (isHydrated) => set({ isHydrated }),
             setActiveView: (view) => set({ activeView: view }),
             registerActiveSpace: (spaceId, windowId) => set((state) => {
-                const newMap = { ...state.activeSpaces, [spaceId]: windowId };
-                chrome.storage.session.set({ activeSpaces: newMap }); // Broadcast
-                return { activeSpaces: newMap };
+                const newActiveSpaces = { ...state.activeSpaces };
+                // Remove any other spaces claiming this window to enforce 1-to-1 binding
+                Object.keys(newActiveSpaces).forEach((key) => {
+                    if (newActiveSpaces[Number(key)] === windowId) {
+                        delete newActiveSpaces[Number(key)];
+                    }
+                });
+                newActiveSpaces[spaceId] = windowId;
+                chrome.storage.session.set({ activeSpaces: newActiveSpaces }); // Broadcast
+                return { activeSpaces: newActiveSpaces };
             }),
             unregisterWindow: (windowId) => set((state) => {
                 const newMap = { ...state.activeSpaces };
