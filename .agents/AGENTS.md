@@ -10,6 +10,11 @@
 - **Justification Ring:** In your thoughts or initial response line, explicitly call out which specific specialized skills are active for the current prompt and why they match the task (e.g., "Activating `mv3-messaging` and `dexie-query-optimizer` to ensure zero state leakage").
 - **Constraint Matching:** If a task can be solved using an existing internal skill or standard primitive blueprint (like `<InteractiveRow>`), you are forbidden from rewriting it from scratch.
 
+### 1.2 The "Trust, But Verify" Code Protocol (Mandatory)
+- **Never Blindly Trust Architect Snippets:** If a prompt provides pseudo-code or variable names (e.g., suggesting `tab.pinned` or `space.active`), you MUST cross-reference those exact properties against `.context.md` or the local `types.ts` file before writing the implementation (e.g., discovering it is actually `isPinned`).
+- **Hook & Import Verification:** Before implementing new state logic, verify that all necessary React hooks (e.g., `useAppStore`, `useWindowId`) are properly imported and instantiated at the top of the component.
+- **Think Before You Write:** Begin your response by stating the verified schema properties and necessary imports you checked before you output the modified code.
+
 ## 2. Context Maintenance
 - **Mandatory Update:** Always update `.context.md` whenever:
   1. A new file is created or deleted.
