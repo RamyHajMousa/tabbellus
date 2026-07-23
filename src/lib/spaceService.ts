@@ -356,7 +356,18 @@ class SpaceService {
 
         try {
             await db.transaction('rw', db.tabs, async () => {
-                // 1. Get current max order
+                // 1. Check for duplicate URL in target space
+                const existing = await db.tabs
+                    .where('spaceId')
+                    .equals(spaceId)
+                    .filter(t => t.url === tab.url)
+                    .first();
+
+                if (existing) {
+                    throw new Error('DUPLICATE_TAB');
+                }
+
+                // 2. Get current max order
                 const lastTab = await db.tabs
                     .where('spaceId')
                     .equals(spaceId)
@@ -366,7 +377,7 @@ class SpaceService {
 
                 const nextOrder = lastTab ? lastTab.order + 1 : 0;
 
-                // 2. Add
+                // 3. Add
                 await db.tabs.add({
                     spaceId,
                     url: tab.url!,
@@ -377,6 +388,7 @@ class SpaceService {
             });
         } catch (e) {
             console.error('SpaceService: Failed to add tab to space', e);
+            throw e;
         }
     }
 

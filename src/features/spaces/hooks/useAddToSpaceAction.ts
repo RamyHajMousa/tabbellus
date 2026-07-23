@@ -19,7 +19,13 @@ export function useAddToSpaceAction(tab: RowTabData) {
             toast(`Saved to "${spaceName}"`);
         } catch (error) {
             console.error(error);
-            toast("Failed to save to space");
+            if (error instanceof Error && error.message === 'DUPLICATE_TAB') {
+                toast('Tab already exists in this space', {
+                    description: 'Tip: Duplicate the tab in your browser if you need multiple copies saved.'
+                });
+            } else {
+                toast("Failed to save to space");
+            }
         }
     };
 

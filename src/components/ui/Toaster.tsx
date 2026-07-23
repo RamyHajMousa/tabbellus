@@ -4,12 +4,19 @@ import { X } from 'lucide-react';
 interface Toast {
     id: string;
     message: string;
+    description?: string;
+    onUndo?: () => void;
+    duration?: number;
+}
+
+interface ToastOptions {
+    description?: string;
     onUndo?: () => void;
     duration?: number;
 }
 
 interface ToastContextType {
-    toast: (message: string, options?: { onUndo?: () => void; duration?: number }) => void;
+    toast: (message: string, options?: ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -21,13 +28,14 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
     }, []);
 
-    const toast = useCallback((message: string, options?: { onUndo?: () => void; duration?: number }) => {
+    const toast = useCallback((message: string, options?: ToastOptions) => {
         const id = Math.random().toString(36).substring(7);
         const duration = options?.duration || 5000;
 
         setToasts((prev) => [...prev, {
             id,
             message,
+            description: options?.description,
             duration,
             onUndo: options?.onUndo
         }]);
@@ -48,7 +56,12 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                         key={t.id}
                         className="bg-popover text-popover-foreground border border-border rounded-lg p-4 min-w-[300px] flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
                     >
-                        <span className="text-sm font-medium">{t.message}</span>
+                        <div className="flex flex-col pr-2">
+                            <span className="text-sm font-medium">{t.message}</span>
+                            {t.description && (
+                                <span className="text-xs text-muted-foreground mt-0.5">{t.description}</span>
+                            )}
+                        </div>
                         <div className="flex items-center gap-3">
                             {t.onUndo && (
                                 <button
