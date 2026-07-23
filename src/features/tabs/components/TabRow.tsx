@@ -1,10 +1,11 @@
 import React from 'react';
-import { Globe, X, Clock, Trash2, Copy, GripVertical, Pin, VolumeX } from 'lucide-react';
+import { X, Clock, Trash2, Copy, GripVertical, Pin, VolumeX } from 'lucide-react';
 import { tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
 import { TooltipSimple } from '@/components/ui/Tooltip';
+import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 import { type RowTabData } from '../types';
 import { InteractiveRow } from './InteractiveRow';
 import { AnimatedAudioIcon } from './AnimatedAudioIcon';
@@ -101,7 +102,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                                 }}
                             />
                         ) : null}
-                        <Globe className={`w-4 h-4 opacity-50 flex-shrink-0 ${data.favicon ? 'hidden' : ''}`} />
+                        <SmartFallbackIcon url={data.url} className={`w-4 h-4 opacity-50 flex-shrink-0 ${data.favicon ? 'hidden' : ''}`} />
 
                         {/* Audio Indicator Toggle */}
                         {(data.mutedInfo?.muted || data.audible) && (
