@@ -17,7 +17,16 @@ interface EnrichedSession extends chrome.sessions.Session {
     matchedSpaceName?: string;
 }
 
-
+interface FoldedHistorySession {
+    isFoldedGroup: boolean;
+    sessionIds: string[];
+    lastModified: number;
+    title: string;
+    subtitle?: string;
+    matchedSpaceId?: number;
+    matchedSpaceName?: string;
+    session: EnrichedSession;
+}
 
 // ─── Main Component ─────────────────────────────────────────────────
 
@@ -123,20 +132,102 @@ export const HistoryDialog = () => {
         });
     }, [sessions, spacesWithTabs]);
 
-    // 4. Restore handler
-    const handleRestore = (sessionId?: string, matchedSpaceId?: number) => {
-        if (!sessionId) return;
-        chrome.sessions.restore(sessionId, async (restoredSession) => {
-            if (matchedSpaceId && restoredSession?.window?.id) {
-                registerActiveSpace(matchedSpaceId, restoredSession.window.id);
-                try {
-                    await chrome.sidePanel.open({ windowId: restoredSession.window.id });
-                } catch (error) {
-                    console.error('HistoryDialog: Failed to open side panel for restored space', error);
-                }
+    // 4. Fold consecutive closed group tabs with identical timestamps
+    const foldedSessions = useMemo((): FoldedHistorySession[] => {
+        if (enrichedSessions.length === 0) return [];
+
+        const result: FoldedHistorySession[] = [];
+        let i = 0;
+
+        while (i < enrichedSessions.length) {
+            const current = enrichedSessions[i];
+
+            if (!current.tab) {
+                result.push({
+                    isFoldedGroup: false,
+                    sessionIds: current.window?.sessionId ? [current.window.sessionId] : [],
+                    lastModified: current.lastModified,
+                    title: current.matchedSpaceName ? `Space: ${current.matchedSpaceName}` : `Window (${current.window?.tabs?.length || 0} tabs)`,
+                    subtitle: `${current.window?.tabs?.length || 0} tabs`,
+                    matchedSpaceId: current.matchedSpaceId,
+                    matchedSpaceName: current.matchedSpaceName,
+                    session: current,
+                });
+                i++;
+                continue;
             }
-            setHistoryOpen(false);
-        });
+
+            const groupSessions: EnrichedSession[] = [current];
+            let j = i + 1;
+            while (
+                j < enrichedSessions.length &&
+                enrichedSessions[j].tab &&
+                enrichedSessions[j].lastModified === current.lastModified
+            ) {
+                groupSessions.push(enrichedSessions[j]);
+                j++;
+            }
+
+            if (groupSessions.length > 1) {
+                const sessionIds = groupSessions
+                    .map((s) => s.tab?.sessionId)
+                    .filter((id): id is string => !!id);
+
+                const hosts = groupSessions
+                    .map((s) => tryParseHost(s.tab?.url || ''))
+                    .filter(Boolean);
+
+                const uniqueHosts = Array.from(new Set(hosts)).slice(0, 3).join(', ');
+
+                result.push({
+                    isFoldedGroup: true,
+                    sessionIds,
+                    lastModified: current.lastModified,
+                    title: `Closed Group (${groupSessions.length} tabs)`,
+                    subtitle: uniqueHosts ? `${groupSessions.length} tabs • ${uniqueHosts}` : `${groupSessions.length} tabs`,
+                    matchedSpaceId: current.matchedSpaceId,
+                    matchedSpaceName: current.matchedSpaceName,
+                    session: current,
+                });
+                i = j;
+            } else {
+                result.push({
+                    isFoldedGroup: false,
+                    sessionIds: current.tab.sessionId ? [current.tab.sessionId] : [],
+                    lastModified: current.lastModified,
+                    title: current.tab.title || current.tab.url || 'Untitled Tab',
+                    subtitle: tryParseHost(current.tab.url || ''),
+                    matchedSpaceId: current.matchedSpaceId,
+                    matchedSpaceName: current.matchedSpaceName,
+                    session: current,
+                });
+                i++;
+            }
+        }
+
+        return result;
+    }, [enrichedSessions]);
+
+    // 5. Restore handler
+    const handleRestoreFolded = async (sessionIds: string[], matchedSpaceId?: number) => {
+        if (sessionIds.length === 0) return;
+
+        for (const id of sessionIds) {
+            try {
+                await new Promise<void>((resolve) => {
+                    chrome.sessions.restore(id, (restoredSession) => {
+                        if (matchedSpaceId && restoredSession?.window?.id) {
+                            registerActiveSpace(matchedSpaceId, restoredSession.window.id);
+                            chrome.sidePanel.open({ windowId: restoredSession.window.id }).catch(() => {});
+                        }
+                        resolve();
+                    });
+                });
+            } catch (error) {
+                console.error('HistoryDialog: Failed to restore closed session tab', error);
+            }
+        }
+        setHistoryOpen(false);
     };
 
     return (
@@ -150,17 +241,17 @@ export const HistoryDialog = () => {
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto pr-2 -mr-2 min-h-[300px]">
-                    {enrichedSessions.length === 0 ? (
+                    {foldedSessions.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                             <p>No recently closed tabs.</p>
                         </div>
                     ) : (
                         <div className="space-y-1">
-                            {enrichedSessions.map((session, i) => (
+                            {foldedSessions.map((item, i) => (
                                 <HistoryItem
-                                    key={`${session.lastModified}-${i}`}
-                                    session={session}
-                                    onRestore={handleRestore}
+                                    key={`${item.lastModified}-${i}`}
+                                    item={item}
+                                    onRestore={handleRestoreFolded}
                                 />
                             ))}
                         </div>
@@ -173,24 +264,14 @@ export const HistoryDialog = () => {
 
 // ─── List Item ───────────────────────────────────────────────────────
 
-const HistoryItem = ({ session, onRestore }: {
-    session: EnrichedSession;
-    onRestore: (id?: string, matchedSpaceId?: number) => void;
+const HistoryItem = ({ item, onRestore }: {
+    item: FoldedHistorySession;
+    onRestore: (ids: string[], matchedSpaceId?: number) => void;
 }) => {
-    const { tab, window: win } = session;
-    const isTab = !!tab;
-    const sessionId = isTab ? tab?.sessionId : win?.sessionId;
+    const { session, isFoldedGroup, sessionIds, title, subtitle } = item;
+    const { tab } = session;
+    const isTab = !isFoldedGroup && !!tab;
     const isMatchedSpace = !!session.matchedSpaceName;
-
-    const title = isTab
-        ? (tab?.title || tab?.url || 'Untitled Tab')
-        : isMatchedSpace
-            ? `Space: ${session.matchedSpaceName}`
-            : `Window (${win?.tabs?.length || 0} tabs)`;
-
-    const subtitle = isTab
-        ? (tab?.url ? tryParseHost(tab.url) : undefined)
-        : `${win?.tabs?.length || 0} tabs`;
 
     const url = tab?.url;
     const faviconUrl = tab?.favIconUrl;
@@ -207,12 +288,14 @@ const HistoryItem = ({ session, onRestore }: {
     return (
         <InteractiveRow
             size="md"
-            onClick={() => onRestore(sessionId, session.matchedSpaceId)}
+            onClick={() => onRestore(sessionIds, item.matchedSpaceId)}
         >
             {/* Icon / Favicon */}
             <InteractiveRow.Leading>
                 <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-                    {isTab ? (
+                    {isFoldedGroup ? (
+                        <Layers className="w-4 h-4 text-primary" />
+                    ) : isTab ? (
                         faviconUrl && !imgError ? (
                             <img
                                 src={faviconUrl}
@@ -246,7 +329,7 @@ const HistoryItem = ({ session, onRestore }: {
 
             {/* Actions */}
             <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-1">
-                {url && (
+                {url && !isFoldedGroup && (
                     <InteractiveRow.Action
                         icon={hasCopied ? Check : Copy}
                         onClick={handleCopy}
@@ -257,7 +340,10 @@ const HistoryItem = ({ session, onRestore }: {
                 )}
                 <InteractiveRow.Action
                     icon={RotateCcw}
-                    onClick={() => onRestore(sessionId, session.matchedSpaceId)}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onRestore(sessionIds, item.matchedSpaceId);
+                    }}
                     title="Restore Session"
                     variant="primary"
                 />

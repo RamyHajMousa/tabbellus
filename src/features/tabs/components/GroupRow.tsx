@@ -68,6 +68,13 @@ const GroupRowComponent = React.memo(({ group, onClose, onArchive }: GroupRowPro
             </InteractiveRow.Actions>
         </InteractiveRow>
     );
+}, (prevProps, nextProps) => {
+    return (
+        prevProps.group.id === nextProps.group.id &&
+        prevProps.group.title === nextProps.group.title &&
+        prevProps.group.color === nextProps.group.color &&
+        prevProps.group.collapsed === nextProps.group.collapsed
+    );
 });
 
 // ── GroupRow.Children ────────────────────────────────────────────────────

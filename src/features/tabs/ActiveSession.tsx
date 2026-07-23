@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, memo } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { spaceService, getRecentSessionId, readLaterService, DuplicateReadLaterError } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
@@ -28,7 +28,7 @@ type RenderItem = UngroupedSegment | GroupBlock;
 
 // ── Render Strategy Components ───────────────────────────────────────────
 
-const TabRowRenderer: React.FC<{ item: any; [key: string]: any }> = ({ item, activeTabId, handleClose, handleReadLater }) => {
+const TabRowRenderer: React.FC<{ item: any; [key: string]: any }> = memo(({ item, activeTabId, handleClose, handleReadLater }) => {
     const segment = item as UngroupedSegment;
     const droppableId = `segment-${segment.segmentIndex}`;
     return (
@@ -69,9 +69,9 @@ const TabRowRenderer: React.FC<{ item: any; [key: string]: any }> = ({ item, act
             )}
         </Droppable>
     );
-};
+});
 
-const GroupBlockRenderer: React.FC<{ item: any; [key: string]: any }> = ({
+const GroupBlockRenderer: React.FC<{ item: any; [key: string]: any }> = memo(({
     item,
     activeTabId,
     groups,
@@ -89,7 +89,7 @@ const GroupBlockRenderer: React.FC<{ item: any; [key: string]: any }> = ({
         <div className="mb-1">
             <GroupRow
                 group={group}
-                onClose={(e) => handleCloseGroup(e, groupBlock.tabs)}
+                onClose={(e) => handleCloseGroup(e, group, groupBlock.tabs)}
                 onArchive={(e) => handleArchiveGroup(e, group, groupBlock.tabs)}
             />
 
@@ -135,7 +135,7 @@ const GroupBlockRenderer: React.FC<{ item: any; [key: string]: any }> = ({
             )}
         </div>
     );
-};
+});
 
 const ACTIVE_SESSION_RENDERERS: Record<string, React.FC<{ item: any; [key: string]: any }>> = {
     segment: TabRowRenderer,
@@ -251,7 +251,7 @@ export const ActiveSession = () => {
     }, [renderList, setTabs]);
 
     // ── Existing Handlers ────────────────────────────────────────────────────
-    const handleCapture = async () => {
+    const handleCapture = useCallback(async () => {
         if (!spaceName.trim()) return;
 
         const validTabs = tabs.filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('about:'));
@@ -272,9 +272,9 @@ export const ActiveSession = () => {
         } finally {
             setIsSaving(false);
         }
-    };
+    }, [spaceName, tabs, toast]);
 
-    const handleReadLater = async (e: React.MouseEvent, tab: chrome.tabs.Tab) => {
+    const handleReadLater = useCallback(async (e: React.MouseEvent, tab: chrome.tabs.Tab) => {
         e.stopPropagation();
         if (!tab.url || !tab.id) return;
 
@@ -290,9 +290,9 @@ export const ActiveSession = () => {
                 toast("Failed to save to Read Later");
             }
         }
-    };
+    }, [toast]);
 
-    const handleClose = async (e: React.MouseEvent, tab: chrome.tabs.Tab) => {
+    const handleClose = useCallback(async (e: React.MouseEvent, tab: chrome.tabs.Tab) => {
         e.stopPropagation();
         if (!tab.id) return;
 
@@ -327,35 +327,49 @@ export const ActiveSession = () => {
         } catch {
             // Tab might already be closed
         }
-    };
+    }, [toast]);
 
-    const handleCloseGroup = async (e: React.MouseEvent, groupTabs: chrome.tabs.Tab[]) => {
+    const handleCloseGroup = useCallback(async (e: React.MouseEvent, group: chrome.tabGroups.TabGroup, groupTabs: chrome.tabs.Tab[]) => {
         e.stopPropagation();
         const ids = groupTabs.map(t => t.id).filter((id): id is number => id !== undefined);
         if (ids.length === 0) return;
 
+        const title = group.title || 'Group';
+        const color = group.color;
+        const tabUrls = groupTabs
+            .map(t => t.url)
+            .filter((url): url is string => !!url && url !== '' && !url.startsWith('chrome://newtab/'));
+
         try {
             await chrome.tabs.remove(ids);
 
-            // Capture sessionId before offering Undo — never call restore() without one
-            const sessionId = await getRecentSessionId();
-
-            if (sessionId) {
-                toast(`Closed group with ${ids.length} tabs`, {
-                    duration: 4000,
-                    onUndo: () => {
-                        chrome.sessions.restore(sessionId).catch(console.error);
+            toast(`Closed group "${title}"`, {
+                duration: 5000,
+                onUndo: async () => {
+                    if (tabUrls.length === 0) return;
+                    try {
+                        const newTabIds: number[] = [];
+                        for (const url of tabUrls) {
+                            const newTab = await chrome.tabs.create({ url, active: false });
+                            if (newTab.id !== undefined) {
+                                newTabIds.push(newTab.id);
+                            }
+                        }
+                        if (newTabIds.length > 0) {
+                            const newGroupId = await chrome.tabs.group({ tabIds: newTabIds });
+                            await chrome.tabGroups.update(newGroupId, { title, color });
+                        }
+                    } catch (err) {
+                        console.error('Failed to undo group closure:', err);
                     }
-                });
-            } else {
-                toast(`Closed group with ${ids.length} tabs`, { duration: 2000 });
-            }
-        } catch {
-            // Tabs might already be closed
+                }
+            });
+        } catch (err) {
+            console.error('Failed to close group:', err);
         }
-    };
+    }, [toast]);
 
-    const handleArchiveGroup = async (e: React.MouseEvent, group: chrome.tabGroups.TabGroup, tabs: chrome.tabs.Tab[]) => {
+    const handleArchiveGroup = useCallback(async (e: React.MouseEvent, group: chrome.tabGroups.TabGroup, tabs: chrome.tabs.Tab[]) => {
         e.stopPropagation();
         const ids = tabs.map(t => t.id).filter((id): id is number => id !== undefined);
         if (ids.length === 0) return;
@@ -368,7 +382,7 @@ export const ActiveSession = () => {
             console.error(err);
             toast("Failed to archive group");
         }
-    };
+    }, [toast]);
 
     return (
         <div className="flex flex-col h-full select-none">

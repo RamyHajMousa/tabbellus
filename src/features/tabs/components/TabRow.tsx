@@ -233,6 +233,19 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
             </ContextMenuContent>
         </ContextMenu>
     );
+}, (prevProps, nextProps) => {
+    return (
+        prevProps.isActive === nextProps.isActive &&
+        prevProps.isDragging === nextProps.isDragging &&
+        prevProps.data.id === nextProps.data.id &&
+        prevProps.data.url === nextProps.data.url &&
+        prevProps.data.title === nextProps.data.title &&
+        prevProps.data.favicon === nextProps.data.favicon &&
+        prevProps.data.pinned === nextProps.data.pinned &&
+        prevProps.data.discarded === nextProps.data.discarded &&
+        prevProps.data.audible === nextProps.data.audible &&
+        prevProps.data.mutedInfo?.muted === nextProps.data.mutedInfo?.muted
+    );
 });
 
 function tryParseHost(url: string) {
