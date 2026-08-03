@@ -35,6 +35,7 @@ export interface TabDragPayload {
     type: 'tab';
     tabId: number;
     globalIndex: number;
+    chromeIndex: number;
     groupId: number;
     [key: string]: unknown;
 }
@@ -95,6 +96,7 @@ const DraggableTabItem = memo(({
             type: 'tab',
             tabId: tab.id,
             globalIndex,
+            chromeIndex: tab.index,
             groupId: tab.groupId,
         };
 
@@ -417,11 +419,15 @@ export const ActiveSession = () => {
         ) => {
             if (source.tabId === target.tabId) return;
 
-            const sourceTabObj = tabs.find(t => t.id === source.tabId);
-            const targetTab = tabs.find(t => t.id === target.tabId);
-            if (!sourceTabObj || !targetTab) return;
+            let targetChromeIndex = target.chromeIndex;
+            if (edge === 'bottom') {
+                targetChromeIndex += 1;
+            }
 
-            const rawTargetIndex = targetTab.index + (edge === 'bottom' ? 1 : 0);
+            if (source.chromeIndex < targetChromeIndex) {
+                targetChromeIndex -= 1;
+            }
+
             const targetGroupId = target.groupId;
 
             // Optimistic UI Update
@@ -432,19 +438,15 @@ export const ActiveSession = () => {
 
                 const [moved] = next.splice(fromIdx, 1);
                 moved.groupId = targetGroupId;
-
-                const tabsBeforeTarget = fromIdx < rawTargetIndex ? 1 : 0;
-                const insertIdx = Math.max(0, Math.min(rawTargetIndex - tabsBeforeTarget, next.length));
-
+                
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, next.length));
                 next.splice(insertIdx, 0, moved);
+
                 return next.map((t, i) => ({ ...t, index: i }));
             });
 
-            // Chrome API: subtract 1 if source was before target
-            const chromeIndex = sourceTabObj.index < rawTargetIndex
-                ? Math.max(0, rawTargetIndex - 1)
-                : rawTargetIndex;
-            chrome.tabs.move(source.tabId, { index: chromeIndex }).catch(err => {
+            // Chrome API Sync
+            chrome.tabs.move(source.tabId, { index: targetChromeIndex }).catch(err => {
                 console.warn('chrome.tabs.move failed:', err);
             });
 
@@ -458,7 +460,7 @@ export const ActiveSession = () => {
                 });
             }
         },
-        [tabs, setTabs]
+        [setTabs]
     );
 
     const handleDropTabToGroup = useCallback(
@@ -470,10 +472,17 @@ export const ActiveSession = () => {
         ) => {
             if (groupTabs.length === 0) return;
 
-            const sourceTabObj = tabs.find(t => t.id === source.tabId);
-            if (!sourceTabObj) return;
+            let targetChromeIndex: number;
+            if (edge === 'top') {
+                targetChromeIndex = groupTabs[0].index;
+            } else {
+                targetChromeIndex = groupTabs[groupTabs.length - 1].index + 1;
+            }
 
-            const rawTargetIndex = edge === 'top' ? groupTabs[0].index : groupTabs[groupTabs.length - 1].index + 1;
+            if (source.chromeIndex < targetChromeIndex) {
+                targetChromeIndex -= 1;
+            }
+
             const targetGroupId = targetGroup.id;
 
             // Optimistic UI Update
@@ -484,19 +493,15 @@ export const ActiveSession = () => {
 
                 const [moved] = next.splice(fromIdx, 1);
                 moved.groupId = targetGroupId;
-
-                const tabsBeforeTarget = fromIdx < rawTargetIndex ? 1 : 0;
-                const insertIdx = Math.max(0, Math.min(rawTargetIndex - tabsBeforeTarget, next.length));
-
+                
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, next.length));
                 next.splice(insertIdx, 0, moved);
+
                 return next.map((t, i) => ({ ...t, index: i }));
             });
 
-            // Chrome API: subtract 1 if source was before target
-            const chromeIndex = sourceTabObj.index < rawTargetIndex
-                ? Math.max(0, rawTargetIndex - 1)
-                : rawTargetIndex;
-            chrome.tabs.move(source.tabId, { index: chromeIndex }).catch(err => {
+            // Chrome API Sync
+            chrome.tabs.move(source.tabId, { index: targetChromeIndex }).catch(err => {
                 console.warn('chrome.tabs.move failed:', err);
             });
 
@@ -506,7 +511,7 @@ export const ActiveSession = () => {
                 });
             }
         },
-        [tabs, setTabs]
+        [setTabs]
     );
 
     const handleJoinGroup = useCallback(
@@ -539,15 +544,24 @@ export const ActiveSession = () => {
             if (sourceGroup.groupId === targetGroup.id) return;
             if (sourceGroup.tabIds.length === 0 || targetGroupTabs.length === 0) return;
 
-            const targetTab = edge === 'top' ? targetGroupTabs[0] : targetGroupTabs[targetGroupTabs.length - 1];
-            const rawTargetIndex = edge === 'top' ? targetTab.index : targetTab.index + 1;
+            let targetChromeIndex: number;
+            if (edge === 'top') {
+                targetChromeIndex = targetGroupTabs[0].index;
+            } else {
+                targetChromeIndex = targetGroupTabs[targetGroupTabs.length - 1].index + 1;
+            }
+
+            if (sourceGroup.fromMinIndex < targetChromeIndex) {
+                targetChromeIndex -= sourceGroup.tabIds.length;
+            }
 
             const groupTabSet = new Set(sourceGroup.tabIds);
 
             // Optimistic UI Update
             setTabs(prev => {
+                const next = [...prev];
                 const movedTabs: chrome.tabs.Tab[] = [];
-                const remainingTabs = prev.filter(t => {
+                const remainingTabs = next.filter(t => {
                     if (groupTabSet.has(t.id!)) {
                         movedTabs.push(t);
                         return false;
@@ -555,30 +569,22 @@ export const ActiveSession = () => {
                     return true;
                 });
 
-                if (movedTabs.length === 0) return prev;
-
-                const targetRefId = targetTab.id;
-                const targetIdxInRemaining = remainingTabs.findIndex(t => t.id === targetRefId);
-                let insertIdx = targetIdxInRemaining === -1 ? 0 : (edge === 'bottom' ? targetIdxInRemaining + 1 : targetIdxInRemaining);
-                insertIdx = Math.max(0, Math.min(insertIdx, remainingTabs.length));
-
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, remainingTabs.length));
                 remainingTabs.splice(insertIdx, 0, ...movedTabs);
 
                 return remainingTabs.map((t, i) => ({ ...t, index: i }));
             });
 
-            // Chrome API: subtract 1 if source group min index was before target (moving downward)
-            const sourceMinIndex = Math.min(...sourceGroup.tabIds.map(id => tabs.find(t => t.id === id)?.index ?? Infinity));
-            const isMovingDownward = sourceMinIndex < rawTargetIndex;
-            const chromeIndex = isMovingDownward ? Math.max(0, rawTargetIndex - 1) : rawTargetIndex;
-
-            chrome.tabs.move(sourceGroup.tabIds, { index: chromeIndex }).then(() => {
-                return chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId });
+            // Chrome API Sync
+            chrome.tabs.move(sourceGroup.tabIds, { index: targetChromeIndex }).then(() => {
+                chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId }).catch(err => {
+                    console.warn('chrome.tabs.group failed after group move:', err);
+                });
             }).catch(err => {
                 console.warn('chrome.tabs.move group failed:', err);
             });
         },
-        [tabs, setTabs]
+        [setTabs]
     );
 
     const handleDropGroupToTab = useCallback(
@@ -589,17 +595,22 @@ export const ActiveSession = () => {
         ) => {
             if (sourceGroup.tabIds.length === 0) return;
 
-            const targetTabObj = tabs.find(t => t.id === targetTab.tabId);
-            if (!targetTabObj) return;
+            let targetChromeIndex = targetTab.chromeIndex;
+            if (edge === 'bottom') {
+                targetChromeIndex += 1;
+            }
 
-            const rawTargetIndex = targetTabObj.index + (edge === 'bottom' ? 1 : 0);
+            if (sourceGroup.fromMinIndex < targetChromeIndex) {
+                targetChromeIndex -= sourceGroup.tabIds.length;
+            }
 
             const groupTabSet = new Set(sourceGroup.tabIds);
 
             // Optimistic UI Update
             setTabs(prev => {
+                const next = [...prev];
                 const movedTabs: chrome.tabs.Tab[] = [];
-                const remainingTabs = prev.filter(t => {
+                const remainingTabs = next.filter(t => {
                     if (groupTabSet.has(t.id!)) {
                         movedTabs.push(t);
                         return false;
@@ -607,29 +618,22 @@ export const ActiveSession = () => {
                     return true;
                 });
 
-                if (movedTabs.length === 0) return prev;
-
-                const targetIdxInRemaining = remainingTabs.findIndex(t => t.id === targetTab.tabId);
-                let insertIdx = targetIdxInRemaining === -1 ? 0 : (edge === 'bottom' ? targetIdxInRemaining + 1 : targetIdxInRemaining);
-                insertIdx = Math.max(0, Math.min(insertIdx, remainingTabs.length));
-
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, remainingTabs.length));
                 remainingTabs.splice(insertIdx, 0, ...movedTabs);
 
                 return remainingTabs.map((t, i) => ({ ...t, index: i }));
             });
 
-            // Chrome API: subtract 1 if source group min index was before target (moving downward)
-            const sourceMinIndex = Math.min(...sourceGroup.tabIds.map(id => tabs.find(t => t.id === id)?.index ?? Infinity));
-            const isMovingDownward = sourceMinIndex < rawTargetIndex;
-            const chromeIndex = isMovingDownward ? Math.max(0, rawTargetIndex - 1) : rawTargetIndex;
-
-            chrome.tabs.move(sourceGroup.tabIds, { index: chromeIndex }).then(() => {
-                return chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId });
+            // Chrome API Sync
+            chrome.tabs.move(sourceGroup.tabIds, { index: targetChromeIndex }).then(() => {
+                chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId }).catch(err => {
+                    console.warn('chrome.tabs.group failed after group move:', err);
+                });
             }).catch(err => {
                 console.warn('chrome.tabs.move group failed:', err);
             });
         },
-        [tabs, setTabs]
+        [setTabs]
     );
 
     // ── Active Session Handlers ──────────────────────────────────────────────

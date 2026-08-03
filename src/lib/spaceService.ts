@@ -313,7 +313,7 @@ class SpaceService {
                     await chrome.sidePanel.setOptions({
                         path: 'src/sidepanel/index.html',
                         enabled: true
-                    });
+                    } as any);
                 } catch (err) {
                     console.warn('[SpaceService] Failed to set sidePanel options:', err);
                 }

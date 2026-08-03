@@ -14,9 +14,6 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  build: {
-    modulePreload: false,
-  },
   server: {
     port: 5173,
     strictPort: true,
@@ -29,5 +26,8 @@ export default defineConfig({
       allowedHeaders: ["Content-Type", "Authorization", "x-requested-with", "Accept", "Origin", "Cache-Control", "upgrade-insecure-requests"],
       credentials: true,
     },
+  },
+  build: {
+    modulePreload: false,
   },
 });
