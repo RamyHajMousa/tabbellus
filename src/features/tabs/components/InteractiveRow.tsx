@@ -6,11 +6,12 @@ interface InteractiveRowProps extends React.HTMLAttributes<HTMLDivElement> {
     size?: 'sm' | 'md';
     isActive?: boolean;
     isDragging?: boolean;
+    closestEdge?: 'top' | 'bottom' | null;
     children: React.ReactNode;
 }
 
 const InteractiveRowRoot = React.forwardRef<HTMLDivElement, InteractiveRowProps>(
-    ({ size = 'md', isActive = false, isDragging = false, children, className, ...props }, ref) => {
+    ({ size = 'md', isActive = false, isDragging = false, closestEdge = null, children, className, ...props }, ref) => {
         const sizeClasses = size === 'md'
             ? 'h-9 text-sm'
             : 'h-7 text-xs -ml-2 mb-0.5';
@@ -20,7 +21,15 @@ const InteractiveRowRoot = React.forwardRef<HTMLDivElement, InteractiveRowProps>
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground';
 
         const draggingClasses = isDragging
-            ? 'opacity-50 ring-1 ring-primary'
+            ? 'opacity-40 ring-1 ring-primary'
+            : '';
+
+        const topEdgeClass = closestEdge === 'top'
+            ? 'relative before:absolute before:top-0 before:left-0 before:right-0 before:h-[2px] before:bg-primary before:z-20'
+            : '';
+
+        const bottomEdgeClass = closestEdge === 'bottom'
+            ? 'relative after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-primary after:z-20'
             : '';
 
         return (
@@ -31,6 +40,8 @@ const InteractiveRowRoot = React.forwardRef<HTMLDivElement, InteractiveRowProps>
                     ${sizeClasses}
                     ${activeClasses}
                     ${draggingClasses}
+                    ${topEdgeClass}
+                    ${bottomEdgeClass}
                     ${className || ''}
                 `}
                 {...props}

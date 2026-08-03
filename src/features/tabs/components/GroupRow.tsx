@@ -7,9 +7,12 @@ interface GroupRowProps {
     group: chrome.tabGroups.TabGroup;
     onClose?: (e: React.MouseEvent) => void;
     onArchive?: (e: React.MouseEvent) => void;
+    isDragging?: boolean;
+    isCenterHighlighted?: boolean;
+    closestEdge?: 'top' | 'bottom' | null;
 }
 
-const GroupRowComponent = React.memo(({ group, onClose, onArchive }: GroupRowProps) => {
+const GroupRowComponent = React.memo(({ group, onClose, onArchive, isDragging, isCenterHighlighted, closestEdge }: GroupRowProps) => {
     const colors = getGroupColorClasses(group.color);
 
     const handleToggleCollapse = (e: React.MouseEvent) => {
@@ -20,8 +23,10 @@ const GroupRowComponent = React.memo(({ group, onClose, onArchive }: GroupRowPro
     return (
         <InteractiveRow
             size="sm"
-            className={colors.row}
+            className={`${colors.row} ${isCenterHighlighted ? 'ring-1 ring-primary bg-primary/10' : ''}`}
             onClick={handleToggleCollapse}
+            isDragging={isDragging}
+            closestEdge={closestEdge}
         >
             {/* Leading: Collapse Icon & Color Badge */}
             <InteractiveRow.Leading>
@@ -70,6 +75,9 @@ const GroupRowComponent = React.memo(({ group, onClose, onArchive }: GroupRowPro
     );
 }, (prevProps, nextProps) => {
     return (
+        prevProps.isDragging === nextProps.isDragging &&
+        prevProps.isCenterHighlighted === nextProps.isCenterHighlighted &&
+        prevProps.closestEdge === nextProps.closestEdge &&
         prevProps.group.id === nextProps.group.id &&
         prevProps.group.title === nextProps.group.title &&
         prevProps.group.color === nextProps.group.color &&

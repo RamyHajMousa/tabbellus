@@ -14,7 +14,8 @@
     "release": "node scripts/release.js"
   },
   "dependencies": {
-    "@hello-pangea/dnd": "^18.0.1",
+    "@atlaskit/pragmatic-drag-and-drop": "^2.0.1",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
     "@radix-ui/react-context-menu": "^2.3.4",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

@@ -14,6 +14,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    modulePreload: false,
+  },
   server: {
     port: 5173,
     strictPort: true,
