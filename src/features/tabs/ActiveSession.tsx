@@ -37,6 +37,7 @@ export interface TabDragPayload {
     globalIndex: number;
     chromeIndex: number;
     groupId: number;
+    pinned?: boolean;
     [key: string]: unknown;
 }
 
@@ -98,6 +99,7 @@ const DraggableTabItem = memo(({
             globalIndex,
             chromeIndex: tab.index,
             groupId: tab.groupId,
+            pinned: tab.pinned,
         };
 
         return combine(
@@ -419,6 +421,8 @@ export const ActiveSession = () => {
         ) => {
             if (source.tabId === target.tabId) return;
 
+            const pinnedCount = tabs.filter(t => t.pinned).length;
+
             let targetChromeIndex = target.chromeIndex;
             if (edge === 'bottom') {
                 targetChromeIndex += 1;
@@ -426,6 +430,12 @@ export const ActiveSession = () => {
 
             if (source.chromeIndex < targetChromeIndex) {
                 targetChromeIndex -= 1;
+            }
+
+            if (source.pinned) {
+                targetChromeIndex = Math.min(Math.max(0, pinnedCount - 1), targetChromeIndex);
+            } else {
+                targetChromeIndex = Math.max(pinnedCount, targetChromeIndex);
             }
 
             const targetGroupId = target.groupId;
@@ -460,7 +470,7 @@ export const ActiveSession = () => {
                 });
             }
         },
-        [setTabs]
+        [tabs, setTabs]
     );
 
     const handleDropTabToGroup = useCallback(
@@ -472,6 +482,8 @@ export const ActiveSession = () => {
         ) => {
             if (groupTabs.length === 0) return;
 
+            const pinnedCount = tabs.filter(t => t.pinned).length;
+
             let targetChromeIndex: number;
             if (edge === 'top') {
                 targetChromeIndex = groupTabs[0].index;
@@ -481,6 +493,12 @@ export const ActiveSession = () => {
 
             if (source.chromeIndex < targetChromeIndex) {
                 targetChromeIndex -= 1;
+            }
+
+            if (source.pinned) {
+                targetChromeIndex = Math.min(Math.max(0, pinnedCount - 1), targetChromeIndex);
+            } else {
+                targetChromeIndex = Math.max(pinnedCount, targetChromeIndex);
             }
 
             const targetGroupId = targetGroup.id;
@@ -511,7 +529,7 @@ export const ActiveSession = () => {
                 });
             }
         },
-        [setTabs]
+        [tabs, setTabs]
     );
 
     const handleJoinGroup = useCallback(
@@ -544,6 +562,8 @@ export const ActiveSession = () => {
             if (sourceGroup.groupId === targetGroup.id) return;
             if (sourceGroup.tabIds.length === 0 || targetGroupTabs.length === 0) return;
 
+            const pinnedCount = tabs.filter(t => t.pinned).length;
+
             let targetChromeIndex: number;
             if (edge === 'top') {
                 targetChromeIndex = targetGroupTabs[0].index;
@@ -555,6 +575,8 @@ export const ActiveSession = () => {
                 targetChromeIndex -= sourceGroup.tabIds.length;
             }
 
+            targetChromeIndex = Math.max(pinnedCount, targetChromeIndex);
+
             const groupTabSet = new Set(sourceGroup.tabIds);
 
             // Optimistic UI Update
@@ -581,7 +603,7 @@ export const ActiveSession = () => {
                 console.warn('chrome.tabGroups.move failed:', err);
             });
         },
-        [setTabs]
+        [tabs, setTabs]
     );
 
     const handleDropGroupToTab = useCallback(
@@ -592,6 +614,8 @@ export const ActiveSession = () => {
         ) => {
             if (sourceGroup.tabIds.length === 0) return;
 
+            const pinnedCount = tabs.filter(t => t.pinned).length;
+
             let targetChromeIndex = targetTab.chromeIndex;
             if (edge === 'bottom') {
                 targetChromeIndex += 1;
@@ -600,6 +624,8 @@ export const ActiveSession = () => {
             if (sourceGroup.fromMinIndex < targetChromeIndex) {
                 targetChromeIndex -= sourceGroup.tabIds.length;
             }
+
+            targetChromeIndex = Math.max(pinnedCount, targetChromeIndex);
 
             const groupTabSet = new Set(sourceGroup.tabIds);
 
@@ -627,7 +653,7 @@ export const ActiveSession = () => {
                 console.warn('chrome.tabGroups.move failed:', err);
             });
         },
-        [setTabs]
+        [tabs, setTabs]
     );
 
     // ── Active Session Handlers ──────────────────────────────────────────────
