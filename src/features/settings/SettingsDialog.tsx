@@ -235,7 +235,6 @@ export const SettingsDialog = () => {
                             )}
 
                             <div className="space-y-1">
-                                {/* TODO: Change these links when put in production as well*/}
                                 <button
                                     onClick={() => openLink(EXTERNAL_LINKS.REVIEWS)}
                                     className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted transition-colors"
