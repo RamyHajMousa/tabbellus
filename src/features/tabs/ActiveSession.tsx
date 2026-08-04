@@ -575,13 +575,10 @@ export const ActiveSession = () => {
                 return remainingTabs.map((t, i) => ({ ...t, index: i }));
             });
 
-            // Chrome API Sync
-            chrome.tabs.move(sourceGroup.tabIds, { index: targetChromeIndex }).then(() => {
-                chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId }).catch(err => {
-                    console.warn('chrome.tabs.group failed after group move:', err);
-                });
-            }).catch(err => {
-                console.warn('chrome.tabs.move group failed:', err);
+            // Chrome API Sync — use tabGroups.move to move the group atomically
+            // (preserves collapsed state and avoids contiguity issues with tabs.move)
+            chrome.tabGroups.move(sourceGroup.groupId, { index: targetChromeIndex }).catch(err => {
+                console.warn('chrome.tabGroups.move failed:', err);
             });
         },
         [setTabs]
@@ -624,13 +621,10 @@ export const ActiveSession = () => {
                 return remainingTabs.map((t, i) => ({ ...t, index: i }));
             });
 
-            // Chrome API Sync
-            chrome.tabs.move(sourceGroup.tabIds, { index: targetChromeIndex }).then(() => {
-                chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId }).catch(err => {
-                    console.warn('chrome.tabs.group failed after group move:', err);
-                });
-            }).catch(err => {
-                console.warn('chrome.tabs.move group failed:', err);
+            // Chrome API Sync — use tabGroups.move to move the group atomically
+            // (preserves collapsed state and avoids contiguity issues with tabs.move)
+            chrome.tabGroups.move(sourceGroup.groupId, { index: targetChromeIndex }).catch(err => {
+                console.warn('chrome.tabGroups.move failed:', err);
             });
         },
         [setTabs]
