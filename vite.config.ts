@@ -27,4 +27,7 @@ export default defineConfig({
       credentials: true,
     },
   },
+  build: {
+    modulePreload: false,
+  },
 });

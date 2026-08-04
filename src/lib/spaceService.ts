@@ -311,7 +311,6 @@ class SpaceService {
                 // Configure Side Panel Options Declaratively
                 try {
                     await chrome.sidePanel.setOptions({
-                        windowId: win.id,
                         path: 'src/sidepanel/index.html',
                         enabled: true
                     } as any);

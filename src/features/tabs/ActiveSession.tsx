@@ -1,6 +1,10 @@
-import { useState, useMemo, useCallback, memo } from 'react';
-import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
+import { useState, useMemo, useCallback, memo, useRef, useEffect } from 'react';
+import { Virtuoso } from 'react-virtuoso';
+import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { attachClosestEdge, extractClosestEdge, type Edge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import { spaceService, getRecentSessionId, readLaterService, DuplicateReadLaterError } from '@/lib';
+import { getGroupColorClasses } from '@/lib/colors';
 import { useToast } from '@/components/ui/Toaster';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Save, Ghost } from 'lucide-react';
@@ -11,137 +15,339 @@ import { useCurrentSpace } from '@/hooks/useCurrentSpace';
 import { chromeTabToRowData } from './types';
 import { ActiveToolbar } from './components/ActiveToolbar';
 
-// A contiguous block of ungrouped tabs sharing a common position segment
-interface UngroupedSegment {
-    type: 'segment';
-    segmentIndex: number;
-    tabs: chrome.tabs.Tab[];
-}
+// ── Virtual Item Discrimination & Drag Payload Types ────────────────────
 
-interface GroupBlock {
-    type: 'group';
+export type VirtualRow =
+    | {
+          type: 'tab';
+          tab: chrome.tabs.Tab;
+          globalIndex: number;
+          inGroup?: boolean;
+          color?: chrome.tabGroups.ColorEnum;
+      }
+    | {
+          type: 'group-header';
+          group: chrome.tabGroups.TabGroup;
+          tabs: chrome.tabs.Tab[];
+      };
+
+export interface TabDragPayload {
+    type: 'tab';
+    tabId: number;
+    globalIndex: number;
+    chromeIndex: number;
     groupId: number;
-    tabs: chrome.tabs.Tab[];
+    [key: string]: unknown;
 }
 
-type RenderItem = UngroupedSegment | GroupBlock;
+export interface GroupDragPayload {
+    type: 'group-header';
+    groupId: number;
+    tabIds: number[];
+    fromMinIndex: number;
+    [key: string]: unknown;
+}
 
-// ── Render Strategy Components ───────────────────────────────────────────
+// ── Draggable & DropTarget Sub-Components ────────────────────────────────
 
-const TabRowRenderer: React.FC<{ item: any; [key: string]: any }> = memo(({ item, activeTabId, handleClose, handleReadLater }) => {
-    const segment = item as UngroupedSegment;
-    const droppableId = `segment-${segment.segmentIndex}`;
-    return (
-        <Droppable
-            droppableId={droppableId}
-            type="ungrouped"
-        >
-            {(provided, snapshot) => (
-                <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className={`space-y-0.5 rounded-md transition-colors ${snapshot.isDraggingOver ? 'bg-muted' : ''}`}
-                >
-                    {segment.tabs.map((tab, idx) => (
-                        <Draggable
-                            key={`tab-${tab.id}`}
-                            draggableId={String(tab.id)}
-                            index={idx}
-                        >
-                            {(dragProvided, dragSnapshot) => (
-                                <div
-                                    ref={dragProvided.innerRef}
-                                    {...dragProvided.draggableProps}
-                                >
-                                    <TabRow
-                                        data={chromeTabToRowData(tab, activeTabId)}
-                                        onClose={(e) => handleClose(e, tab)}
-                                        onReadLater={(e) => handleReadLater(e, tab)}
-                                        isDragging={dragSnapshot.isDragging}
-                                        dragHandleProps={dragProvided.dragHandleProps}
-                                    />
-                                </div>
-                            )}
-                        </Draggable>
-                    ))}
-                    {provided.placeholder}
-                </div>
-            )}
-        </Droppable>
-    );
-});
-
-const GroupBlockRenderer: React.FC<{ item: any; [key: string]: any }> = memo(({
-    item,
+const DraggableTabItem = memo(({
+    tab,
+    globalIndex,
+    inGroup,
+    color,
     activeTabId,
-    groups,
+    draggingGroupId,
     handleClose,
     handleReadLater,
-    handleCloseGroup,
-    handleArchiveGroup
+    onDropTab,
+    onDropGroupToTab,
+}: {
+    tab: chrome.tabs.Tab;
+    globalIndex: number;
+    inGroup?: boolean;
+    color?: chrome.tabGroups.ColorEnum;
+    activeTabId: number | null;
+    draggingGroupId: number | null;
+    handleClose: (e: React.MouseEvent, tab: chrome.tabs.Tab) => void;
+    handleReadLater: (e: React.MouseEvent, tab: chrome.tabs.Tab) => void;
+    onDropTab: (
+        source: TabDragPayload,
+        target: TabDragPayload,
+        edge: Edge
+    ) => void;
+    onDropGroupToTab: (
+        sourceGroup: GroupDragPayload,
+        targetTab: TabDragPayload,
+        edge: Edge
+    ) => void;
 }) => {
-    const groupBlock = item as GroupBlock;
-    const group = groups.get(groupBlock.groupId);
-    if (!group) return null;
-    const droppableId = `group-${groupBlock.groupId}`;
+    const ref = useRef<HTMLDivElement>(null);
+    const dragHandleRef = useRef<HTMLElement | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [closestEdge, setClosestEdge] = useState<'top' | 'bottom' | null>(null);
+
+    const isGroupMemberDragging = tab.groupId !== -1 && tab.groupId === draggingGroupId;
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el || tab.id === undefined) return;
+
+        const payload: TabDragPayload = {
+            type: 'tab',
+            tabId: tab.id,
+            globalIndex,
+            chromeIndex: tab.index,
+            groupId: tab.groupId,
+        };
+
+        return combine(
+            draggable({
+                element: el,
+                dragHandle: dragHandleRef.current || undefined,
+                getInitialData: () => (payload as unknown) as Record<string, unknown>,
+                onDragStart: () => setIsDragging(true),
+                onDrop: () => setIsDragging(false),
+            }),
+            dropTargetForElements({
+                element: el,
+                getData: ({ input }) => {
+                    return attachClosestEdge(
+                        (payload as unknown) as Record<string | symbol, unknown>,
+                        {
+                            element: el,
+                            input,
+                            allowedEdges: ['top', 'bottom'],
+                        }
+                    );
+                },
+                onDragEnter: (args) => {
+                    const edge = extractClosestEdge(args.self.data);
+                    setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                },
+                onDropTargetChange: (args) => {
+                    const edge = extractClosestEdge(args.self.data);
+                    setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                },
+                onDragLeave: () => setClosestEdge(null),
+                onDrop: (args) => {
+                    setClosestEdge(null);
+                    const edge = extractClosestEdge(args.self.data);
+                    if (!edge) return;
+                    if (args.source.data.type === 'tab') {
+                        onDropTab(
+                            args.source.data as unknown as TabDragPayload,
+                            args.self.data as unknown as TabDragPayload,
+                            edge
+                        );
+                    } else if (args.source.data.type === 'group-header') {
+                        onDropGroupToTab(
+                            args.source.data as unknown as GroupDragPayload,
+                            args.self.data as unknown as TabDragPayload,
+                            edge
+                        );
+                    }
+                },
+            })
+        );
+    }, [tab.id, tab.groupId, globalIndex, onDropTab, onDropGroupToTab]);
+
+    const content = (
+        <TabRow
+            data={chromeTabToRowData(tab, activeTabId)}
+            onClose={(e) => handleClose(e, tab)}
+            onReadLater={(e) => handleReadLater(e, tab)}
+            isDragging={isDragging || isGroupMemberDragging}
+            closestEdge={closestEdge}
+            dragHandleRef={(node) => { dragHandleRef.current = node; }}
+        />
+    );
+
+    if (inGroup && color) {
+        const colors = getGroupColorClasses(color);
+        return (
+            <div ref={ref} className={`pl-[14px] border-l-2 ml-2 relative ${colors.border}`}>
+                {content}
+            </div>
+        );
+    }
+
+    return <div ref={ref}>{content}</div>;
+});
+
+const DraggableGroupHeader = memo(({
+    group,
+    groupTabs,
+    handleCloseGroup,
+    handleArchiveGroup,
+    onDropTabToGroup,
+    onDropGroup,
+    onJoinGroup,
+    setDraggingGroupId,
+}: {
+    group: chrome.tabGroups.TabGroup;
+    groupTabs: chrome.tabs.Tab[];
+    handleCloseGroup: (e: React.MouseEvent, group: chrome.tabGroups.TabGroup, tabs: chrome.tabs.Tab[]) => void;
+    handleArchiveGroup: (e: React.MouseEvent, group: chrome.tabGroups.TabGroup, tabs: chrome.tabs.Tab[]) => void;
+    onDropTabToGroup: (
+        source: TabDragPayload,
+        targetGroup: chrome.tabGroups.TabGroup,
+        groupTabs: chrome.tabs.Tab[],
+        edge: Edge
+    ) => void;
+    onDropGroup: (
+        sourceGroup: GroupDragPayload,
+        targetGroup: chrome.tabGroups.TabGroup,
+        groupTabs: chrome.tabs.Tab[],
+        edge: Edge
+    ) => void;
+    onJoinGroup: (
+        sourceTab: TabDragPayload,
+        targetGroup: chrome.tabGroups.TabGroup
+    ) => void;
+    setDraggingGroupId: (id: number | null) => void;
+}) => {
+    const ref = useRef<HTMLDivElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [closestEdge, setClosestEdge] = useState<'top' | 'bottom' | null>(null);
+    const [isCenterHighlighted, setIsCenterHighlighted] = useState(false);
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+
+        const tabIds = groupTabs
+            .map(t => t.id)
+            .filter((id): id is number => id !== undefined);
+
+        const groupPayload: GroupDragPayload = {
+            type: 'group-header',
+            groupId: group.id,
+            tabIds,
+            fromMinIndex: groupTabs[0]?.index ?? 0,
+        };
+
+        return combine(
+            draggable({
+                element: el,
+                getInitialData: () => (groupPayload as unknown) as Record<string, unknown>,
+                onDragStart: () => {
+                    setIsDragging(true);
+                    setDraggingGroupId(group.id);
+                },
+                onDrop: () => {
+                    setIsDragging(false);
+                    setDraggingGroupId(null);
+                },
+            }),
+            dropTargetForElements({
+                element: el,
+                getData: ({ input }) => {
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = input.clientY - rect.top;
+                    const height = rect.height;
+
+                    let edge: 'top' | 'bottom' | null = null;
+                    if (relativeY < height * 0.30) {
+                        edge = 'top';
+                    } else if (relativeY > height * 0.70) {
+                        edge = 'bottom';
+                    } else {
+                        edge = null; // Tri-State: Center Hit!
+                    }
+
+                    return attachClosestEdge(
+                        (groupPayload as unknown) as Record<string | symbol, unknown>,
+                        {
+                            element: el,
+                            input,
+                            allowedEdges: edge ? [edge] : ['top', 'bottom'],
+                        }
+                    );
+                },
+                onDragEnter: (args) => {
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = args.location.current.input.clientY - rect.top;
+                    const height = rect.height;
+                    const isTab = args.source.data.type === 'tab';
+
+                    if (isTab && relativeY >= height * 0.30 && relativeY <= height * 0.70) {
+                        setIsCenterHighlighted(true);
+                        setClosestEdge(null);
+                    } else {
+                        setIsCenterHighlighted(false);
+                        const edge = extractClosestEdge(args.self.data);
+                        setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                    }
+                },
+                onDropTargetChange: (args) => {
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = args.location.current.input.clientY - rect.top;
+                    const height = rect.height;
+                    const isTab = args.source.data.type === 'tab';
+
+                    if (isTab && relativeY >= height * 0.30 && relativeY <= height * 0.70) {
+                        setIsCenterHighlighted(true);
+                        setClosestEdge(null);
+                    } else {
+                        setIsCenterHighlighted(false);
+                        const edge = extractClosestEdge(args.self.data);
+                        setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                    }
+                },
+                onDragLeave: () => {
+                    setClosestEdge(null);
+                    setIsCenterHighlighted(false);
+                },
+                onDrop: (args) => {
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = args.location.current.input.clientY - rect.top;
+                    const height = rect.height;
+                    const isTab = args.source.data.type === 'tab';
+                    const isCenter = isTab && relativeY >= height * 0.30 && relativeY <= height * 0.70;
+
+                    setClosestEdge(null);
+                    setIsCenterHighlighted(false);
+
+                    if (isCenter) {
+                        onJoinGroup(args.source.data as unknown as TabDragPayload, group);
+                        return;
+                    }
+
+                    const edge = extractClosestEdge(args.self.data) || (relativeY < height / 2 ? 'top' : 'bottom');
+
+                    if (args.source.data.type === 'tab') {
+                        onDropTabToGroup(
+                            args.source.data as unknown as TabDragPayload,
+                            group,
+                            groupTabs,
+                            edge
+                        );
+                    } else if (args.source.data.type === 'group-header') {
+                        onDropGroup(
+                            args.source.data as unknown as GroupDragPayload,
+                            group,
+                            groupTabs,
+                            edge
+                        );
+                    }
+                },
+            })
+        );
+    }, [group, groupTabs, onDropTabToGroup, onDropGroup, onJoinGroup, setDraggingGroupId]);
 
     return (
-        <div className="mb-1">
+        <div ref={ref} className="mb-0.5">
             <GroupRow
                 group={group}
-                onClose={(e) => handleCloseGroup(e, group, groupBlock.tabs)}
-                onArchive={(e) => handleArchiveGroup(e, group, groupBlock.tabs)}
+                onClose={(e) => handleCloseGroup(e, group, groupTabs)}
+                onArchive={(e) => handleArchiveGroup(e, group, groupTabs)}
+                isDragging={isDragging}
+                isCenterHighlighted={isCenterHighlighted}
+                closestEdge={closestEdge}
             />
-
-            {/* Group Children — isolated Droppable prevents cross-group drops */}
-            {!group.collapsed && (
-                <Droppable
-                    droppableId={droppableId}
-                    type={`group-${groupBlock.groupId}`}
-                >
-                    {(provided, snapshot) => (
-                        <GroupRow.Children
-                            ref={provided.innerRef}
-                            color={group.color}
-                            isDraggingOver={snapshot.isDraggingOver}
-                            {...provided.droppableProps}
-                        >
-                            {groupBlock.tabs.map((t, idx) => (
-                                <Draggable
-                                    key={`tab-${t.id}`}
-                                    draggableId={String(t.id)}
-                                    index={idx}
-                                >
-                                    {(dragProvided, dragSnapshot) => (
-                                        <div
-                                            ref={dragProvided.innerRef}
-                                            {...dragProvided.draggableProps}
-                                        >
-                                            <TabRow
-                                                data={chromeTabToRowData(t, activeTabId)}
-                                                onClose={(e) => handleClose(e, t)}
-                                                onReadLater={(e) => handleReadLater(e, t)}
-                                                isDragging={dragSnapshot.isDragging}
-                                                dragHandleProps={dragProvided.dragHandleProps}
-                                            />
-                                        </div>
-                                    )}
-                                </Draggable>
-                            ))}
-                            {provided.placeholder}
-                        </GroupRow.Children>
-                    )}
-                </Droppable>
-            )}
         </div>
     );
 });
-
-const ACTIVE_SESSION_RENDERERS: Record<string, React.FC<{ item: any; [key: string]: any }>> = {
-    segment: TabRowRenderer,
-    tab: TabRowRenderer,
-    group: GroupBlockRenderer,
-};
 
 // ── ActiveSession Component ──────────────────────────────────────────────
 
@@ -150,107 +356,288 @@ export const ActiveSession = () => {
     const currentSpace = useCurrentSpace();
     const [spaceName, setSpaceName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [draggingGroupId, setDraggingGroupId] = useState<number | null>(null);
     const { toast } = useToast();
 
-    // Grouping Topology — coalesces contiguous ungrouped tabs into named segments
-    // so each segment maps to exactly one <Droppable> with a contiguous index range.
-    const renderList = useMemo<RenderItem[]>(() => {
-        const list: RenderItem[] = [];
+    // ── 1D Topology Flattening for Virtuoso ──────────────────────────────────
+    const flatList = useMemo<VirtualRow[]>(() => {
+        const result: VirtualRow[] = [];
         const processedGroups = new Set<number>();
-        const groupMap = new Map<number, chrome.tabs.Tab[]>();
 
-        tabs.forEach(tab => {
-            const gid = tab.groupId;
-            if (gid !== -1) {
-                if (!groupMap.has(gid)) groupMap.set(gid, []);
-                groupMap.get(gid)!.push(tab);
+        const groupTabsMap = new Map<number, chrome.tabs.Tab[]>();
+        tabs.forEach(t => {
+            if (t.groupId !== -1) {
+                if (!groupTabsMap.has(t.groupId)) groupTabsMap.set(t.groupId, []);
+                groupTabsMap.get(t.groupId)!.push(t);
             }
         });
 
-        let currentSegment: chrome.tabs.Tab[] | null = null;
-        let segmentIndex = 0;
-
-        for (const tab of tabs) {
+        for (let i = 0; i < tabs.length; i++) {
+            const tab = tabs[i];
             if (tab.groupId === -1) {
-                // Ungrouped — coalesce into current segment
-                if (currentSegment === null) {
-                    currentSegment = [];
-                }
-                currentSegment.push(tab);
+                result.push({
+                    type: 'tab',
+                    tab,
+                    globalIndex: i,
+                });
             } else {
-                // Flush any open ungrouped segment
-                if (currentSegment !== null) {
-                    list.push({ type: 'segment', segmentIndex: segmentIndex++, tabs: currentSegment });
-                    currentSegment = null;
-                }
-                // Add group block only once
                 if (!processedGroups.has(tab.groupId)) {
                     processedGroups.add(tab.groupId);
-                    list.push({ type: 'group', groupId: tab.groupId, tabs: groupMap.get(tab.groupId) || [] });
+                    const group = groups.get(tab.groupId);
+                    const groupTabs = groupTabsMap.get(tab.groupId) || [];
+                    if (group) {
+                        result.push({
+                            type: 'group-header',
+                            group,
+                            tabs: groupTabs,
+                        });
+                    }
+                }
+
+                const group = groups.get(tab.groupId);
+                if (!group?.collapsed) {
+                    result.push({
+                        type: 'tab',
+                        tab,
+                        globalIndex: i,
+                        inGroup: true,
+                        color: group?.color,
+                    });
                 }
             }
         }
-        // Flush trailing ungrouped segment
-        if (currentSegment !== null) {
-            list.push({ type: 'segment', segmentIndex: segmentIndex++, tabs: currentSegment });
-        }
+        return result;
+    }, [tabs, groups]);
 
-        return list;
-    }, [tabs]);
+    // ── Drag & Drop Handlers ─────────────────────────────────────────────────
 
-    // ── Drag & Drop Handler ──────────────────────────────────────────────────
-    const handleDragEnd = useCallback((result: DropResult) => {
-        const { source, destination, draggableId } = result;
+    const handleDropTab = useCallback(
+        (
+            source: TabDragPayload,
+            target: TabDragPayload,
+            edge: Edge
+        ) => {
+            if (source.tabId === target.tabId) return;
 
-        // Dropped outside a valid zone or no movement
-        if (!destination) return;
-        if (source.droppableId === destination.droppableId && source.index === destination.index) return;
-
-        const tabId = parseInt(draggableId, 10);
-        if (isNaN(tabId)) return;
-
-        // Find the target droppable's tab list to compute the global Chrome index
-        let targetTabs: chrome.tabs.Tab[] = [];
-        for (const item of renderList) {
-            if (item.type === 'segment' && `segment-${item.segmentIndex}` === destination.droppableId) {
-                targetTabs = item.tabs;
-                break;
+            let targetChromeIndex = target.chromeIndex;
+            if (edge === 'bottom') {
+                targetChromeIndex += 1;
             }
-            if (item.type === 'group' && `group-${item.groupId}` === destination.droppableId) {
-                targetTabs = item.tabs;
-                break;
+
+            if (source.chromeIndex < targetChromeIndex) {
+                targetChromeIndex -= 1;
             }
-        }
 
-        // Global Chrome index = first tab's global index in that list + destination.index
-        const startGlobalIndex = targetTabs[0]?.index ?? 0;
-        const newIndex = startGlobalIndex + destination.index;
+            const targetGroupId = target.groupId;
 
-        // ── Optimistic UI Update ─────────────────────────────────────────────
-        // Splice the dragged tab into the new position in the local array so the
-        // library's controlled component doesn't snap back while Chrome processes.
-        setTabs(prev => {
-            const next = [...prev];
-            const fromIdx = next.findIndex(t => t.id === tabId);
-            if (fromIdx === -1) return prev;
+            // Optimistic UI Update
+            setTabs(prev => {
+                const next = [...prev];
+                const fromIdx = next.findIndex(t => t.id === source.tabId);
+                if (fromIdx === -1) return prev;
 
-            const [moved] = next.splice(fromIdx, 1);
-            // Insert at the absolute target position
-            next.splice(newIndex, 0, moved);
+                const [moved] = next.splice(fromIdx, 1);
+                moved.groupId = targetGroupId;
+                
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, next.length));
+                next.splice(insertIdx, 0, moved);
 
-            // Re-assign .index sequentially so sort() doesn't undo the move
-            return next.map((t, i) => ({ ...t, index: i }));
-        });
+                return next.map((t, i) => ({ ...t, index: i }));
+            });
 
-        // ── Chrome API Sync ──────────────────────────────────────────────────
-        // Fire-and-forget. chrome.tabs.onMoved will trigger triggerTabsRefresh()
-        // which replaces the optimistic state with the true Chrome state.
-        chrome.tabs.move(tabId, { index: newIndex }).catch(err => {
-            console.warn('chrome.tabs.move failed:', err);
-        });
-    }, [renderList, setTabs]);
+            // Chrome API Sync
+            chrome.tabs.move(source.tabId, { index: targetChromeIndex }).catch(err => {
+                console.warn('chrome.tabs.move failed:', err);
+            });
 
-    // ── Existing Handlers ────────────────────────────────────────────────────
+            if (targetGroupId !== -1 && source.groupId !== targetGroupId) {
+                chrome.tabs.group({ tabIds: source.tabId, groupId: targetGroupId }).catch(err => {
+                    console.warn('chrome.tabs.group failed:', err);
+                });
+            } else if (targetGroupId === -1 && source.groupId !== -1) {
+                chrome.tabs.ungroup(source.tabId).catch(err => {
+                    console.warn('chrome.tabs.ungroup failed:', err);
+                });
+            }
+        },
+        [setTabs]
+    );
+
+    const handleDropTabToGroup = useCallback(
+        (
+            source: TabDragPayload,
+            targetGroup: chrome.tabGroups.TabGroup,
+            groupTabs: chrome.tabs.Tab[],
+            edge: Edge
+        ) => {
+            if (groupTabs.length === 0) return;
+
+            let targetChromeIndex: number;
+            if (edge === 'top') {
+                targetChromeIndex = groupTabs[0].index;
+            } else {
+                targetChromeIndex = groupTabs[groupTabs.length - 1].index + 1;
+            }
+
+            if (source.chromeIndex < targetChromeIndex) {
+                targetChromeIndex -= 1;
+            }
+
+            const targetGroupId = targetGroup.id;
+
+            // Optimistic UI Update
+            setTabs(prev => {
+                const next = [...prev];
+                const fromIdx = next.findIndex(t => t.id === source.tabId);
+                if (fromIdx === -1) return prev;
+
+                const [moved] = next.splice(fromIdx, 1);
+                moved.groupId = targetGroupId;
+                
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, next.length));
+                next.splice(insertIdx, 0, moved);
+
+                return next.map((t, i) => ({ ...t, index: i }));
+            });
+
+            // Chrome API Sync
+            chrome.tabs.move(source.tabId, { index: targetChromeIndex }).catch(err => {
+                console.warn('chrome.tabs.move failed:', err);
+            });
+
+            if (source.groupId !== targetGroupId) {
+                chrome.tabs.group({ tabIds: source.tabId, groupId: targetGroupId }).catch(err => {
+                    console.warn('chrome.tabs.group failed:', err);
+                });
+            }
+        },
+        [setTabs]
+    );
+
+    const handleJoinGroup = useCallback(
+        (
+            sourceTab: TabDragPayload,
+            targetGroup: chrome.tabGroups.TabGroup
+        ) => {
+            if (sourceTab.groupId === targetGroup.id) return;
+
+            // Optimistic UI Update
+            setTabs(prev => {
+                return prev.map(t => (t.id === sourceTab.tabId ? { ...t, groupId: targetGroup.id } : t));
+            });
+
+            // Chrome API Sync
+            chrome.tabs.group({ tabIds: sourceTab.tabId, groupId: targetGroup.id }).catch(err => {
+                console.warn('chrome.tabs.group join failed:', err);
+            });
+        },
+        [setTabs]
+    );
+
+    const handleDropGroup = useCallback(
+        (
+            sourceGroup: GroupDragPayload,
+            targetGroup: chrome.tabGroups.TabGroup,
+            targetGroupTabs: chrome.tabs.Tab[],
+            edge: Edge
+        ) => {
+            if (sourceGroup.groupId === targetGroup.id) return;
+            if (sourceGroup.tabIds.length === 0 || targetGroupTabs.length === 0) return;
+
+            let targetChromeIndex: number;
+            if (edge === 'top') {
+                targetChromeIndex = targetGroupTabs[0].index;
+            } else {
+                targetChromeIndex = targetGroupTabs[targetGroupTabs.length - 1].index + 1;
+            }
+
+            if (sourceGroup.fromMinIndex < targetChromeIndex) {
+                targetChromeIndex -= sourceGroup.tabIds.length;
+            }
+
+            const groupTabSet = new Set(sourceGroup.tabIds);
+
+            // Optimistic UI Update
+            setTabs(prev => {
+                const next = [...prev];
+                const movedTabs: chrome.tabs.Tab[] = [];
+                const remainingTabs = next.filter(t => {
+                    if (groupTabSet.has(t.id!)) {
+                        movedTabs.push(t);
+                        return false;
+                    }
+                    return true;
+                });
+
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, remainingTabs.length));
+                remainingTabs.splice(insertIdx, 0, ...movedTabs);
+
+                return remainingTabs.map((t, i) => ({ ...t, index: i }));
+            });
+
+            // Chrome API Sync
+            chrome.tabs.move(sourceGroup.tabIds, { index: targetChromeIndex }).then(() => {
+                chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId }).catch(err => {
+                    console.warn('chrome.tabs.group failed after group move:', err);
+                });
+            }).catch(err => {
+                console.warn('chrome.tabs.move group failed:', err);
+            });
+        },
+        [setTabs]
+    );
+
+    const handleDropGroupToTab = useCallback(
+        (
+            sourceGroup: GroupDragPayload,
+            targetTab: TabDragPayload,
+            edge: Edge
+        ) => {
+            if (sourceGroup.tabIds.length === 0) return;
+
+            let targetChromeIndex = targetTab.chromeIndex;
+            if (edge === 'bottom') {
+                targetChromeIndex += 1;
+            }
+
+            if (sourceGroup.fromMinIndex < targetChromeIndex) {
+                targetChromeIndex -= sourceGroup.tabIds.length;
+            }
+
+            const groupTabSet = new Set(sourceGroup.tabIds);
+
+            // Optimistic UI Update
+            setTabs(prev => {
+                const next = [...prev];
+                const movedTabs: chrome.tabs.Tab[] = [];
+                const remainingTabs = next.filter(t => {
+                    if (groupTabSet.has(t.id!)) {
+                        movedTabs.push(t);
+                        return false;
+                    }
+                    return true;
+                });
+
+                let insertIdx = Math.max(0, Math.min(targetChromeIndex, remainingTabs.length));
+                remainingTabs.splice(insertIdx, 0, ...movedTabs);
+
+                return remainingTabs.map((t, i) => ({ ...t, index: i }));
+            });
+
+            // Chrome API Sync
+            chrome.tabs.move(sourceGroup.tabIds, { index: targetChromeIndex }).then(() => {
+                chrome.tabs.group({ tabIds: sourceGroup.tabIds, groupId: sourceGroup.groupId }).catch(err => {
+                    console.warn('chrome.tabs.group failed after group move:', err);
+                });
+            }).catch(err => {
+                console.warn('chrome.tabs.move group failed:', err);
+            });
+        },
+        [setTabs]
+    );
+
+    // ── Active Session Handlers ──────────────────────────────────────────────
+
     const handleCapture = useCallback(async () => {
         if (!spaceName.trim()) return;
 
@@ -299,7 +686,6 @@ export const ActiveSession = () => {
         const tabId = tab.id;
         const tabUrl = tab.url || '';
 
-        // Skip Undo for blank tabs (Chrome doesn't save these)
         const isBlankTab = tabUrl === '' || tabUrl === 'chrome://newtab/' || tabUrl === 'about:blank';
 
         try {
@@ -310,7 +696,6 @@ export const ActiveSession = () => {
                 return;
             }
 
-            // Poll for the session entry with retry backoff
             const sessionId = await getRecentSessionId();
 
             if (sessionId) {
@@ -321,7 +706,6 @@ export const ActiveSession = () => {
                     }
                 });
             } else {
-                // No sessionId available (e.g., incognito)
                 toast("Tab closed", { duration: 2000 });
             }
         } catch {
@@ -416,29 +800,47 @@ export const ActiveSession = () => {
             {/* Active View Local Toolbar */}
             <ActiveToolbar tabs={tabs} activeTabId={activeTabId} />
 
-            {/* Scrollable Tab List */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0 bg-background">
-                <DragDropContext onDragEnd={handleDragEnd}>
-                    {renderList.map((item) => {
-                        const Renderer = ACTIVE_SESSION_RENDERERS[item.type];
-                        if (!Renderer) return null;
+            {/* Virtualized Active Tab List */}
+            <div className="flex-1 p-2 min-h-0 bg-background overflow-hidden">
+                {flatList.length > 0 ? (
+                    <Virtuoso
+                        style={{ height: '100%' }}
+                        data={flatList}
+                        itemContent={(_idx, item) => {
+                            if (item.type === 'group-header') {
+                                return (
+                                    <DraggableGroupHeader
+                                        key={`group-${item.group.id}`}
+                                        group={item.group}
+                                        groupTabs={item.tabs}
+                                        handleCloseGroup={handleCloseGroup}
+                                        handleArchiveGroup={handleArchiveGroup}
+                                        onDropTabToGroup={handleDropTabToGroup}
+                                        onDropGroup={handleDropGroup}
+                                        onJoinGroup={handleJoinGroup}
+                                        setDraggingGroupId={setDraggingGroupId}
+                                    />
+                                );
+                            }
 
-                        return (
-                            <Renderer
-                                key={item.type === 'segment' ? `segment-${item.segmentIndex}` : `group-${item.groupId}`}
-                                item={item}
-                                activeTabId={activeTabId}
-                                groups={groups}
-                                handleClose={handleClose}
-                                handleReadLater={handleReadLater}
-                                handleCloseGroup={handleCloseGroup}
-                                handleArchiveGroup={handleArchiveGroup}
-                            />
-                        );
-                    })}
-                </DragDropContext>
-
-                {tabs.length === 0 && (
+                            return (
+                                <DraggableTabItem
+                                    key={`tab-${item.tab.id}`}
+                                    tab={item.tab}
+                                    globalIndex={item.globalIndex}
+                                    inGroup={item.inGroup}
+                                    color={item.color}
+                                    activeTabId={activeTabId}
+                                    draggingGroupId={draggingGroupId}
+                                    handleClose={handleClose}
+                                    handleReadLater={handleReadLater}
+                                    onDropTab={handleDropTab}
+                                    onDropGroupToTab={handleDropGroupToTab}
+                                />
+                            );
+                        }}
+                    />
+                ) : (
                     <div className="flex flex-col items-center justify-center h-32 text-muted-foreground opacity-50">
                         <Ghost className="w-8 h-8 mb-2 opacity-20" />
                         <p className="text-xs">No active tabs</p>

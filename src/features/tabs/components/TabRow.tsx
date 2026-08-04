@@ -3,7 +3,6 @@ import { X, Clock, Trash2, Copy, GripVertical, Pin, VolumeX } from 'lucide-react
 import { tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
-import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 import { type RowTabData } from '../types';
@@ -24,10 +23,11 @@ interface TabRowProps {
     onReadLater?: (e: React.MouseEvent) => void;
     onDelete?: (e: React.MouseEvent) => void;
     isDragging?: boolean;
-    dragHandleProps?: DraggableProvidedDragHandleProps | null;
+    closestEdge?: 'top' | 'bottom' | null;
+    dragHandleRef?: (element: HTMLElement | null) => void;
 }
 
-export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, dragHandleProps }: TabRowProps) => {
+export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, closestEdge, dragHandleRef }: TabRowProps) => {
     const { copy } = useClipboard();
     const isActive = propIsActive ?? data.isActive;
     const canAddToSpace = data.source === 'active';
@@ -69,6 +69,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                     size="md"
                     isActive={isActive}
                     isDragging={isDragging}
+                    closestEdge={closestEdge}
                     className={data.discarded ? "opacity-50 grayscale" : ""}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -81,9 +82,9 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                 >
                     {/* Leading */}
                     <InteractiveRow.Leading>
-                        {dragHandleProps && (
+                        {dragHandleRef && (
                             <span
-                                {...dragHandleProps}
+                                ref={dragHandleRef}
                                 className="opacity-0 group-hover:opacity-40 hover:!opacity-100 flex-shrink-0 cursor-grab active:cursor-grabbing transition-opacity -ml-1"
                                 onClick={(e) => e.stopPropagation()}
                                 aria-label="Drag to reorder"
@@ -237,6 +238,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
     return (
         prevProps.isActive === nextProps.isActive &&
         prevProps.isDragging === nextProps.isDragging &&
+        prevProps.closestEdge === nextProps.closestEdge &&
         prevProps.data.id === nextProps.data.id &&
         prevProps.data.url === nextProps.data.url &&
         prevProps.data.title === nextProps.data.title &&
