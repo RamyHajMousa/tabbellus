@@ -107,6 +107,10 @@ const DraggableTabItem = memo(({
                 element: el,
                 dragHandle: dragHandleRef.current || undefined,
                 getInitialData: () => (payload as unknown) as Record<string, unknown>,
+                getInitialDataForExternal: () => {
+                    const url = tab.url || '';
+                    return { 'text/plain': url, 'text/uri-list': url };
+                },
                 onDragStart: () => setIsDragging(true),
                 onDrop: () => setIsDragging(false),
             }),
@@ -232,6 +236,13 @@ const DraggableGroupHeader = memo(({
             draggable({
                 element: el,
                 getInitialData: () => (groupPayload as unknown) as Record<string, unknown>,
+                getInitialDataForExternal: () => {
+                    const urls = groupTabs
+                        .map(t => t.url || '')
+                        .filter(Boolean)
+                        .join('\n');
+                    return { 'text/plain': urls, 'text/uri-list': urls };
+                },
                 onDragStart: () => {
                     setIsDragging(true);
                     setDraggingGroupId(group.id);
