@@ -85,37 +85,4 @@ const GroupRowComponent = React.memo(({ group, onClose, onArchive, isDragging, i
     );
 });
 
-// ── GroupRow.Children ────────────────────────────────────────────────────
-
-interface GroupRowChildrenProps extends React.HTMLAttributes<HTMLDivElement> {
-    color: chrome.tabGroups.ColorEnum;
-    isDraggingOver?: boolean;
-    children: React.ReactNode;
-}
-
-export const GroupRowChildren = React.forwardRef<HTMLDivElement, GroupRowChildrenProps>(
-    ({ color, isDraggingOver = false, children, className, ...props }, ref) => {
-        const colors = getGroupColorClasses(color);
-        return (
-            <div
-                ref={ref}
-                className={`
-                    pl-[14px] border-l-2 ml-2 space-y-0.5 mt-0.5 relative
-                    ${colors.border}
-                    ${isDraggingOver ? 'bg-muted' : ''}
-                    ${className || ''}
-                `}
-                {...props}
-            >
-                {children}
-            </div>
-        );
-    }
-);
-
-type GroupRowNamespace = typeof GroupRowComponent & {
-    Children: typeof GroupRowChildren;
-};
-
-export const GroupRow = GroupRowComponent as GroupRowNamespace;
-GroupRow.Children = GroupRowChildren;
+export const GroupRow = GroupRowComponent;

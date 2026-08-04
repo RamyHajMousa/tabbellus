@@ -155,7 +155,7 @@ const DraggableTabItem = memo(({
                 },
             })
         );
-    }, [tab.id, tab.groupId, globalIndex, onDropTab, onDropGroupToTab]);
+    }, [tab.id, tab.groupId, tab.index, tab.pinned, tab.url, globalIndex, onDropTab, onDropGroupToTab]);
 
     const content = (
         <TabRow
@@ -799,6 +799,53 @@ export const ActiveSession = () => {
         }
     }, [toast]);
 
+    const renderItemContent = useCallback((_idx: number, item: VirtualRow) => {
+        if (item.type === 'group-header') {
+            return (
+                <DraggableGroupHeader
+                    key={`group-${item.group.id}`}
+                    group={item.group}
+                    groupTabs={item.tabs}
+                    handleCloseGroup={handleCloseGroup}
+                    handleArchiveGroup={handleArchiveGroup}
+                    onDropTabToGroup={handleDropTabToGroup}
+                    onDropGroup={handleDropGroup}
+                    onJoinGroup={handleJoinGroup}
+                    setDraggingGroupId={setDraggingGroupId}
+                />
+            );
+        }
+
+        return (
+            <DraggableTabItem
+                key={`tab-${item.tab.id}`}
+                tab={item.tab}
+                globalIndex={item.globalIndex}
+                inGroup={item.inGroup}
+                color={item.color}
+                activeTabId={activeTabId}
+                draggingGroupId={draggingGroupId}
+                handleClose={handleClose}
+                handleReadLater={handleReadLater}
+                onDropTab={handleDropTab}
+                onDropGroupToTab={handleDropGroupToTab}
+            />
+        );
+    }, [
+        activeTabId,
+        draggingGroupId,
+        handleCloseGroup,
+        handleArchiveGroup,
+        handleDropTabToGroup,
+        handleDropGroup,
+        handleJoinGroup,
+        setDraggingGroupId,
+        handleClose,
+        handleReadLater,
+        handleDropTab,
+        handleDropGroupToTab,
+    ]);
+
     return (
         <div className="flex flex-col h-full select-none">
             {/* Capture Header */}
@@ -837,39 +884,7 @@ export const ActiveSession = () => {
                     <Virtuoso
                         style={{ height: '100%' }}
                         data={flatList}
-                        itemContent={(_idx, item) => {
-                            if (item.type === 'group-header') {
-                                return (
-                                    <DraggableGroupHeader
-                                        key={`group-${item.group.id}`}
-                                        group={item.group}
-                                        groupTabs={item.tabs}
-                                        handleCloseGroup={handleCloseGroup}
-                                        handleArchiveGroup={handleArchiveGroup}
-                                        onDropTabToGroup={handleDropTabToGroup}
-                                        onDropGroup={handleDropGroup}
-                                        onJoinGroup={handleJoinGroup}
-                                        setDraggingGroupId={setDraggingGroupId}
-                                    />
-                                );
-                            }
-
-                            return (
-                                <DraggableTabItem
-                                    key={`tab-${item.tab.id}`}
-                                    tab={item.tab}
-                                    globalIndex={item.globalIndex}
-                                    inGroup={item.inGroup}
-                                    color={item.color}
-                                    activeTabId={activeTabId}
-                                    draggingGroupId={draggingGroupId}
-                                    handleClose={handleClose}
-                                    handleReadLater={handleReadLater}
-                                    onDropTab={handleDropTab}
-                                    onDropGroupToTab={handleDropGroupToTab}
-                                />
-                            );
-                        }}
+                        itemContent={renderItemContent}
                     />
                 ) : (
                     <div className="flex flex-col items-center justify-center h-32 text-muted-foreground opacity-50">

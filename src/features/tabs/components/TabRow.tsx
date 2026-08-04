@@ -240,6 +240,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
         prevProps.isDragging === nextProps.isDragging &&
         prevProps.closestEdge === nextProps.closestEdge &&
         prevProps.data.id === nextProps.data.id &&
+        prevProps.data.isActive === nextProps.data.isActive &&
         prevProps.data.url === nextProps.data.url &&
         prevProps.data.title === nextProps.data.title &&
         prevProps.data.favicon === nextProps.data.favicon &&
