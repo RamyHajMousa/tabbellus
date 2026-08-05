@@ -92,46 +92,91 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
     ) => {
         if (unpinned.length === 0) return;
 
-        // Constraint 1: Partitioning
-        const buckets = new Map<number, chrome.tabs.Tab[]>();
-        unpinned.forEach(tab => {
-            const gid = (tab.groupId === undefined || tab.groupId === -1 || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) 
-                ? -1 
-                : tab.groupId;
-            if (!buckets.has(gid)) {
-                buckets.set(gid, []);
+        try {
+            // ── Phase 1: Partition by groupId ──
+            // Groups (groupId > 0) stay as contiguous blocks; ungrouped tabs (-1) are individual entities.
+            const groupBuckets = new Map<number, chrome.tabs.Tab[]>();
+            const ungroupedTabs: chrome.tabs.Tab[] = [];
+
+            for (const tab of unpinned) {
+                const gid = (tab.groupId === undefined || tab.groupId === -1 || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE)
+                    ? -1
+                    : tab.groupId;
+
+                if (gid === -1) {
+                    ungroupedTabs.push(tab);
+                } else {
+                    if (!groupBuckets.has(gid)) {
+                        groupBuckets.set(gid, []);
+                    }
+                    groupBuckets.get(gid)!.push(tab);
+                }
             }
-            buckets.get(gid)!.push(tab);
-        });
 
-        // Constraint 2: Internal Bucket Sorting
-        for (const bucket of buckets.values()) {
-            bucket.sort(sortFn);
+            // ── Phase 2: Internal sort within each group bucket ──
+            for (const bucket of groupBuckets.values()) {
+                bucket.sort(sortFn);
+            }
+
+            // ── Phase 3: Build sortable entities ──
+            // Each entity is either a group block (sorted by its first tab's key) or a single ungrouped tab.
+            type SortEntity = { type: 'group'; gid: number; tabs: chrome.tabs.Tab[] } | { type: 'tab'; tab: chrome.tabs.Tab };
+
+            const entities: SortEntity[] = [];
+
+            for (const [gid, tabs] of groupBuckets) {
+                entities.push({ type: 'group', gid, tabs });
+            }
+            for (const tab of ungroupedTabs) {
+                entities.push({ type: 'tab', tab });
+            }
+
+            // Representative tab for sorting: first tab of a group, or the tab itself.
+            const getRepresentative = (entity: SortEntity): chrome.tabs.Tab =>
+                entity.type === 'group' ? entity.tabs[0] : entity.tab;
+
+            entities.sort((a, b) => sortFn(getRepresentative(a), getRepresentative(b)));
+
+            // ── Phase 4: Flatten into ordered ID array ──
+            const flattenedIds: number[] = [];
+            // Track group -> tabIds for the heal pass
+            const groupHealMap = new Map<number, number[]>();
+
+            for (const entity of entities) {
+                if (entity.type === 'group') {
+                    const ids: number[] = [];
+                    for (const tab of entity.tabs) {
+                        if (tab.id !== undefined) {
+                            flattenedIds.push(tab.id);
+                            ids.push(tab.id);
+                        }
+                    }
+                    if (ids.length > 0) {
+                        groupHealMap.set(entity.gid, ids);
+                    }
+                } else {
+                    if (entity.tab.id !== undefined) {
+                        flattenedIds.push(entity.tab.id);
+                    }
+                }
+            }
+
+            if (flattenedIds.length === 0) return;
+
+            // ── Phase 5: Batch move ──
+            // Single atomic call preserves relative order; Chrome processes the array left-to-right.
+            await chrome.tabs.move(flattenedIds, { index: pinnedCount });
+
+            // ── Phase 6: Heal group bindings ──
+            // chrome.tabs.move may strip group membership; re-bind each group's tabs.
+            for (const [gid, tabIds] of groupHealMap) {
+                await chrome.tabs.group({ groupId: gid, tabIds }).catch(() => { });
+            }
+
+            toast(toastMessage);
+        } catch (err) {
+            console.error('Group-aware sort failed:', err);
         }
-
-        // Constraint 3: Group Order Sorting
-        const gids = Array.from(buckets.keys());
-        gids.sort((a, b) => {
-            if (a === -1) return -1;
-            if (b === -1) return 1;
-            const tabA = buckets.get(a)![0];
-            const tabB = buckets.get(b)![0];
-            return sortFn(tabA, tabB);
-        });
-
-        // Constraint 4: Contiguous Reassembly
-        const sorted: chrome.tabs.Tab[] = [];
-        for (const gid of gids) {
-            sorted.push(...buckets.get(gid)!);
-        }
-
-        // Constraint 5: Execution
-        for (let i = 0; i < sorted.length; i++) {
-            const tab = sorted[i];
-            await chrome.tabs.move(tab.id!, { index: pinnedCount + i }).catch(() => { });
-        }
-
-        toast(toastMessage);
     };
 
     const handleSortByDomain = async () => {
