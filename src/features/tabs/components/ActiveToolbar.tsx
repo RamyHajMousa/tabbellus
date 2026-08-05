@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Plus, XCircle, ArrowUpDown, Globe, ArrowDownAZ } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Plus, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers } from 'lucide-react';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useToast } from '@/components/ui/Toaster';
 import {
@@ -8,6 +8,7 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
+import { autoGroupByDomain } from '../utils/groupingUtils';
 
 interface ActiveToolbarProps {
     tabs: chrome.tabs.Tab[];
@@ -158,6 +159,15 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
         }, pinnedCount, "Tabs sorted alphabetically");
     };
 
+    const handleGroupByDomain = async () => {
+        const { groupsCreated } = await autoGroupByDomain(tabs);
+        if (groupsCreated > 0) {
+            toast("Tabs Grouped", { description: `Successfully created ${groupsCreated} domain groups.` });
+        } else {
+            toast("No groupable domains found", { duration: 3000 });
+        }
+    };
+
     return (
         <div className="h-8 flex items-center justify-between px-3 bg-background border-b border-border flex-shrink-0 z-10 select-none">
             {/* Left Group Navigation */}
@@ -208,6 +218,16 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
 
             {/* Right Group Actions */}
             <div className="flex items-center gap-0.5">
+                <TooltipSimple content="Group by Domain" side="bottom">
+                    <button
+                        onClick={handleGroupByDomain}
+                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors outline-none"
+                        aria-label="Group by domain"
+                    >
+                        <Layers className="w-3.5 h-3.5" />
+                    </button>
+                </TooltipSimple>
+
                 <DropdownMenu>
                     <TooltipSimple content="Sort Tabs" side="bottom">
                         <DropdownMenuTrigger asChild>
