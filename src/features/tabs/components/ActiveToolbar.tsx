@@ -83,47 +83,79 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
         }
     };
 
+    const topologyAwareSort = async (
+        unpinned: chrome.tabs.Tab[],
+        sortFn: (a: chrome.tabs.Tab, b: chrome.tabs.Tab) => number,
+        pinnedCount: number,
+        toastMessage: string
+    ) => {
+        if (unpinned.length === 0) return;
+
+        // Constraint 1: Partitioning
+        const buckets = new Map<number, chrome.tabs.Tab[]>();
+        unpinned.forEach(tab => {
+            const gid = (tab.groupId === undefined || tab.groupId === -1 || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) 
+                ? -1 
+                : tab.groupId;
+            if (!buckets.has(gid)) {
+                buckets.set(gid, []);
+            }
+            buckets.get(gid)!.push(tab);
+        });
+
+        // Constraint 2: Internal Bucket Sorting
+        for (const bucket of buckets.values()) {
+            bucket.sort(sortFn);
+        }
+
+        // Constraint 3: Group Order Sorting
+        const gids = Array.from(buckets.keys());
+        gids.sort((a, b) => {
+            if (a === -1) return -1;
+            if (b === -1) return 1;
+            const tabA = buckets.get(a)![0];
+            const tabB = buckets.get(b)![0];
+            return sortFn(tabA, tabB);
+        });
+
+        // Constraint 4: Contiguous Reassembly
+        const sorted: chrome.tabs.Tab[] = [];
+        for (const gid of gids) {
+            sorted.push(...buckets.get(gid)!);
+        }
+
+        // Constraint 5: Execution
+        for (let i = 0; i < sorted.length; i++) {
+            const tab = sorted[i];
+            await chrome.tabs.move(tab.id!, { index: pinnedCount + i }).catch(() => { });
+        }
+
+        toast(toastMessage);
+    };
+
     const handleSortByDomain = async () => {
         const pinnedCount = tabs.filter((t) => t.pinned).length;
         const unpinned = tabs.filter((t) => !t.pinned && t.id !== undefined);
 
-        if (unpinned.length === 0) return;
-
-        const sorted = [...unpinned].sort((a, b) => {
+        await topologyAwareSort(unpinned, (a, b) => {
             const domainA = getHost(a.url);
             const domainB = getHost(b.url);
             if (domainA !== domainB) {
                 return domainA.localeCompare(domainB);
             }
             return (a.title || a.url || '').localeCompare(b.title || b.url || '');
-        });
-
-        for (let i = 0; i < sorted.length; i++) {
-            const tab = sorted[i];
-            await chrome.tabs.move(tab.id!, { index: pinnedCount + i }).catch(() => { });
-        }
-
-        toast("Tabs sorted by domain");
+        }, pinnedCount, "Tabs sorted by domain");
     };
 
     const handleSortAlphabetically = async () => {
         const pinnedCount = tabs.filter((t) => t.pinned).length;
         const unpinned = tabs.filter((t) => !t.pinned && t.id !== undefined);
 
-        if (unpinned.length === 0) return;
-
-        const sorted = [...unpinned].sort((a, b) => {
+        await topologyAwareSort(unpinned, (a, b) => {
             const titleA = (a.title || a.url || '').toLowerCase();
             const titleB = (b.title || b.url || '').toLowerCase();
             return titleA.localeCompare(titleB);
-        });
-
-        for (let i = 0; i < sorted.length; i++) {
-            const tab = sorted[i];
-            await chrome.tabs.move(tab.id!, { index: pinnedCount + i }).catch(() => { });
-        }
-
-        toast("Tabs sorted alphabetically");
+        }, pinnedCount, "Tabs sorted alphabetically");
     };
 
     return (
