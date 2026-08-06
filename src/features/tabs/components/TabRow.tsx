@@ -207,7 +207,10 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
             <ContextMenuContent className="w-48">
                 {data.chromeTabId !== undefined && (
                     <>
-                        <ContextMenuItem onClick={handleToggleLock}>
+                        <ContextMenuItem 
+                            onClick={handleToggleLock}
+                            disabled={data.discarded}
+                        >
                             <Lock className="mr-2 h-4 w-4" />
                             {isLocked ? 'Unlock Tab' : 'Lock Tab'}
                         </ContextMenuItem>
