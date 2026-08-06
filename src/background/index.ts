@@ -226,12 +226,43 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     }
 });
 
-chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
+chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     console.log("Background intercepted tab mutation event for window:", removeInfo.windowId);
     if (removeInfo.windowId && !removeInfo.isWindowClosing) {
         triggerSync(removeInfo.windowId);
     }
+    // Clean up tab lock state for removed tab
+    try {
+        const res = await chrome.storage.session.get('lockedTabIds');
+        const lockedTabIds: number[] = res.lockedTabIds || [];
+        if (lockedTabIds.includes(tabId)) {
+            const updated = lockedTabIds.filter(id => id !== tabId);
+            await chrome.storage.session.set({ lockedTabIds: updated });
+        }
+    } catch (err) {
+        console.error('Background TabLock: Failed to clean up lockedTabIds on tab removal', err);
+    }
 });
+
+// Listener for Tab Lock state requests from content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'GET_TAB_LOCK_STATE') {
+        const tabId = sender.tab?.id;
+        if (tabId === undefined) {
+            sendResponse({ isLocked: false });
+            return false;
+        }
+        chrome.storage.session.get('lockedTabIds').then((res) => {
+            const lockedTabIds: number[] = res.lockedTabIds || [];
+            sendResponse({ isLocked: lockedTabIds.includes(tabId) });
+        }).catch((err) => {
+            console.error('Background TabLock: Error fetching lock state:', err);
+            sendResponse({ isLocked: false });
+        });
+        return true; // Keep message channel open for async response
+    }
+});
+
 
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => {
     console.log("Background intercepted tab mutation event for window:", moveInfo.windowId);

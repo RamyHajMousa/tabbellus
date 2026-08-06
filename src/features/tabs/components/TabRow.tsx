@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Clock, Trash2, Copy, GripVertical, Pin, VolumeX } from 'lucide-react';
+import { X, Clock, Trash2, Copy, GripVertical, Pin, VolumeX, Lock } from 'lucide-react';
 import { tabService } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
@@ -8,6 +8,8 @@ import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 import { type RowTabData } from '../types';
 import { InteractiveRow } from './InteractiveRow';
 import { AnimatedAudioIcon } from './AnimatedAudioIcon';
+import { useTabLockStore } from '../store/tabLockStore';
+import { useToast } from '@/components/ui/Toaster';
 import {
     ContextMenu,
     ContextMenuTrigger,
@@ -29,8 +31,12 @@ interface TabRowProps {
 
 export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, closestEdge, dragHandleRef }: TabRowProps) => {
     const { copy } = useClipboard();
+    const { toast } = useToast();
     const isActive = propIsActive ?? data.isActive;
     const canAddToSpace = data.source === 'active';
+
+    const isLocked = useTabLockStore((state) => data.chromeTabId !== undefined && state.lockedTabIds.includes(data.chromeTabId));
+    const toggleLock = useTabLockStore((state) => state.toggleLock);
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -59,6 +65,21 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
         e.stopPropagation();
         if (data.chromeTabId) {
             chrome.tabs.update(data.chromeTabId, { pinned: !isPinned }).catch(() => { });
+        }
+    };
+
+    const handleToggleLock = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (data.chromeTabId !== undefined) {
+            const targetTabId = data.chromeTabId;
+            const nextLocked = !isLocked;
+            toggleLock(targetTabId, nextLocked);
+            chrome.tabs.sendMessage(targetTabId, { action: 'SET_TAB_LOCK', isLocked: nextLocked }).catch((err) => {
+                console.warn('Failed to dispatch SET_TAB_LOCK message to content script:', err);
+                toast('Cannot lock tab protection', {
+                    description: 'Tab protection is restricted on system pages or unavailable pages.'
+                });
+            });
         }
     };
 
@@ -91,6 +112,9 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                             >
                                 <GripVertical className="w-3.5 h-3.5" />
                             </span>
+                        )}
+                        {isLocked && (
+                            <Lock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                         )}
                         {data.favicon ? (
                             <img
@@ -183,6 +207,10 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
             <ContextMenuContent className="w-48">
                 {data.chromeTabId !== undefined && (
                     <>
+                        <ContextMenuItem onClick={handleToggleLock}>
+                            <Lock className="mr-2 h-4 w-4" />
+                            {isLocked ? 'Unlock Tab' : 'Lock Tab'}
+                        </ContextMenuItem>
                         <ContextMenuItem onClick={handleTogglePin}>
                             {isPinned ? 'Unpin Tab' : 'Pin Tab'}
                         </ContextMenuItem>
@@ -240,6 +268,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
         prevProps.isDragging === nextProps.isDragging &&
         prevProps.closestEdge === nextProps.closestEdge &&
         prevProps.data.id === nextProps.data.id &&
+        prevProps.data.chromeTabId === nextProps.data.chromeTabId &&
         prevProps.data.isActive === nextProps.data.isActive &&
         prevProps.data.url === nextProps.data.url &&
         prevProps.data.title === nextProps.data.title &&
