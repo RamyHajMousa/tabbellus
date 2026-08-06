@@ -15,12 +15,16 @@
 - **Hook & Import Verification:** Before implementing new state logic, verify that all necessary React hooks (e.g., `useAppStore`, `useWindowId`) are properly imported and instantiated at the top of the component.
 - **Think Before You Write:** Begin your response by stating the verified schema properties and necessary imports you checked before you output the modified code.
 
-## 2. Context Maintenance
-- **Mandatory Update:** Always update `.context.md` whenever:
-  1. A new file is created or deleted.
-  2. The Dexie.js Database schema or Zustand State changes.
-  3. A core service logic (e.g., TabSyncing, SpaceCapture) is refactored.
-- **Timestamp:** Ensure the 'Last Updated' timestamp in `.context.md` is updated on every modification.
+### 1.3 The Context & Knowledge Base Imperative (Mandatory)
+- **Read Before Action:** Before writing ANY implementation code, you MUST read `.context.md`. If the task involves database changes, global architecture, or UI design tokens, you MUST also read `TABBELLUS_KNOWLEDGE_BASE`.
+- **Abstractions Enforcement:** You are strictly FORBIDDEN from using vanilla browser fallbacks (like `alert()`, `confirm()`, or raw `chrome.runtime.sendMessage`) if a custom abstraction exists in the **MANDATORY CUSTOM ABSTRACTIONS** list in `.context.md`. Ignorance of the abstraction list is a violation of your core directives.
+
+## 2. Context & Knowledge Base Maintenance
+- **Continuous Synchronization:** You must update `.context.md` AND `TABBELLUS_KNOWLEDGE_BASE` immediately whenever:
+  1. The Dexie.js Database schema or Zustand State changes (Update both).
+  2. A new feature domain, file, or core service is added or refactored (Update both).
+  3. A new custom UI component, hook, or abstraction is created (Update `.context.md` Abstractions List).
+- **Timestamping:** Always update the 'Last Updated' timestamp at the bottom of the modified file(s).
 
 ## 3. Engineering & Tech Stack Standards
 - **Architecture:** Chrome Extension (Manifest V3) using React 19, Vite, and TypeScript.
