@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
-import { Globe, RotateCcw, LayoutTemplate, Copy, Layers, Check } from 'lucide-react';
+import { RotateCcw, LayoutTemplate, Copy, Layers, Check } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { spaceService } from '@/lib/spaceService';
 import { isValidUrl, isFuzzyMatch, tryParseHost } from '@/lib/sessionUtils';
 import type { Space } from '@/lib/db';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
+import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -283,8 +284,6 @@ const HistoryItem = ({ item, onRestore }: {
         if (url) copy(url);
     };
 
-    const [imgError, setImgError] = useState(false);
-
     return (
         <InteractiveRow
             size="md"
@@ -296,16 +295,7 @@ const HistoryItem = ({ item, onRestore }: {
                     {isFoldedGroup ? (
                         <Layers className="w-4 h-4 text-primary" />
                     ) : isTab ? (
-                        faviconUrl && !imgError ? (
-                            <img
-                                src={faviconUrl}
-                                alt=""
-                                className="w-4 h-4 rounded-sm"
-                                onError={() => setImgError(true)}
-                            />
-                        ) : (
-                            <Globe className="w-4 h-4 text-muted-foreground" />
-                        )
+                        <SmartFallbackIcon url={url} favicon={faviconUrl} className="w-4 h-4 rounded-sm flex-shrink-0" />
                     ) : isMatchedSpace ? (
                         <Layers className="w-4 h-4 text-primary" />
                     ) : (

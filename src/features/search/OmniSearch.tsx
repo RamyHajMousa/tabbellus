@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { LayoutTemplate, Package, BookOpen, History, Globe } from 'lucide-react';
+import { LayoutTemplate, Package, BookOpen, History } from 'lucide-react';
 import {
     CommandDialog,
     CommandInput,
@@ -13,6 +13,7 @@ import { useAppStore } from '@/store/appStore';
 import { spaceService, tabService, readLaterService } from '@/lib';
 import type { Space, ReadLaterItem, SavedTabResult } from '@/lib/db';
 import { DialogTitle, DialogDescription } from '@/components/ui/Dialog';
+import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 
 
 
@@ -99,7 +100,7 @@ export const OmniSearch = () => {
     const handleSelectReadLater = useCallback(async (item: ReadLaterItem) => {
         if (search) addRecentSearch(search);
         setSearchOpen(false);
-        await chrome.tabs.create({ url: item.url, active: true });
+        await tabService.focusOrCreate(item.url).catch(() => { });
     }, [setSearchOpen, search, addRecentSearch]);
 
     const handleSelectSavedTab = useCallback(async (tab: SavedTabResult) => {
@@ -161,18 +162,7 @@ export const OmniSearch = () => {
                                 value={`savedtab ${tab.title || ''} ${tab.url} ${tab.spaceNames.join(' ')}`}
                                 onSelect={() => handleSelectSavedTab(tab)}
                             >
-                                {tab.favicon ? (
-                                    <img
-                                        src={tab.favicon}
-                                        alt=""
-                                        className="mr-2 h-4 w-4 rounded-sm flex-shrink-0"
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).style.display = 'none';
-                                            (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                                        }}
-                                    />
-                                ) : null}
-                                <Globe className={`mr-2 h-4 w-4 text-muted-foreground flex-shrink-0 ${tab.favicon ? 'hidden' : ''}`} />
+                                <SmartFallbackIcon url={tab.url} favicon={tab.favicon} className="mr-2 h-4 w-4 rounded-sm flex-shrink-0" />
                                 <span className="truncate">{tab.title || tab.url}</span>
                                 <span className="ml-auto pl-2 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
                                     In: {tab.spaceNames.join(', ')}

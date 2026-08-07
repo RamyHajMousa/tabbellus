@@ -123,37 +123,27 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                                     <Lock className="w-3.5 h-3.5 text-muted-foreground" />
                                 )}
                             </div>
-                            {data.favicon ? (
-                                <img
-                                    src={data.favicon}
-                                    alt=""
-                                    className="w-4 h-4 rounded-sm flex-shrink-0"
-                                    onError={(e) => {
-                                        (e.target as HTMLImageElement).style.display = 'none';
-                                        (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                                    }}
-                                />
-                            ) : null}
-                            <SmartFallbackIcon url={data.url} className={`w-4 h-4 opacity-50 flex-shrink-0 ${data.favicon ? 'hidden' : ''}`} />
+                            <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />
 
                             {/* Audio Indicator Toggle */}
                             {(data.mutedInfo?.muted || data.audible) && (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (data.chromeTabId !== undefined) {
-                                            chrome.tabs.update(data.chromeTabId, { muted: !data.mutedInfo?.muted }).catch(() => {});
-                                        }
-                                    }}
-                                    className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors z-0"
-                                    title={data.mutedInfo?.muted ? "Unmute Tab" : "Mute Tab"}
-                                >
-                                    {data.mutedInfo?.muted ? (
-                                        <VolumeX className="w-3.5 h-3.5" />
-                                    ) : (
-                                        <AnimatedAudioIcon />
-                                    )}
-                                </button>
+                                <TooltipSimple content={data.mutedInfo?.muted ? "Unmute Tab" : "Mute Tab"}>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (data.chromeTabId !== undefined) {
+                                                chrome.tabs.update(data.chromeTabId, { muted: !data.mutedInfo?.muted }).catch(() => {});
+                                            }
+                                        }}
+                                        className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors z-0"
+                                    >
+                                        {data.mutedInfo?.muted ? (
+                                            <VolumeX className="w-3.5 h-3.5" />
+                                        ) : (
+                                            <AnimatedAudioIcon />
+                                        )}
+                                    </button>
+                                </TooltipSimple>
                             )}
                         </InteractiveRow.Leading>
 

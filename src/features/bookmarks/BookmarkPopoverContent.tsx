@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Folder, FolderOpen, ChevronRight, ChevronDown, Globe } from 'lucide-react';
+import { Folder, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
 import { bookmarkService } from '@/lib/bookmarkService';
+import { tabService } from '@/lib/tabService';
+import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 
 interface BookmarkNodeProps {
     node: chrome.bookmarks.BookmarkTreeNode;
@@ -55,7 +57,7 @@ const BookmarkNode = ({ node, depth }: BookmarkNodeProps) => {
     // Bookmark item
     const handleClick = () => {
         if (node.url) {
-            chrome.tabs.create({ url: node.url, active: true }).catch(() => {});
+            tabService.focusOrCreate(node.url).catch(() => {});
         }
     };
 
@@ -73,7 +75,7 @@ const BookmarkNode = ({ node, depth }: BookmarkNodeProps) => {
             className="w-full flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground hover:text-foreground rounded hover:bg-muted transition-colors text-left"
             style={{ paddingLeft: `${depth * 8 + 20}px` }}
         >
-            <Globe className="w-3 h-3 text-muted-foreground/60 flex-shrink-0" />
+            <SmartFallbackIcon url={node.url} className="w-3 h-3 text-muted-foreground/60 flex-shrink-0" />
             <span className="truncate flex-1 font-normal text-foreground/90">{node.title || tryParseDomain(node.url || '')}</span>
             {node.url && (
                 <span className="text-[10px] text-muted-foreground/40 font-normal pr-1 truncate max-w-[100px] inline-block">

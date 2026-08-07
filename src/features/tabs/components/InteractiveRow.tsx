@@ -1,6 +1,6 @@
 import React from 'react';
 import { useIsTruncated } from '@/hooks/useIsTruncated';
-import { TooltipOverflow } from '@/components/ui/Tooltip';
+import { TooltipOverflow, TooltipSimple } from '@/components/ui/Tooltip';
 
 interface InteractiveRowProps extends React.HTMLAttributes<HTMLDivElement> {
     size?: 'sm' | 'md';
@@ -151,7 +151,7 @@ export const InteractiveRowAction = React.forwardRef<HTMLButtonElement, Interact
             primary: 'text-muted-foreground hover:text-primary-foreground hover:bg-primary',
         }[variant];
 
-        return (
+        const buttonElement = (
             <button
                 ref={ref}
                 onClick={(e) => {
@@ -163,12 +163,17 @@ export const InteractiveRowAction = React.forwardRef<HTMLButtonElement, Interact
                     ${variantClasses}
                     ${className}
                 `}
-                title={title || undefined}
                 {...props}
             >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
             </button>
         );
+
+        if (title) {
+            return <TooltipSimple content={title}>{buttonElement}</TooltipSimple>;
+        }
+
+        return buttonElement;
     }
 );
 InteractiveRowAction.displayName = 'InteractiveRow.Action';

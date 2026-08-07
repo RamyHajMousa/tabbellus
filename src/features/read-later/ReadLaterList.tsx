@@ -15,6 +15,7 @@ import {
 
 import { useToast } from '@/components/ui/Toaster';
 import { TooltipSimple } from '@/components/ui/Tooltip';
+import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 import { ReadLaterToolbar } from './components/ReadLaterToolbar';
 
 export const ReadLaterList = () => {
@@ -160,11 +161,7 @@ const ReadLaterItem = ({ item, toggleStatus, handleDelete, handleOpen }: any) =>
                                 {item.status === 'archived' && <Check className="w-2.5 h-2.5" />}
                             </button>
                         </TooltipSimple>
-                        {item.favicon ? (
-                            <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm" />
-                        ) : (
-                            <Globe className="w-3.5 h-3.5 text-muted-foreground" />
-                        )}
+                        <SmartFallbackIcon url={item.url} favicon={item.favicon} className="w-3.5 h-3.5 rounded-sm flex-shrink-0" />
                     </InteractiveRow.Leading>
 
                     {/* Title / Info */}

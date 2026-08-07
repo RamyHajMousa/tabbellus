@@ -163,7 +163,9 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
                     <Pin className="w-3.5 h-3.5 text-primary fill-current flex-shrink-0" />
                 )}
                 {isActive && (
-                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse flex-shrink-0" title="Window is open" />
+                    <TooltipSimple content="Window is open">
+                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse flex-shrink-0" />
+                    </TooltipSimple>
                 )}
             </InteractiveRow.Leading>
 

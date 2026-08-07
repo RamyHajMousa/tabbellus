@@ -2,6 +2,7 @@ import React from 'react';
 import { ChevronDown, ChevronRight, Layers, X, Archive } from 'lucide-react';
 import { getGroupColorClasses } from '@/lib/colors';
 import { InteractiveRow } from './InteractiveRow';
+import { TooltipSimple } from '@/components/ui/Tooltip';
 
 interface GroupRowProps {
     group: chrome.tabGroups.TabGroup;
@@ -52,23 +53,25 @@ const GroupRowComponent = React.memo(({ group, onClose, onArchive, isDragging, i
                 )}
 
                 {onArchive && (
-                    <button
-                        onClick={onArchive}
-                        className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white ${colors.text}`}
-                        title="Save as Space"
-                    >
-                        <Archive className="w-3 h-3" />
-                    </button>
+                    <TooltipSimple content="Save as Space">
+                        <button
+                            onClick={onArchive}
+                            className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white ${colors.text}`}
+                        >
+                            <Archive className="w-3 h-3" />
+                        </button>
+                    </TooltipSimple>
                 )}
 
                 {onClose && (
-                    <button
-                        onClick={onClose}
-                        className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-white ${colors.text}`}
-                        title="Delete Group"
-                    >
-                        <X className="w-3 h-3" />
-                    </button>
+                    <TooltipSimple content="Delete Group">
+                        <button
+                            onClick={onClose}
+                            className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-white ${colors.text}`}
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    </TooltipSimple>
                 )}
             </InteractiveRow.Actions>
         </InteractiveRow>

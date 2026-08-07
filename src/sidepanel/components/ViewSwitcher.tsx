@@ -1,22 +1,13 @@
 import { useAppStore } from '@/store/appStore';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { Activity, Layers, Clock } from 'lucide-react';
-
-
-// Checking if lib/utils exists is safer, but I can write a safe version without it for now to avoid multiple steps, then refactor if needed.
-// Actually, standard shadcn puts it in @/lib/utils.
-// I'll stick to template literals to be safe and dependency-free for this file if utils isn't guaranteed.
-// Wait, I haven't seen `lib/utils` in the file list. I'll use template literals.
+import { readLaterService } from '@/lib/readLaterService';
 
 const TABS = [
     { id: 'active', icon: Activity, label: 'Active' },
     { id: 'spaces', icon: Layers, label: 'Spaces' },
     { id: 'read-later', icon: Clock, label: 'Read Later' },
 ] as const;
-
-import { useLiveQuery } from 'dexie-react-hooks';
-import { readLaterService } from '@/lib/readLaterService';
-
-// ... (keep TABS array) ...
 
 export const ViewSwitcher = () => {
     const { activeView, setActiveView } = useAppStore();
