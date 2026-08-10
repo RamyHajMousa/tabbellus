@@ -77,13 +77,52 @@ export const ActiveSession = () => {
     // ── Drag & Drop Handlers ─────────────────────────────────────────────────
 
     const handleDropTab = useCallback(
-        (
+        async (
             source: TabDragPayload,
             target: TabDragPayload,
-            edge: Edge
+            edge: Edge | null
         ) => {
             if (source.tabId === target.tabId) return;
 
+            // ── Tab-to-Tab Grouping (Center Hit) ─────────────────────────────────
+            if (edge === null) {
+                try {
+                    if (target.groupId === -1 || target.groupId === undefined) {
+                        // Ungrouped target: group source and target tabs together into a new group
+                        const newGroupId = await chrome.tabs.group({
+                            tabIds: [source.tabId, target.tabId],
+                        });
+                        setTabs(prev =>
+                            prev.map(t =>
+                                t.id === source.tabId || t.id === target.tabId
+                                    ? { ...t, groupId: newGroupId }
+                                    : t
+                            )
+                        );
+                    } else {
+                        // Grouped target: add source tab into target's group
+                        await chrome.tabs.group({
+                            tabIds: [source.tabId],
+                            groupId: target.groupId,
+                        });
+                        setTabs(prev =>
+                            prev.map(t =>
+                                t.id === source.tabId
+                                    ? { ...t, groupId: target.groupId }
+                                    : t
+                            )
+                        );
+                    }
+                } catch (err) {
+                    console.error('Failed to group tabs:', err);
+                    toast('Failed to group tabs', {
+                        description: 'Chrome rejected grouping these tabs.',
+                    });
+                }
+                return;
+            }
+
+            // ── Tab Reordering / Positioning (Edge Hit) ──────────────────────────
             const pinnedCount = tabs.filter(t => t.pinned).length;
 
             let targetChromeIndex = target.chromeIndex;
@@ -133,7 +172,7 @@ export const ActiveSession = () => {
                 });
             }
         },
-        [tabs, setTabs]
+        [tabs, setTabs, toast]
     );
 
     const handleDropTabToGroup = useCallback(

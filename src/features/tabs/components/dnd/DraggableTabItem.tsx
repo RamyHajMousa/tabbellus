@@ -18,7 +18,7 @@ export interface DraggableTabItemProps {
     onDropTab: (
         source: TabDragPayload,
         target: TabDragPayload,
-        edge: Edge
+        edge: Edge | null
     ) => void;
     onDropGroupToTab: (
         sourceGroup: GroupDragPayload,
@@ -43,6 +43,7 @@ export const DraggableTabItem = memo(({
     const dragHandleRef = useRef<HTMLElement | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [closestEdge, setClosestEdge] = useState<'top' | 'bottom' | null>(null);
+    const [isCenterHighlighted, setIsCenterHighlighted] = useState(false);
 
     const isGroupMemberDragging = tab.groupId !== -1 && tab.groupId === draggingGroupId;
 
@@ -74,35 +75,80 @@ export const DraggableTabItem = memo(({
             dropTargetForElements({
                 element: el,
                 getData: ({ input }) => {
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = input.clientY - rect.top;
+                    const height = rect.height;
+
+                    let edge: 'top' | 'bottom' | null = null;
+                    if (relativeY < height * 0.30) {
+                        edge = 'top';
+                    } else if (relativeY > height * 0.70) {
+                        edge = 'bottom';
+                    } else {
+                        edge = null; // Tri-State Center Hit!
+                    }
+
                     return attachClosestEdge(
                         (payload as unknown) as Record<string | symbol, unknown>,
                         {
                             element: el,
                             input,
-                            allowedEdges: ['top', 'bottom'],
+                            allowedEdges: edge ? [edge] : ['top', 'bottom'],
                         }
                     );
                 },
                 onDragEnter: (args) => {
-                    const edge = extractClosestEdge(args.self.data);
-                    setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = args.location.current.input.clientY - rect.top;
+                    const height = rect.height;
+                    const isTab = args.source.data.type === 'tab';
+
+                    if (isTab && relativeY >= height * 0.30 && relativeY <= height * 0.70) {
+                        setIsCenterHighlighted(true);
+                        setClosestEdge(null);
+                    } else {
+                        setIsCenterHighlighted(false);
+                        const edge = extractClosestEdge(args.self.data);
+                        setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                    }
                 },
                 onDropTargetChange: (args) => {
-                    const edge = extractClosestEdge(args.self.data);
-                    setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = args.location.current.input.clientY - rect.top;
+                    const height = rect.height;
+                    const isTab = args.source.data.type === 'tab';
+
+                    if (isTab && relativeY >= height * 0.30 && relativeY <= height * 0.70) {
+                        setIsCenterHighlighted(true);
+                        setClosestEdge(null);
+                    } else {
+                        setIsCenterHighlighted(false);
+                        const edge = extractClosestEdge(args.self.data);
+                        setClosestEdge(edge === 'top' || edge === 'bottom' ? edge : null);
+                    }
                 },
-                onDragLeave: () => setClosestEdge(null),
-                onDrop: (args) => {
+                onDragLeave: () => {
                     setClosestEdge(null);
-                    const edge = extractClosestEdge(args.self.data);
-                    if (!edge) return;
+                    setIsCenterHighlighted(false);
+                },
+                onDrop: (args) => {
+                    const rect = el.getBoundingClientRect();
+                    const relativeY = args.location.current.input.clientY - rect.top;
+                    const height = rect.height;
+                    const isTab = args.source.data.type === 'tab';
+                    const isCenter = isTab && relativeY >= height * 0.30 && relativeY <= height * 0.70;
+
+                    setClosestEdge(null);
+                    setIsCenterHighlighted(false);
+
                     if (args.source.data.type === 'tab') {
                         onDropTab(
                             args.source.data as unknown as TabDragPayload,
                             args.self.data as unknown as TabDragPayload,
-                            edge
+                            isCenter ? null : (extractClosestEdge(args.self.data) as Edge | null)
                         );
                     } else if (args.source.data.type === 'group-header') {
+                        const edge = extractClosestEdge(args.self.data) || (relativeY < height / 2 ? 'top' : 'bottom');
                         onDropGroupToTab(
                             args.source.data as unknown as GroupDragPayload,
                             args.self.data as unknown as TabDragPayload,
@@ -120,6 +166,7 @@ export const DraggableTabItem = memo(({
             onClose={(e) => handleClose(e, tab)}
             onReadLater={(e) => handleReadLater(e, tab)}
             isDragging={isDragging || isGroupMemberDragging}
+            isCenterHighlighted={isCenterHighlighted}
             closestEdge={closestEdge}
             dragHandleRef={(node) => { dragHandleRef.current = node; }}
         />
