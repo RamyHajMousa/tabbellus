@@ -179,6 +179,7 @@ export const DraggableGroupHeader = memo(({
         <div ref={ref} className="mb-0.5">
             <GroupRow
                 group={group}
+                groupTabs={groupTabs}
                 onClose={(e) => handleCloseGroup(e, group, groupTabs)}
                 onArchive={(e) => handleArchiveGroup(e, group, groupTabs)}
                 isDragging={isDragging}
