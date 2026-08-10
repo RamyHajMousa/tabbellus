@@ -2,11 +2,22 @@
 
 class TabService {
     /**
-     * Normalizes a URL for comparison by stripping trailing slashes and handling case.
+     * Normalizes a URL for comparison by stripping trailing slashes, handling case, and removing tracking params.
      */
-    private normalizeUrl(url: string): string {
+    normalizeUrl(url: string): string {
         try {
             const u = new URL(url);
+            
+            // Remove common tracking parameters
+            const paramsToDelete: string[] = [];
+            u.searchParams.forEach((_, key) => {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey.startsWith('utm_') || lowerKey === 'gclid' || lowerKey === 'fbclid' || lowerKey === 'ref') {
+                    paramsToDelete.push(key);
+                }
+            });
+            paramsToDelete.forEach(key => u.searchParams.delete(key));
+
             // Protocol + Host + Pathname (without trailing slash) + Search + Hash
             let clean = u.origin + u.pathname.replace(/\/$/, '') + u.search + u.hash;
             return clean.toLowerCase();
@@ -60,6 +71,44 @@ class TabService {
         } catch (e) {
             console.warn('TabService: Failed to focus or create tab:', e);
         }
+    }
+
+    /**
+     * Identifies duplicate tabs based on normalized URLs.
+     * Hierarchy for retained tab: Pinned > Active > Lowest Index
+     */
+    calculateDuplicates(tabs: chrome.tabs.Tab[]): { duplicates: chrome.tabs.Tab[], retained: chrome.tabs.Tab[] } {
+        const grouped = new Map<string, chrome.tabs.Tab[]>();
+        
+        tabs.forEach(tab => {
+            if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('about:')) return;
+            const normalized = this.normalizeUrl(tab.url);
+            if (!grouped.has(normalized)) {
+                grouped.set(normalized, []);
+            }
+            grouped.get(normalized)!.push(tab);
+        });
+
+        const duplicates: chrome.tabs.Tab[] = [];
+        const retained: chrome.tabs.Tab[] = [];
+
+        grouped.forEach(group => {
+            if (group.length > 1) {
+                // Sort by priority: Pinned > Active > Index
+                group.sort((a, b) => {
+                    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+                    if (a.active !== b.active) return a.active ? -1 : 1;
+                    return a.index - b.index;
+                });
+                
+                retained.push(group[0]);
+                duplicates.push(...group.slice(1));
+            } else if (group.length === 1) {
+                retained.push(group[0]);
+            }
+        });
+
+        return { duplicates, retained };
     }
 }
 

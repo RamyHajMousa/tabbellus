@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Plus, AppWindow, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Plus, AppWindow, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers, CopyMinus } from 'lucide-react';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useToast } from '@/components/ui/Toaster';
 import {
@@ -13,9 +13,11 @@ import { autoGroupByDomain } from '../utils/groupingUtils';
 interface ActiveToolbarProps {
     tabs: chrome.tabs.Tab[];
     activeTabId?: number | null;
+    duplicateCount?: number;
+    onDeduplicate?: () => void;
 }
 
-export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId }) => {
+export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId, duplicateCount = 0, onDeduplicate }) => {
     const { toast } = useToast();
 
     const handleGoBack = () => {
@@ -284,6 +286,24 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
 
             {/* Right Group Actions */}
             <div className="flex items-center gap-0.5">
+                {duplicateCount > 0 && (
+                    <div className="flex items-center mr-1">
+                        <span className="text-[10px] font-medium text-destructive/90 bg-destructive/10 px-1.5 py-0.5 rounded-l-md border-y border-l border-destructive/20 h-[26px] flex items-center">
+                            {duplicateCount} dupes
+                        </span>
+                        <TooltipSimple content="Close Duplicate Tabs" side="bottom">
+                            <button
+                                onClick={onDeduplicate}
+                                className="h-[26px] px-1.5 text-destructive hover:text-destructive-foreground hover:bg-destructive rounded-r-md border border-destructive/20 transition-colors flex items-center"
+                                aria-label="Close duplicate tabs"
+                            >
+                                <CopyMinus className="w-3.5 h-3.5" />
+                            </button>
+                        </TooltipSimple>
+                        <div className="w-px h-3.5 bg-border mx-1.5" />
+                    </div>
+                )}
+
                 <TooltipSimple content="Group by Domain" side="bottom">
                     <button
                         onClick={handleGroupByDomain}

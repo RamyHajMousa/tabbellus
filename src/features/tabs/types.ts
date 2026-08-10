@@ -7,6 +7,7 @@ export type VirtualRow =
           globalIndex: number;
           inGroup?: boolean;
           color?: chrome.tabGroups.ColorEnum;
+          isDuplicate?: boolean;
       }
     | {
           type: 'group-header';

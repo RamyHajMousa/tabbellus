@@ -11,6 +11,7 @@ export interface DraggableTabItemProps {
     globalIndex: number;
     inGroup?: boolean;
     color?: chrome.tabGroups.ColorEnum;
+    isDuplicate?: boolean;
     activeTabId: number | null;
     draggingGroupId: number | null;
     handleClose: (e: React.MouseEvent, tab: chrome.tabs.Tab) => void;
@@ -32,6 +33,7 @@ export const DraggableTabItem = memo(({
     globalIndex,
     inGroup,
     color,
+    isDuplicate,
     activeTabId,
     draggingGroupId,
     handleClose,
@@ -168,6 +170,7 @@ export const DraggableTabItem = memo(({
             isDragging={isDragging || isGroupMemberDragging}
             isCenterHighlighted={isCenterHighlighted}
             closestEdge={closestEdge}
+            isDuplicate={isDuplicate}
             dragHandleRef={(node) => { dragHandleRef.current = node; }}
         />
     );

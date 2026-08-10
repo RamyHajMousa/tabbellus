@@ -28,9 +28,10 @@ interface TabRowProps {
     isCenterHighlighted?: boolean;
     closestEdge?: 'top' | 'bottom' | null;
     dragHandleRef?: (element: HTMLElement | null) => void;
+    isDuplicate?: boolean;
 }
 
-export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, isCenterHighlighted, closestEdge, dragHandleRef }: TabRowProps) => {
+export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, isCenterHighlighted, closestEdge, dragHandleRef, isDuplicate }: TabRowProps) => {
     const { copy } = useClipboard();
     const { toast } = useToast();
     const isActive = propIsActive ?? data.isActive;
@@ -95,7 +96,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                         isActive={isActive}
                         isDragging={isDragging}
                         closestEdge={closestEdge}
-                        className={`${data.discarded ? "opacity-50 grayscale" : ""} ${isCenterHighlighted ? "bg-primary/10 ring-1 ring-primary" : ""}`}
+                        className={`${data.discarded ? "opacity-50 grayscale" : ""} ${isCenterHighlighted ? "bg-primary/10 ring-1 ring-primary" : ""} ${isDuplicate ? "bg-destructive/5" : ""}`}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (data.source === 'saved') {
@@ -162,6 +163,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
 
                         {/* Persistent Status Area */}
                         <div className="flex items-center gap-1.5 shrink-0 text-muted-foreground pr-2">
+                            {isDuplicate && <Copy className="w-3 h-3 text-destructive/80" />}
                             {data.pinned && <Pin className="w-3.5 h-3.5" />}
                         </div>
 
@@ -328,7 +330,8 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
         prevProps.data.pinned === nextProps.data.pinned &&
         prevProps.data.discarded === nextProps.data.discarded &&
         prevProps.data.audible === nextProps.data.audible &&
-        prevProps.data.mutedInfo?.muted === nextProps.data.mutedInfo?.muted
+        prevProps.data.mutedInfo?.muted === nextProps.data.mutedInfo?.muted &&
+        prevProps.isDuplicate === nextProps.isDuplicate
     );
 });
 

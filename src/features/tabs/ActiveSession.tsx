@@ -7,6 +7,7 @@ import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Save, Ghost } from 'lucide-react';
 import { useCurrentTabs } from './hooks/useCurrentTabs';
 import { useCurrentSpace } from '@/hooks/useCurrentSpace';
+import { useDuplicateTabs } from './hooks/useDuplicateTabs';
 import { type VirtualRow, type TabDragPayload, type GroupDragPayload } from './types';
 import { ActiveToolbar } from './components/ActiveToolbar';
 import { DraggableTabItem } from './components/dnd/DraggableTabItem';
@@ -23,6 +24,8 @@ export const ActiveSession = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [draggingGroupId, setDraggingGroupId] = useState<number | null>(null);
     const { toast } = useToast();
+
+    const { duplicateTabIds, duplicateCount, deduplicate } = useDuplicateTabs(tabs);
 
     // ── 1D Topology Flattening for Virtuoso ──────────────────────────────────
     const flatList = useMemo<VirtualRow[]>(() => {
@@ -44,6 +47,7 @@ export const ActiveSession = () => {
                     type: 'tab',
                     tab,
                     globalIndex: i,
+                    isDuplicate: duplicateTabIds.has(tab.id!),
                 });
             } else {
                 if (!processedGroups.has(tab.groupId)) {
@@ -67,6 +71,7 @@ export const ActiveSession = () => {
                         globalIndex: i,
                         inGroup: true,
                         color: group?.color,
+                        isDuplicate: duplicateTabIds.has(tab.id!),
                     });
                 }
             }
@@ -516,6 +521,7 @@ export const ActiveSession = () => {
                 color={item.color}
                 activeTabId={activeTabId}
                 draggingGroupId={draggingGroupId}
+                isDuplicate={item.isDuplicate}
                 handleClose={handleClose}
                 handleReadLater={handleReadLater}
                 onDropTab={handleDropTab}
@@ -567,7 +573,12 @@ export const ActiveSession = () => {
             </div>
 
             {/* Active View Local Toolbar */}
-            <ActiveToolbar tabs={tabs} activeTabId={activeTabId} />
+            <ActiveToolbar 
+                tabs={tabs} 
+                activeTabId={activeTabId} 
+                duplicateCount={duplicateCount}
+                onDeduplicate={deduplicate}
+            />
 
             {/* Virtualized Active Tab List */}
             <div className="flex-1 p-2 min-h-0 bg-background overflow-hidden">
