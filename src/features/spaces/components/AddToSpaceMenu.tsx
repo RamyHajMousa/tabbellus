@@ -20,7 +20,7 @@ export const AddToSpaceMenu = ({ tab }: AddToSpaceMenuProps) => {
     const { spaces, addToSpace } = useAddToSpaceAction(tab);
 
     return (
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
             <TooltipSimple content="Save to Space" side="top">
                 <DropdownMenuTrigger asChild>
                     <InteractiveRow.Action

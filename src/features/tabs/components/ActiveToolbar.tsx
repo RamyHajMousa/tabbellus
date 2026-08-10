@@ -294,7 +294,7 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                     </button>
                 </TooltipSimple>
 
-                <DropdownMenu>
+                <DropdownMenu modal={false}>
                     <TooltipSimple content="Sort Tabs" side="bottom">
                         <DropdownMenuTrigger asChild>
                             <button
