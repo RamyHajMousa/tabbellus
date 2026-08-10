@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Plus, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Plus, AppWindow, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers } from 'lucide-react';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useToast } from '@/components/ui/Toaster';
 import {
@@ -38,6 +38,17 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
 
     const handleNewTab = () => {
         chrome.tabs.create({ active: true });
+    };
+
+    const handleNewWindow = async () => {
+        try {
+            await chrome.windows.create({ focused: true });
+        } catch (err) {
+            console.error('Failed to create new window:', err);
+            toast('Failed to create new window', {
+                description: err instanceof Error ? err.message : 'An unexpected error occurred.',
+            });
+        }
     };
 
     const handleCloseUnpinned = async () => {
@@ -224,6 +235,16 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                         aria-label="Open new tab"
                     >
                         <Plus className="w-3.5 h-3.5" />
+                    </button>
+                </TooltipSimple>
+
+                <TooltipSimple content="New Window" side="bottom">
+                    <button
+                        onClick={handleNewWindow}
+                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                        aria-label="Open new window"
+                    >
+                        <AppWindow className="w-3.5 h-3.5" />
                     </button>
                 </TooltipSimple>
 
