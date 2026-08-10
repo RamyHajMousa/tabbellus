@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Clock, Trash2, Copy, GripVertical, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus } from 'lucide-react';
+import { X, Clock, Trash2, Copy, GripVertical, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
 import { SaveToSpaceDialog } from '@/features/spaces/components/SaveToSpaceDialog';
@@ -126,6 +126,13 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                                 )}
                             </div>
                             <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />
+
+                            {/* Suspension Indicator */}
+                            {data.discarded && (
+                                <TooltipSimple content="Tab is suspended (~150 MB saved)">
+                                    <Moon className="w-3.5 h-3.5 text-muted-foreground/60 ml-1 flex-shrink-0" />
+                                </TooltipSimple>
+                            )}
 
                             {/* Audio Indicator Toggle */}
                             {(data.mutedInfo?.muted || data.audible) && (

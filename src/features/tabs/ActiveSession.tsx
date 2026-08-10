@@ -10,6 +10,7 @@ import { useCurrentSpace } from '@/hooks/useCurrentSpace';
 import { useDuplicateTabs } from './hooks/useDuplicateTabs';
 import { type VirtualRow, type TabDragPayload, type GroupDragPayload } from './types';
 import { ActiveToolbar } from './components/ActiveToolbar';
+import { SessionInsightsBar } from './components/SessionInsightsBar';
 import { DraggableTabItem } from './components/dnd/DraggableTabItem';
 import { DraggableGroupHeader } from './components/dnd/DraggableGroupHeader';
 
@@ -26,6 +27,8 @@ export const ActiveSession = () => {
     const { toast } = useToast();
 
     const { duplicateTabIds, duplicateCount, deduplicate } = useDuplicateTabs(tabs);
+
+    const discardedCount = useMemo(() => tabs.filter(t => t.discarded).length, [tabs]);
 
     // ── 1D Topology Flattening for Virtuoso ──────────────────────────────────
     const flatList = useMemo<VirtualRow[]>(() => {
@@ -576,7 +579,12 @@ export const ActiveSession = () => {
             <ActiveToolbar 
                 tabs={tabs} 
                 activeTabId={activeTabId} 
+            />
+
+            {/* Secondary Session Insights Sub-Bar */}
+            <SessionInsightsBar
                 duplicateCount={duplicateCount}
+                discardedCount={discardedCount}
                 onDeduplicate={deduplicate}
             />
 

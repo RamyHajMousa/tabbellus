@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Plus, AppWindow, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers, CopyMinus } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Plus, AppWindow, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers } from 'lucide-react';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useToast } from '@/components/ui/Toaster';
 import {
@@ -13,11 +13,9 @@ import { autoGroupByDomain } from '../utils/groupingUtils';
 interface ActiveToolbarProps {
     tabs: chrome.tabs.Tab[];
     activeTabId?: number | null;
-    duplicateCount?: number;
-    onDeduplicate?: () => void;
 }
 
-export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId, duplicateCount = 0, onDeduplicate }) => {
+export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId }) => {
     const { toast } = useToast();
 
     const handleGoBack = () => {
@@ -233,7 +231,7 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                 <TooltipSimple content="New Tab" side="bottom">
                     <button
                         onClick={handleNewTab}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
                         aria-label="Open new tab"
                     >
                         <Plus className="w-3.5 h-3.5" />
@@ -243,18 +241,20 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                 <TooltipSimple content="New Window" side="bottom">
                     <button
                         onClick={handleNewWindow}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
                         aria-label="Open new window"
                     >
                         <AppWindow className="w-3.5 h-3.5" />
                     </button>
                 </TooltipSimple>
 
+                <div className="w-[1px] h-4 bg-border mx-1" />
+
                 <TooltipSimple content="Back" side="bottom">
                     <button
                         onClick={handleGoBack}
                         disabled={!activeTabId}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
                         aria-label="Go back"
                     >
                         <ArrowLeft className="w-3.5 h-3.5" />
@@ -265,7 +265,7 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                     <button
                         onClick={handleGoForward}
                         disabled={!activeTabId}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
                         aria-label="Go forward"
                     >
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -276,7 +276,7 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                     <button
                         onClick={handleReload}
                         disabled={!activeTabId}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
                         aria-label="Reload tab"
                     >
                         <RotateCw className="w-3.5 h-3.5" />
@@ -286,28 +286,10 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
 
             {/* Right Group Actions */}
             <div className="flex items-center gap-0.5">
-                {duplicateCount > 0 && (
-                    <div className="flex items-center mr-1">
-                        <span className="text-[10px] font-medium text-destructive/90 bg-destructive/10 px-1.5 py-0.5 rounded-l-md border-y border-l border-destructive/20 h-[26px] flex items-center">
-                            {duplicateCount} dupes
-                        </span>
-                        <TooltipSimple content="Close Duplicate Tabs" side="bottom">
-                            <button
-                                onClick={onDeduplicate}
-                                className="h-[26px] px-1.5 text-destructive hover:text-destructive-foreground hover:bg-destructive rounded-r-md border border-destructive/20 transition-colors flex items-center"
-                                aria-label="Close duplicate tabs"
-                            >
-                                <CopyMinus className="w-3.5 h-3.5" />
-                            </button>
-                        </TooltipSimple>
-                        <div className="w-px h-3.5 bg-border mx-1.5" />
-                    </div>
-                )}
-
                 <TooltipSimple content="Group by Domain" side="bottom">
                     <button
                         onClick={handleGroupByDomain}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors outline-none"
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors outline-none"
                         aria-label="Group by domain"
                     >
                         <Layers className="w-3.5 h-3.5" />
@@ -318,7 +300,7 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                     <TooltipSimple content="Sort Tabs" side="bottom">
                         <DropdownMenuTrigger asChild>
                             <button
-                                className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors outline-none"
+                                className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors outline-none"
                                 aria-label="Sort tabs"
                             >
                                 <ArrowUpDown className="w-3.5 h-3.5" />
@@ -337,10 +319,12 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                     </DropdownMenuContent>
                 </DropdownMenu>
 
+                <div className="w-[1px] h-4 bg-border mx-1" />
+
                 <TooltipSimple content="Close All Unpinned" side="bottom">
                     <button
                         onClick={handleCloseUnpinned}
-                        className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
                         aria-label="Close all unpinned tabs"
                     >
                         <XCircle className="w-3.5 h-3.5" />

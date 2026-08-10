@@ -1,4 +1,12 @@
+export const ESTIMATED_RAM_PER_TAB_MB = 150;
 
+export function formatSavedRam(discardedCount: number): string {
+    const totalMb = discardedCount * ESTIMATED_RAM_PER_TAB_MB;
+    if (totalMb >= 1000) {
+        return `~${(totalMb / 1024).toFixed(1)} GB`;
+    }
+    return `~${totalMb} MB`;
+}
 
 class TabService {
     /**
