@@ -1,5 +1,37 @@
 import { type Tab } from '@/lib/db';
 
+export type VirtualRow =
+    | {
+          type: 'tab';
+          tab: chrome.tabs.Tab;
+          globalIndex: number;
+          inGroup?: boolean;
+          color?: chrome.tabGroups.ColorEnum;
+      }
+    | {
+          type: 'group-header';
+          group: chrome.tabGroups.TabGroup;
+          tabs: chrome.tabs.Tab[];
+      };
+
+export interface TabDragPayload {
+    type: 'tab';
+    tabId: number;
+    globalIndex: number;
+    chromeIndex: number;
+    groupId: number;
+    pinned?: boolean;
+    [key: string]: unknown;
+}
+
+export interface GroupDragPayload {
+    type: 'group-header';
+    groupId: number;
+    tabIds: number[];
+    fromMinIndex: number;
+    [key: string]: unknown;
+}
+
 export interface RowTabData {
   id: string; // Unified string identifier
   url: string;
