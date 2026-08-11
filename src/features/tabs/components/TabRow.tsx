@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Clock, Trash2, Copy, GripVertical, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon } from 'lucide-react';
+import { X, Clock, Trash2, Copy, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
 import { SaveToSpaceDialog } from '@/features/spaces/components/SaveToSpaceDialog';
@@ -27,11 +27,10 @@ interface TabRowProps {
     isDragging?: boolean;
     isCenterHighlighted?: boolean;
     closestEdge?: 'top' | 'bottom' | null;
-    dragHandleRef?: (element: HTMLElement | null) => void;
     isDuplicate?: boolean;
 }
 
-export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, isCenterHighlighted, closestEdge, dragHandleRef, isDuplicate }: TabRowProps) => {
+export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, isCenterHighlighted, closestEdge, isDuplicate }: TabRowProps) => {
     const { copy } = useClipboard();
     const { toast } = useToast();
     const isActive = propIsActive ?? data.isActive;
@@ -110,21 +109,9 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                     >
                         {/* Leading */}
                         <InteractiveRow.Leading>
-                            <div className="flex items-center w-8 shrink-0">
-                                {dragHandleRef && (
-                                    <span
-                                        ref={dragHandleRef}
-                                        className="opacity-0 group-hover:opacity-40 hover:!opacity-100 flex-shrink-0 cursor-grab active:cursor-grabbing transition-opacity -ml-1 mr-1"
-                                        onClick={(e) => e.stopPropagation()}
-                                        aria-label="Drag to reorder"
-                                    >
-                                        <GripVertical className="w-3.5 h-3.5" />
-                                    </span>
-                                )}
-                                {isLocked && (
-                                    <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                                )}
-                            </div>
+                            {isLocked && (
+                                <Lock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                            )}
                             <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />
 
                             {/* Suspension Indicator */}

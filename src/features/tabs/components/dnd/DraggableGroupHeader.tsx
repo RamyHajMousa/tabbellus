@@ -62,6 +62,19 @@ export const DraggableGroupHeader = memo(({
         return combine(
             draggable({
                 element: el,
+                canDrag: ({ input }) => {
+                    const target = (input as { target?: Element }).target ?? (input as { event?: { target?: Element } }).event?.target;
+                    if (target instanceof HTMLElement) {
+                        if (
+                            target.closest('button') ||
+                            target.closest('[role="menuitem"]') ||
+                            target.closest('[role="dialog"]')
+                        ) {
+                            return false;
+                        }
+                    }
+                    return true;
+                },
                 getInitialData: () => (groupPayload as unknown) as Record<string, unknown>,
                 getInitialDataForExternal: () => {
                     const urls = groupTabs

@@ -42,7 +42,6 @@ export const DraggableTabItem = memo(({
     onDropGroupToTab,
 }: DraggableTabItemProps) => {
     const ref = useRef<HTMLDivElement>(null);
-    const dragHandleRef = useRef<HTMLElement | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [closestEdge, setClosestEdge] = useState<'top' | 'bottom' | null>(null);
     const [isCenterHighlighted, setIsCenterHighlighted] = useState(false);
@@ -65,7 +64,19 @@ export const DraggableTabItem = memo(({
         return combine(
             draggable({
                 element: el,
-                dragHandle: dragHandleRef.current || undefined,
+                canDrag: ({ input }) => {
+                    const target = (input as { target?: Element }).target ?? (input as { event?: { target?: Element } }).event?.target;
+                    if (target instanceof HTMLElement) {
+                        if (
+                            target.closest('button') ||
+                            target.closest('[role="menuitem"]') ||
+                            target.closest('[role="dialog"]')
+                        ) {
+                            return false;
+                        }
+                    }
+                    return true;
+                },
                 getInitialData: () => (payload as unknown) as Record<string, unknown>,
                 getInitialDataForExternal: () => {
                     const url = tab.url || '';
@@ -171,7 +182,6 @@ export const DraggableTabItem = memo(({
             isCenterHighlighted={isCenterHighlighted}
             closestEdge={closestEdge}
             isDuplicate={isDuplicate}
-            dragHandleRef={(node) => { dragHandleRef.current = node; }}
         />
     );
 
