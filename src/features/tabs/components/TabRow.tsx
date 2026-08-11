@@ -95,7 +95,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                         isActive={isActive}
                         isDragging={isDragging}
                         closestEdge={closestEdge}
-                        className={`${data.discarded ? "opacity-50 grayscale" : ""} ${isCenterHighlighted ? "bg-primary/10 ring-1 ring-primary" : ""} ${isDuplicate ? "bg-destructive/5" : ""}`}
+                        className={`group/tab ${data.discarded ? "opacity-50 grayscale" : ""} ${isCenterHighlighted ? "bg-primary/10 ring-1 ring-primary" : ""} ${isDuplicate ? "bg-destructive/5" : ""}`}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (data.source === 'saved') {
@@ -163,7 +163,7 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
 
                         {/* Actions */}
                         <InteractiveRow.Actions
-                            className={`gap-0.5 px-1 py-0.5 ${isActive ? 'bg-accent' : 'bg-background group-hover:bg-accent'}`}
+                            className={`gap-0.5 px-1 py-0.5 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto ${isActive ? 'bg-accent' : 'bg-background group-hover/tab:bg-accent'}`}
                         >
                             {canAddToSpace && (
                                 <AddToSpaceMenu tab={data} />

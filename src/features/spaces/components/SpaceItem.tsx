@@ -134,7 +134,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
     const headerRow = (
         <InteractiveRow
             size="md"
-            className="h-auto py-2 items-center"
+            className="group/space h-auto py-2 items-center"
             onClick={handleClick}
         >
             {/* Expand/Collapse Toggle & Active Dot */}
@@ -181,11 +181,12 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             </InteractiveRow.Title>
 
             {/* Actions (Visible on Hover) */}
-            <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5 px-1 py-0.5">
-                <TooltipSimple content="Duplicate Space" side="top">
+            <InteractiveRow.Actions className="bg-background group-hover/space:bg-accent group-hover/space:opacity-100 group-hover/space:pointer-events-auto gap-0.5 px-1 py-0.5">
+                <TooltipSimple content={space.isPinned ? "Unpin Space" : "Pin Space"} side="top">
                     <InteractiveRow.Action
-                        icon={Copy}
-                        onClick={handleDuplicate}
+                        icon={Pin}
+                        onClick={handlePin}
+                        className={space.isPinned ? 'fill-current text-primary' : ''}
                     />
                 </TooltipSimple>
                 <TooltipSimple content={isActive ? "Focus Window" : "Restore Space"} side="top">
@@ -200,7 +201,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
     );
 
     return (
-        <div className="border-b border-border group">
+        <div className="border-b border-border">
             {/* Header with Context Menu */}
             <ContextMenu>
                 <ContextMenuTrigger asChild>
