@@ -118,6 +118,33 @@ class TabService {
 
         return { duplicates, retained };
     }
+
+    /**
+     * Retrieves the current zoom factor of the specified tab.
+     * Defaults to 1.0 (100%) if query fails or tab is invalid.
+     */
+    async getTabZoom(tabId: number): Promise<number> {
+        if (!tabId || tabId < 0) return 1.0;
+        try {
+            return await chrome.tabs.getZoom(tabId);
+        } catch (err) {
+            console.warn('TabService: getZoom failed:', err);
+            return 1.0;
+        }
+    }
+
+    /**
+     * Sets the zoom factor for the specified tab, clamped between 0.25 and 5.0.
+     */
+    async setTabZoom(tabId: number, zoomFactor: number): Promise<void> {
+        if (!tabId || tabId < 0) return;
+        const clampedZoom = Math.min(Math.max(0.25, Number(zoomFactor.toFixed(2))), 5.0);
+        try {
+            await chrome.tabs.setZoom(tabId, clampedZoom);
+        } catch (err) {
+            console.warn('TabService: setZoom failed:', err);
+        }
+    }
 }
 
 // Singleton Export

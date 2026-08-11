@@ -9,6 +9,7 @@ import {
     DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { autoGroupByDomain } from '../utils/groupingUtils';
+import { ZoomControlPopover } from './ZoomControlPopover';
 
 interface ActiveToolbarProps {
     tabs: chrome.tabs.Tab[];
@@ -282,6 +283,8 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
                         <RotateCw className="w-3.5 h-3.5" />
                     </button>
                 </TooltipSimple>
+
+                <ZoomControlPopover activeTabId={activeTabId} />
             </div>
 
             {/* Right Group Actions */}
