@@ -21,12 +21,12 @@ import { useGroupLifecycle } from './useGroupLifecycle';
 export function useCurrentTabs() {
     const windowId = useWindowId();
     const { tabs, setTabs } = useTabLifecycle(windowId);
-    const groups = useGroupLifecycle(windowId);
+    const { groups, toggleAllGroupsCollapse } = useGroupLifecycle(windowId);
 
     const activeTabId = useMemo(() => {
         const active = tabs.find(t => t.active);
         return active?.id ?? null;
     }, [tabs]);
 
-    return { tabs, setTabs, groups, activeTabId };
+    return { tabs, setTabs, groups, activeTabId, toggleAllGroupsCollapse };
 }

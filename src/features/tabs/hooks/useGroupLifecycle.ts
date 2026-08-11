@@ -1,16 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/components/ui/Toaster';
 
 /**
  * Manages Chrome Tab Group state for a specific window.
  * Owns chrome.tabGroups.* listeners and a Map of group ID → TabGroup.
  *
  * @param windowId  The window to scope listeners to. Skips setup when undefined.
- * @returns Map of group ID → TabGroup metadata.
+ * @returns Map of group ID → TabGroup metadata and helper toggle action.
  */
 export function useGroupLifecycle(
     windowId: number | undefined
-): Map<number, chrome.tabGroups.TabGroup> {
+): {
+    groups: Map<number, chrome.tabGroups.TabGroup>;
+    toggleAllGroupsCollapse: (collapse: boolean) => Promise<void>;
+} {
     const [groups, setGroups] = useState<Map<number, chrome.tabGroups.TabGroup>>(new Map());
+    const { toast } = useToast();
 
     useEffect(() => {
         if (windowId === undefined || !chrome.tabGroups) return;
@@ -74,5 +79,26 @@ export function useGroupLifecycle(
         };
     }, [windowId]);
 
-    return groups;
+    const toggleAllGroupsCollapse = useCallback(async (collapse: boolean) => {
+        if (windowId === undefined || !chrome.tabGroups) return;
+        try {
+            const windowGroups = await chrome.tabGroups.query({ windowId });
+            if (windowGroups.length === 0) return;
+
+            await Promise.all(
+                windowGroups.map(g =>
+                    chrome.tabGroups.update(g.id, { collapsed: collapse }).catch(err => {
+                        console.warn(`Failed to update group ${g.id}:`, err);
+                    })
+                )
+            );
+        } catch (err) {
+            console.error('Failed to toggle all tab groups collapse state:', err);
+            toast('Failed to toggle group collapse states', {
+                description: err instanceof Error ? err.message : 'Chrome tab group update rejected.',
+            });
+        }
+    }, [windowId, toast]);
+
+    return { groups, toggleAllGroupsCollapse };
 }

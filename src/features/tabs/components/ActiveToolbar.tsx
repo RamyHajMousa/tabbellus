@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Plus, AppWindow, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Plus, AppWindow, XCircle, ArrowUpDown, Globe, ArrowDownAZ, Layers, FolderClosed, FolderOpen } from 'lucide-react';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useToast } from '@/components/ui/Toaster';
 import {
@@ -14,9 +14,18 @@ import { ZoomControlPopover } from './ZoomControlPopover';
 interface ActiveToolbarProps {
     tabs: chrome.tabs.Tab[];
     activeTabId?: number | null;
+    hasGroups?: boolean;
+    areAllGroupsCollapsed?: boolean;
+    onToggleCollapseAllGroups?: () => void;
 }
 
-export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId }) => {
+export const ActiveToolbar = React.memo<ActiveToolbarProps>(({
+    tabs,
+    activeTabId,
+    hasGroups = false,
+    areAllGroupsCollapsed = false,
+    onToggleCollapseAllGroups,
+}) => {
     const { toast } = useToast();
 
     const handleGoBack = () => {
@@ -289,6 +298,21 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({ tabs, activeTabId
 
             {/* Right Group Actions */}
             <div className="flex items-center gap-0.5">
+                <TooltipSimple content={areAllGroupsCollapsed ? "Expand All Groups" : "Collapse All Groups"} side="bottom">
+                    <button
+                        onClick={onToggleCollapseAllGroups}
+                        disabled={!hasGroups}
+                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        aria-label={areAllGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
+                    >
+                        {areAllGroupsCollapsed ? (
+                            <FolderOpen className="w-3.5 h-3.5" />
+                        ) : (
+                            <FolderClosed className="w-3.5 h-3.5" />
+                        )}
+                    </button>
+                </TooltipSimple>
+
                 <TooltipSimple content="Group by Domain" side="bottom">
                     <button
                         onClick={handleGroupByDomain}

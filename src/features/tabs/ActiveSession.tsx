@@ -1,3 +1,4 @@
+
 import { useState, useMemo, useCallback } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import { type Edge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
@@ -19,7 +20,7 @@ export type { VirtualRow, TabDragPayload, GroupDragPayload };
 // ── ActiveSession Component ──────────────────────────────────────────────
 
 export const ActiveSession = () => {
-    const { tabs, setTabs, groups, activeTabId } = useCurrentTabs();
+    const { tabs, setTabs, groups, activeTabId, toggleAllGroupsCollapse } = useCurrentTabs();
     const currentSpace = useCurrentSpace();
     const [spaceName, setSpaceName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
@@ -29,6 +30,20 @@ export const ActiveSession = () => {
     const { duplicateTabIds, duplicateCount, deduplicate } = useDuplicateTabs(tabs);
 
     const discardedCount = useMemo(() => tabs.filter(t => t.discarded).length, [tabs]);
+
+    const hasGroups = useMemo(() => groups.size > 0, [groups]);
+    
+    const areAllGroupsCollapsed = useMemo(() => {
+        if (groups.size === 0) return false;
+        for (const g of groups.values()) {
+            if (!g.collapsed) return false;
+        }
+        return true;
+    }, [groups]);
+
+    const handleToggleCollapseAllGroups = useCallback(() => {
+        toggleAllGroupsCollapse(!areAllGroupsCollapsed);
+    }, [toggleAllGroupsCollapse, areAllGroupsCollapsed]);
 
     // ── 1D Topology Flattening for Virtuoso ──────────────────────────────────
     const flatList = useMemo<VirtualRow[]>(() => {
@@ -578,7 +593,10 @@ export const ActiveSession = () => {
             {/* Active View Local Toolbar */}
             <ActiveToolbar 
                 tabs={tabs} 
-                activeTabId={activeTabId} 
+                activeTabId={activeTabId}
+                hasGroups={hasGroups}
+                areAllGroupsCollapsed={areAllGroupsCollapsed}
+                onToggleCollapseAllGroups={handleToggleCollapseAllGroups}
             />
 
             {/* Secondary Session Insights Sub-Bar */}
