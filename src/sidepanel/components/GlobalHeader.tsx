@@ -3,6 +3,7 @@ import { useUIStore } from '@/store/uiStore';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { BookmarkPopoverContent } from '@/features/bookmarks/BookmarkPopoverContent';
+import { AudioControlPopover } from '@/features/tabs/components/AudioControlPopover';
 
 export const GlobalHeader = () => {
     const { setSearchOpen, setSettingsOpen, toggleHistory } = useUIStore();
@@ -19,6 +20,8 @@ export const GlobalHeader = () => {
                     ⌘K
                 </span>
             </button>
+
+            <AudioControlPopover />
 
             <Popover>
                 <TooltipSimple content="Bookmarks" side="bottom">
