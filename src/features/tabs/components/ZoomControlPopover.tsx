@@ -89,7 +89,7 @@ export const ZoomControlPopover: React.FC<ZoomControlPopoverProps> = ({ activeTa
                             <TooltipSimple content="Reset Zoom (100%)" side="top">
                                 <button
                                     onClick={handleResetZoom}
-                                    className="h-7 px-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors outline-none"
+                                    className="h-7 px-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors outline-none shrink-0"
                                     aria-label="Reset zoom"
                                 >
                                     <RotateCcw className="w-3 h-3" />
