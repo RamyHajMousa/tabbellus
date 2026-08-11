@@ -6,6 +6,7 @@ export interface Space {
     createdAt: number;
     deletedAt?: number; // Soft delete timestamp
     isPinned?: boolean;
+    color?: string;
 }
 
 export interface Tab {

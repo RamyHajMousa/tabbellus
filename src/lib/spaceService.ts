@@ -283,6 +283,22 @@ class SpaceService {
     }
 
     /**
+     * Updates both the name and color of a space in a single atomic database operation.
+     */
+    async updateSpaceDetails(spaceId: number, name: string, color?: string): Promise<void> {
+        const trimmedName = name.trim();
+        if (!trimmedName) {
+            throw new Error('Space name cannot be empty.');
+        }
+        try {
+            await db.spaces.update(spaceId, { name: trimmedName, color });
+        } catch (e) {
+            console.error('SpaceService: Failed to update space details', e);
+            throw e instanceof Error ? e : new Error('Failed to update space details.');
+        }
+    }
+
+    /**
      * Updates the name of a space.
      */
     async updateSpaceName(spaceId: number, newName: string): Promise<void> {
@@ -291,6 +307,62 @@ class SpaceService {
             await db.spaces.update(spaceId, { name: newName.trim() });
         } catch (e) {
             console.error('SpaceService: Failed to update space name', e);
+        }
+    }
+
+    /**
+     * Updates the color tag of a space.
+     */
+    async updateSpaceColor(spaceId: number, color: string | undefined): Promise<void> {
+        try {
+            await db.spaces.update(spaceId, { color });
+        } catch (e) {
+            console.error('SpaceService: Failed to update space color', e);
+            throw e instanceof Error ? e : new Error('Failed to update space color.');
+        }
+    }
+
+    /**
+     * Duplicates a space and all its associated tabs preserving relative order.
+     * @param spaceId The ID of the space to duplicate.
+     * @returns The newly created space ID.
+     */
+    async duplicateSpace(spaceId: number): Promise<number> {
+        try {
+            return await db.transaction('rw', db.spaces, db.tabs, async () => {
+                const sourceSpace = await db.spaces.get(spaceId);
+                if (!sourceSpace) {
+                    throw new Error('Space not found');
+                }
+
+                const sourceTabs = await db.tabs
+                    .where({ spaceId })
+                    .sortBy('order');
+
+                const newSpaceId = (await db.spaces.add({
+                    name: `Copy of ${sourceSpace.name}`,
+                    createdAt: Date.now(),
+                    isPinned: sourceSpace.isPinned,
+                    color: sourceSpace.color,
+                })) as number;
+
+                if (sourceTabs.length > 0) {
+                    const newTabs: Tab[] = sourceTabs.map((tab) => ({
+                        spaceId: newSpaceId,
+                        url: tab.url,
+                        title: tab.title,
+                        favicon: tab.favicon,
+                        order: tab.order,
+                    }));
+
+                    await db.tabs.bulkAdd(newTabs);
+                }
+
+                return newSpaceId;
+            });
+        } catch (error) {
+            console.error('SpaceService: Transaction failed during duplicateSpace', error);
+            throw error instanceof Error ? error : new Error('Failed to duplicate space.');
         }
     }
 

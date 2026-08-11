@@ -20,6 +20,8 @@ export const SpaceList = () => {
     const spaces = useSpaces();
     const activeSpaces = useAppStore((state) => state.activeSpaces) || {};
     const currentWindowId = useWindowId();
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedColorFilter, setSelectedColorFilter] = useState<string | null>(null);
     const [sortOrder, setSortOrder] = useState<'newest' | 'alpha'>('newest');
     const [isAllExpanded, setIsAllExpanded] = useState(false);
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -27,7 +29,17 @@ export const SpaceList = () => {
 
     const sortedSpaces = useMemo(() => {
         if (!spaces) return [];
-        return [...spaces].sort((a, b) => {
+
+        let filtered = spaces;
+        const query = searchQuery.trim().toLowerCase();
+        if (query) {
+            filtered = filtered.filter((s) => s.name.toLowerCase().includes(query));
+        }
+        if (selectedColorFilter) {
+            filtered = filtered.filter((s) => s.color === selectedColorFilter);
+        }
+
+        return [...filtered].sort((a, b) => {
             // 1. Current Window Active
             const aCurrentActive = activeSpaces[a.id!] === currentWindowId;
             const bCurrentActive = activeSpaces[b.id!] === currentWindowId;
@@ -52,7 +64,7 @@ export const SpaceList = () => {
             }
             return (b.createdAt || 0) - (a.createdAt || 0); // newest
         });
-    }, [spaces, activeSpaces, currentWindowId, sortOrder]);
+    }, [spaces, activeSpaces, currentWindowId, sortOrder, searchQuery, selectedColorFilter]);
 
     const handleCreateSpace = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -74,6 +86,10 @@ export const SpaceList = () => {
         setIsAllExpanded((prev) => !prev);
     };
 
+    const handleSelectColorFilter = (color: string | null) => {
+        setSelectedColorFilter((prev) => (prev === color ? null : color));
+    };
+
     return (
         <div className="flex flex-col h-full bg-background select-none">
             <SpacesToolbar
@@ -82,6 +98,10 @@ export const SpaceList = () => {
                 onToggleSort={handleToggleSort}
                 isAllExpanded={isAllExpanded}
                 onToggleExpandAll={handleToggleExpandAll}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                selectedColorFilter={selectedColorFilter}
+                onSelectColorFilter={handleSelectColorFilter}
             />
 
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -126,10 +146,15 @@ export const SpaceList = () => {
             </Dialog>
 
             <div className="flex-1 min-h-0">
-                {sortedSpaces.length === 0 ? (
+                {spaces && spaces.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
                         <Layers className="w-8 h-8 opacity-20 mb-2" />
                         <p className="text-sm">No spaces captured yet</p>
+                    </div>
+                ) : sortedSpaces.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                        <Layers className="w-8 h-8 opacity-20 mb-2" />
+                        <p className="text-sm">No matching spaces found</p>
                     </div>
                 ) : (
                     <Virtuoso

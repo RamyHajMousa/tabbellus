@@ -1,13 +1,14 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil, Download } from 'lucide-react';
-import { type Space, spaceService, dataService } from '@/lib';
+import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil, Download, Copy } from 'lucide-react';
+import { type Space, spaceService, dataService, getGroupColorClasses } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { TabRow, savedTabToRowData } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
+import { EditSpaceDialog } from './EditSpaceDialog';
 import {
     ContextMenu,
     ContextMenuTrigger,
@@ -21,8 +22,9 @@ interface SpaceItemProps {
     isExpanded?: boolean;
 }
 
-export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
+const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
     const [isOpen, setIsOpen] = React.useState(isExpanded ?? false);
+    const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
 
     React.useEffect(() => {
         if (isExpanded !== undefined) {
@@ -31,12 +33,6 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
     }, [isExpanded]);
 
     const { toast } = useToast();
-
-    // Editing State
-    const [isEditing, setIsEditing] = React.useState(false);
-    const [newName, setNewName] = React.useState(space.name);
-    const inputRef = React.useRef<HTMLInputElement>(null);
-    const isRenamingRef = React.useRef(false);
 
     // Subscribe to activeSpaces for this space
     const activeWindowId = space.id ? useAppStore((state) => state.activeSpaces[space.id!]) : undefined;
@@ -55,16 +51,7 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
         restore: (tab) => spaceService.restoreTab(tab),
     });
 
-    // Focus input when entering edit mode
-    React.useEffect(() => {
-        if (isEditing && inputRef.current) {
-            inputRef.current.focus();
-            inputRef.current.select();
-        }
-    }, [isEditing]);
-
     const handleClick = async () => {
-        if (isEditing) return; // Prevent navigation while editing
         if (!space.id) return;
 
         if (isActive && activeWindowId) {
@@ -87,6 +74,21 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
         e.stopPropagation();
         e.currentTarget.blur();
         if (space.id) spaceService.toggleSpacePin(space.id);
+    };
+
+    const handleDuplicate = async (e?: React.MouseEvent<HTMLElement>) => {
+        if (e) {
+            e.stopPropagation();
+            e.currentTarget.blur();
+        }
+        if (!space.id) return;
+
+        try {
+            await spaceService.duplicateSpace(space.id);
+            toast(`Space "${space.name}" duplicated`);
+        } catch {
+            toast('Failed to duplicate space', { description: 'An error occurred while copying space.' });
+        }
     };
 
     const handleToggle = (e: React.MouseEvent) => {
@@ -118,22 +120,6 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
                 await spaceService.hardDeleteSpace(space.id!);
             }
         }, 10001);
-    };
-
-    const handleRename = async () => {
-        if (space.id && newName.trim() !== space.name) {
-            await spaceService.updateSpaceName(space.id, newName);
-        }
-        setIsEditing(false);
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
-            handleRename();
-        } else if (e.key === 'Escape') {
-            setNewName(space.name); // Revert
-            setIsEditing(false);
-        }
     };
 
     const formatDate = (ts: number) => new Date(ts).toLocaleDateString(undefined, {
@@ -171,7 +157,7 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
 
             {/* Content */}
             <InteractiveRow.Title
-                subTitle={!isEditing && (
+                subTitle={(
                     <span className="flex items-center gap-3 text-xxs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">
                         <span className="flex items-center gap-1">
                             <Layers className="w-2.5 h-2.5" />
@@ -184,26 +170,24 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
                     </span>
                 )}
             >
-                {isEditing ? (
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        onBlur={handleRename}
-                        onKeyDown={handleKeyDown}
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-full bg-transparent border-none p-0 text-sm font-semibold focus:outline-none focus:ring-0 text-foreground"
-                    />
-                ) : (
-                    <span className="text-sm font-semibold text-foreground">
-                        {space.name}
-                    </span>
-                )}
+                <span className="text-sm font-semibold text-foreground flex items-center gap-1.5 min-w-0">
+                    {space.color && (
+                        <span
+                            className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getGroupColorClasses(space.color).badge}`}
+                        />
+                    )}
+                    <span className="truncate">{space.name}</span>
+                </span>
             </InteractiveRow.Title>
 
             {/* Actions (Visible on Hover) */}
             <InteractiveRow.Actions className="bg-background group-hover:bg-accent gap-0.5 px-1 py-0.5">
+                <TooltipSimple content="Duplicate Space" side="top">
+                    <InteractiveRow.Action
+                        icon={Copy}
+                        onClick={handleDuplicate}
+                    />
+                </TooltipSimple>
                 <TooltipSimple content={isActive ? "Focus Window" : "Restore Space"} side="top">
                     <InteractiveRow.Action
                         icon={ExternalLink}
@@ -222,34 +206,25 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
                 <ContextMenuTrigger asChild>
                     {headerRow}
                 </ContextMenuTrigger>
-                <ContextMenuContent
-                    className="w-48"
-                    onCloseAutoFocus={(e) => {
-                        if (isRenamingRef.current) {
-                            e.preventDefault();
-                            isRenamingRef.current = false;
-                            setTimeout(() => {
-                                inputRef.current?.focus();
-                                inputRef.current?.select();
-                            }, 50);
-                        }
-                    }}
-                >
+                <ContextMenuContent className="w-48">
                     <ContextMenuItem onClick={handleClick}>
                         <ExternalLink className="mr-2 h-4 w-4" />
                         {isActive ? 'Focus Window' : 'Restore Space'}
                     </ContextMenuItem>
                     <ContextMenuItem
-                        onSelect={() => {
-                            isRenamingRef.current = true;
-                            setIsEditing(true);
-                            setNewName(space.name);
+                        onSelect={(e) => {
+                            e.preventDefault();
+                            setIsEditDialogOpen(true);
                         }}
                     >
                         <Pencil className="mr-2 h-4 w-4" />
-                        Rename
+                        Edit Space
                     </ContextMenuItem>
                     <ContextMenuSeparator />
+                    <ContextMenuItem onClick={handleDuplicate}>
+                        <Copy className="mr-2 h-4 w-4" />
+                        Duplicate Space
+                    </ContextMenuItem>
                     <ContextMenuItem onClick={handlePin}>
                         <Pin className={`mr-2 h-4 w-4 ${space.isPinned ? 'fill-current' : ''}`} />
                         {space.isPinned ? 'Unpin Space' : 'Pin Space'}
@@ -271,6 +246,15 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
                 </ContextMenuContent>
             </ContextMenu>
 
+            {/* Controlled Edit Space Dialog */}
+            {isEditDialogOpen && (
+                <EditSpaceDialog
+                    open={isEditDialogOpen}
+                    onOpenChange={setIsEditDialogOpen}
+                    space={space}
+                />
+            )}
+
             {/* Accordion Body */}
             {isOpen && tabs && (
                 <div className="bg-transparent pl-8 pr-4 py-1.5 space-y-0.5 border-l border-border animate-in slide-in-from-top-2 fade-in duration-200 ml-4 mb-1">
@@ -288,4 +272,19 @@ export const SpaceItem = React.memo(({ space, isExpanded }: SpaceItemProps) => {
             )}
         </div>
     );
-});
+};
+
+const arePropsEqual = (prevProps: SpaceItemProps, nextProps: SpaceItemProps) => {
+    return (
+        prevProps.isExpanded === nextProps.isExpanded &&
+        prevProps.space.id === nextProps.space.id &&
+        prevProps.space.name === nextProps.space.name &&
+        prevProps.space.color === nextProps.space.color &&
+        prevProps.space.isPinned === nextProps.space.isPinned &&
+        prevProps.space.createdAt === nextProps.space.createdAt &&
+        prevProps.space.deletedAt === nextProps.space.deletedAt
+    );
+};
+
+export const SpaceItem = React.memo(SpaceItemComponent, arePropsEqual);
+

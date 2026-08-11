@@ -155,6 +155,62 @@ describe('SpaceService — Dexie Integration', () => {
     const space = await spaceService.getSpaceById(id);
     expect(space!.name).toBe('New Name');
   });
+
+  // ── Update Space Details ───────────────────────────────────────
+
+  it('should update space name and color atomically in updateSpaceDetails', async () => {
+    const id = await seedSpace('Initial Name');
+    await spaceService.updateSpaceDetails(id, '  Updated Name  ', 'red');
+
+    const space = await spaceService.getSpaceById(id);
+    expect(space!.name).toBe('Updated Name');
+    expect(space!.color).toBe('red');
+  });
+
+  // ── Update Space Color ─────────────────────────────────────────
+
+  it('should update a space color tag and allow clearing it', async () => {
+    const id = await seedSpace('Colored Space');
+    await spaceService.updateSpaceColor(id, 'blue');
+
+    let space = await spaceService.getSpaceById(id);
+    expect(space!.color).toBe('blue');
+
+    await spaceService.updateSpaceColor(id, undefined);
+    space = await spaceService.getSpaceById(id);
+    expect(space!.color).toBeUndefined();
+  });
+
+  // ── Duplicate Space ────────────────────────────────────────────
+
+  it('should duplicate a space and all its tabs preserving relative order', async () => {
+    const origId = (await db.spaces.add({
+      name: 'Original Space',
+      createdAt: Date.now(),
+      isPinned: true,
+      color: 'purple',
+    })) as number;
+
+    await seedTab(origId, 'https://alpha.com', 0);
+    await seedTab(origId, 'https://beta.com', 1);
+
+    const dupId = await spaceService.duplicateSpace(origId);
+
+    const dupSpace = await spaceService.getSpaceById(dupId);
+    expect(dupSpace).toBeDefined();
+    expect(dupSpace!.name).toBe('Copy of Original Space');
+    expect(dupSpace!.isPinned).toBe(true);
+    expect(dupSpace!.color).toBe('purple');
+
+    const dupTabs = await spaceService.getTabsForSpaceQuery(dupId)();
+    expect(dupTabs).toHaveLength(2);
+    expect(dupTabs[0].url).toBe('https://alpha.com');
+    expect(dupTabs[0].order).toBe(0);
+    expect(dupTabs[1].url).toBe('https://beta.com');
+    expect(dupTabs[1].order).toBe(1);
+    expect(dupTabs[0].spaceId).toBe(dupId);
+    expect(dupTabs[1].spaceId).toBe(dupId);
+  });
 });
 
 describe('SpaceService Performance Stress Tests', () => {
