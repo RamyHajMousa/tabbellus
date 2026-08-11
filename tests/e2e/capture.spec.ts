@@ -24,7 +24,7 @@ test.describe('Workspace Capture & View Management Lifecycle', () => {
     await spaceNameInput.fill('E2E Test Workspace');
 
     // 5. Click the "Save Space" button
-    const saveButton = page.getByTitle('Save Space');
+    const saveButton = page.getByRole('button', { name: 'Save Space' });
     await expect(saveButton).toBeEnabled();
     await saveButton.click();
 
