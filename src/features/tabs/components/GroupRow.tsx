@@ -87,6 +87,13 @@ const GroupRowComponent = React.memo(({
     };
 
 
+    const handleSaveGroupAsSpace = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (onArchive) {
+            onArchive(e);
+        }
+    };
+
     const handleCloseGroup = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onClose) {
@@ -148,9 +155,9 @@ const GroupRowComponent = React.memo(({
                             )}
 
                             {onArchive && (
-                                <TooltipSimple content="Save as Space">
+                                <TooltipSimple content="Save Group as Space">
                                     <button
-                                        onClick={onArchive}
+                                        onClick={handleSaveGroupAsSpace}
                                         className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white ${colors.text}`}
                                     >
                                         <Archive className="w-3 h-3" />
@@ -198,6 +205,13 @@ const GroupRowComponent = React.memo(({
                         <Copy className="w-4 h-4 mr-2 text-muted-foreground" />
                         Copy URLs
                     </ContextMenuItem>
+
+                    {onArchive && (
+                        <ContextMenuItem onClick={handleSaveGroupAsSpace} disabled={groupTabs.length === 0}>
+                            <Archive className="w-4 h-4 mr-2 text-muted-foreground" />
+                            Save Group as Space
+                        </ContextMenuItem>
+                    )}
 
                     <ContextMenuItem 
                         onSelect={(e) => {
