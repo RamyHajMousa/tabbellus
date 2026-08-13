@@ -28,178 +28,209 @@ interface TabRowProps {
     isCenterHighlighted?: boolean;
     closestEdge?: 'top' | 'bottom' | null;
     isDuplicate?: boolean;
+    disableContextMenu?: boolean;
 }
 
-export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onReadLater, onDelete, isDragging, isCenterHighlighted, closestEdge, isDuplicate }: TabRowProps) => {
-    const { copy } = useClipboard();
-    const { toast } = useToast();
-    const isActive = propIsActive ?? data.isActive;
-    const canAddToSpace = data.source === 'active';
-    const [isSaveToSpaceOpen, setIsSaveToSpaceOpen] = useState(false);
+export const TabRow = React.memo(
+    React.forwardRef<HTMLDivElement, TabRowProps>(({
+        data,
+        isActive: propIsActive,
+        onClose,
+        onReadLater,
+        onDelete,
+        isDragging,
+        isCenterHighlighted,
+        closestEdge,
+        isDuplicate,
+        disableContextMenu,
+        ...props
+    }, ref) => {
+        const { copy } = useClipboard();
+        const { toast } = useToast();
+        const isActive = propIsActive ?? data.isActive;
+        const canAddToSpace = data.source === 'active';
+        const [isSaveToSpaceOpen, setIsSaveToSpaceOpen] = useState(false);
 
-    const isLocked = useTabLockStore((state) => data.chromeTabId !== undefined && state.lockedTabIds.includes(data.chromeTabId));
-    const toggleLock = useTabLockStore((state) => state.toggleLock);
+        const isLocked = useTabLockStore((state) => data.chromeTabId !== undefined && state.lockedTabIds.includes(data.chromeTabId));
+        const toggleLock = useTabLockStore((state) => state.toggleLock);
 
-    const handleCopy = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (data.url) {
-            copy(data.url);
-        }
-    };
+        const handleCopy = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (data.url) {
+                copy(data.url);
+            }
+        };
 
-    const isPinned = data.pinned;
+        const isPinned = data.pinned;
 
-    const handleDuplicate = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (data.chromeTabId) {
-            chrome.tabs.duplicate(data.chromeTabId).catch(() => { });
-        }
-    };
+        const handleDuplicate = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (data.chromeTabId) {
+                chrome.tabs.duplicate(data.chromeTabId).catch(() => { });
+            }
+        };
 
-    const handleSuspend = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (data.chromeTabId) {
-            chrome.tabs.discard(data.chromeTabId).catch(() => { });
-        }
-    };
+        const handleSuspend = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (data.chromeTabId) {
+                chrome.tabs.discard(data.chromeTabId).catch(() => { });
+            }
+        };
 
-    const handleTogglePin = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (data.chromeTabId) {
-            chrome.tabs.update(data.chromeTabId, { pinned: !isPinned }).catch(() => { });
-        }
-    };
+        const handleTogglePin = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (data.chromeTabId) {
+                chrome.tabs.update(data.chromeTabId, { pinned: !isPinned }).catch(() => { });
+            }
+        };
 
-    const handleToggleLock = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (data.chromeTabId !== undefined) {
-            const targetTabId = data.chromeTabId;
-            const nextLocked = !isLocked;
-            toggleLock(targetTabId, nextLocked);
-            chrome.tabs.sendMessage(targetTabId, { action: 'SET_TAB_LOCK', isLocked: nextLocked }).catch((err) => {
-                console.warn('Failed to dispatch SET_TAB_LOCK message to content script:', err);
-                toast('Tab cannot be locked right now', {
-                    description: 'Try refreshing the page first. System pages (like chrome://) cannot be locked.'
+        const handleToggleLock = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (data.chromeTabId !== undefined) {
+                const targetTabId = data.chromeTabId;
+                const nextLocked = !isLocked;
+                toggleLock(targetTabId, nextLocked);
+                chrome.tabs.sendMessage(targetTabId, { action: 'SET_TAB_LOCK', isLocked: nextLocked }).catch((err) => {
+                    console.warn('Failed to dispatch SET_TAB_LOCK message to content script:', err);
+                    toast('Tab cannot be locked right now', {
+                        description: 'Try refreshing the page first. System pages (like chrome://) cannot be locked.'
+                    });
+                    toggleLock(targetTabId, !nextLocked); // Revert state
                 });
-                toggleLock(targetTabId, !nextLocked); // Revert state
-            });
-        }
-    };
+            }
+        };
 
-    return (
-        <>
+        const rowContent = (
+            <InteractiveRow
+                ref={ref}
+                size="md"
+                isActive={isActive}
+                isDragging={isDragging}
+                closestEdge={closestEdge}
+                className={`group/tab ${data.discarded ? "opacity-50 grayscale" : ""} ${isCenterHighlighted ? "bg-primary/10 ring-1 ring-primary" : ""} ${isDuplicate ? "bg-destructive/5" : ""}`}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (data.source === 'saved') {
+                        if (data.url) {
+                            chrome.tabs.create({ url: data.url, active: true }).catch(() => { });
+                        }
+                    } else if (data.chromeTabId !== undefined) {
+                        chrome.tabs.update(data.chromeTabId, { active: true }).catch(() => { });
+                    }
+                }}
+                {...props}
+            >
+                {/* Leading */}
+                <InteractiveRow.Leading>
+                    {isLocked && (
+                        <Lock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    )}
+                    <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />
+
+                    {/* Suspension Indicator */}
+                    {data.discarded && (
+                        <TooltipSimple content="Tab is suspended (~150 MB saved)">
+                            <Moon className="w-3.5 h-3.5 text-muted-foreground/60 ml-1 flex-shrink-0" />
+                        </TooltipSimple>
+                    )}
+
+                    {/* Audio Indicator Toggle */}
+                    {(data.mutedInfo?.muted || data.audible) && (
+                        <TooltipSimple content={data.mutedInfo?.muted ? "Unmute Tab" : "Mute Tab"}>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (data.chromeTabId !== undefined) {
+                                        chrome.tabs.update(data.chromeTabId, { muted: !data.mutedInfo?.muted }).catch(() => {});
+                                    }
+                                }}
+                                className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors z-0"
+                            >
+                                {data.mutedInfo?.muted ? (
+                                    <VolumeX className="w-3.5 h-3.5" />
+                                ) : (
+                                    <AnimatedAudioIcon />
+                                )}
+                            </button>
+                        </TooltipSimple>
+                    )}
+                </InteractiveRow.Leading>
+
+                {/* Title */}
+                <InteractiveRow.Title
+                    className={isActive ? 'text-foreground' : 'text-foreground/90'}
+                    subTitle={
+                        <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
+                            {tryParseHost(data.url)}
+                        </span>
+                    }
+                >
+                    <span className="whitespace-nowrap">{data.title || data.url}</span>
+                </InteractiveRow.Title>
+
+                {/* Persistent Status Area */}
+                <div className="flex items-center gap-1.5 shrink-0 text-muted-foreground pr-2">
+                    {isDuplicate && <Copy className="w-3 h-3 text-destructive/80" />}
+                    {data.pinned && <Pin className="w-3.5 h-3.5" />}
+                </div>
+
+                {/* Actions */}
+                <InteractiveRow.Actions
+                    className={`gap-0.5 px-1 py-0.5 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto ${isActive ? 'bg-accent' : 'bg-background group-hover/tab:bg-accent'}`}
+                >
+                    {canAddToSpace && (
+                        <AddToSpaceMenu tab={data} />
+                    )}
+
+                    {onReadLater && (
+                        <TooltipSimple content="Read Later" side="top">
+                            <InteractiveRow.Action
+                                icon={Clock}
+                                onClick={onReadLater}
+                                variant="primary"
+                            />
+                        </TooltipSimple>
+                    )}
+                    {onDelete && (
+                        <TooltipSimple content={isLocked ? "Tab is locked" : "Delete Tab from Space"} side="top">
+                            <InteractiveRow.Action
+                                icon={Trash2}
+                                onClick={onDelete}
+                                variant="destructive"
+                                disabled={isLocked}
+                            />
+                        </TooltipSimple>
+                    )}
+                    {onClose && (
+                        <TooltipSimple content={isLocked ? "Tab is locked" : "Close Tab"} side="top">
+                            <InteractiveRow.Action
+                                icon={X}
+                                onClick={onClose}
+                                variant="destructive"
+                                disabled={isLocked}
+                            />
+                        </TooltipSimple>
+                    )}
+                </InteractiveRow.Actions>
+
+                {isSaveToSpaceOpen && (
+                    <SaveToSpaceDialog
+                        open={isSaveToSpaceOpen}
+                        onOpenChange={setIsSaveToSpaceOpen}
+                        tab={data}
+                    />
+                )}
+            </InteractiveRow>
+        );
+
+        if (disableContextMenu) {
+            return rowContent;
+        }
+
+        return (
             <ContextMenu>
                 <ContextMenuTrigger asChild>
-                    <InteractiveRow
-                        size="md"
-                        isActive={isActive}
-                        isDragging={isDragging}
-                        closestEdge={closestEdge}
-                        className={`group/tab ${data.discarded ? "opacity-50 grayscale" : ""} ${isCenterHighlighted ? "bg-primary/10 ring-1 ring-primary" : ""} ${isDuplicate ? "bg-destructive/5" : ""}`}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (data.source === 'saved') {
-                                if (data.url) {
-                                    chrome.tabs.create({ url: data.url, active: true }).catch(() => { });
-                                }
-                            } else if (data.chromeTabId !== undefined) {
-                                chrome.tabs.update(data.chromeTabId, { active: true }).catch(() => { });
-                            }
-                        }}
-                    >
-                        {/* Leading */}
-                        <InteractiveRow.Leading>
-                            {isLocked && (
-                                <Lock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                            )}
-                            <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />
-
-                            {/* Suspension Indicator */}
-                            {data.discarded && (
-                                <TooltipSimple content="Tab is suspended (~150 MB saved)">
-                                    <Moon className="w-3.5 h-3.5 text-muted-foreground/60 ml-1 flex-shrink-0" />
-                                </TooltipSimple>
-                            )}
-
-                            {/* Audio Indicator Toggle */}
-                            {(data.mutedInfo?.muted || data.audible) && (
-                                <TooltipSimple content={data.mutedInfo?.muted ? "Unmute Tab" : "Mute Tab"}>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (data.chromeTabId !== undefined) {
-                                                chrome.tabs.update(data.chromeTabId, { muted: !data.mutedInfo?.muted }).catch(() => {});
-                                            }
-                                        }}
-                                        className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors z-0"
-                                    >
-                                        {data.mutedInfo?.muted ? (
-                                            <VolumeX className="w-3.5 h-3.5" />
-                                        ) : (
-                                            <AnimatedAudioIcon />
-                                        )}
-                                    </button>
-                                </TooltipSimple>
-                            )}
-                        </InteractiveRow.Leading>
-
-                        {/* Title */}
-                        <InteractiveRow.Title
-                            className={isActive ? 'text-foreground' : 'text-foreground/90'}
-                            subTitle={
-                                <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
-                                    {tryParseHost(data.url)}
-                                </span>
-                            }
-                        >
-                            <span className="whitespace-nowrap">{data.title || data.url}</span>
-                        </InteractiveRow.Title>
-
-                        {/* Persistent Status Area */}
-                        <div className="flex items-center gap-1.5 shrink-0 text-muted-foreground pr-2">
-                            {isDuplicate && <Copy className="w-3 h-3 text-destructive/80" />}
-                            {data.pinned && <Pin className="w-3.5 h-3.5" />}
-                        </div>
-
-                        {/* Actions */}
-                        <InteractiveRow.Actions
-                            className={`gap-0.5 px-1 py-0.5 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto ${isActive ? 'bg-accent' : 'bg-background group-hover/tab:bg-accent'}`}
-                        >
-                            {canAddToSpace && (
-                                <AddToSpaceMenu tab={data} />
-                            )}
-
-                            {onReadLater && (
-                                <TooltipSimple content="Read Later" side="top">
-                                    <InteractiveRow.Action
-                                        icon={Clock}
-                                        onClick={onReadLater}
-                                        variant="primary"
-                                    />
-                                </TooltipSimple>
-                            )}
-                            {onDelete && (
-                                <TooltipSimple content={isLocked ? "Tab is locked" : "Delete Tab from Space"} side="top">
-                                    <InteractiveRow.Action
-                                        icon={Trash2}
-                                        onClick={onDelete}
-                                        variant="destructive"
-                                        disabled={isLocked}
-                                    />
-                                </TooltipSimple>
-                            )}
-                            {onClose && (
-                                <TooltipSimple content={isLocked ? "Tab is locked" : "Close Tab"} side="top">
-                                    <InteractiveRow.Action
-                                        icon={X}
-                                        onClick={onClose}
-                                        variant="destructive"
-                                        disabled={isLocked}
-                                    />
-                                </TooltipSimple>
-                            )}
-                        </InteractiveRow.Actions>
-                    </InteractiveRow>
+                    {rowContent}
                 </ContextMenuTrigger>
 
                 <ContextMenuContent className="w-48">
@@ -299,17 +330,9 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
                     )}
                 </ContextMenuContent>
             </ContextMenu>
-
-            {isSaveToSpaceOpen && (
-                <SaveToSpaceDialog
-                    open={isSaveToSpaceOpen}
-                    onOpenChange={setIsSaveToSpaceOpen}
-                    tab={data}
-                />
-            )}
-        </>
-    );
-}, (prevProps, nextProps) => {
+        );
+    }),
+    (prevProps, nextProps) => {
     return (
         prevProps.isActive === nextProps.isActive &&
         prevProps.isDragging === nextProps.isDragging &&
@@ -325,9 +348,11 @@ export const TabRow = React.memo(({ data, isActive: propIsActive, onClose, onRea
         prevProps.data.discarded === nextProps.data.discarded &&
         prevProps.data.audible === nextProps.data.audible &&
         prevProps.data.mutedInfo?.muted === nextProps.data.mutedInfo?.muted &&
-        prevProps.isDuplicate === nextProps.isDuplicate
+        prevProps.isDuplicate === nextProps.isDuplicate &&
+        prevProps.disableContextMenu === nextProps.disableContextMenu
     );
 });
+TabRow.displayName = 'TabRow';
 
 function tryParseHost(url: string) {
     try {

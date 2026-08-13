@@ -1,8 +1,9 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil, Download, Copy } from 'lucide-react';
-import { type Space, spaceService, dataService, getGroupColorClasses } from '@/lib';
+import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil, Download, Copy, FolderOutput, CopyPlus, Clock } from 'lucide-react';
+import { type Space, type Tab, spaceService, readLaterService, dataService, getGroupColorClasses } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
+import { useClipboard } from '@/hooks/useClipboard';
 import { TabRow, savedTabToRowData } from '@/features/tabs';
 import { useAppStore } from '@/store/appStore';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
@@ -16,6 +17,7 @@ import {
     ContextMenuItem,
     ContextMenuSeparator,
 } from '@/components/ui/context-menu';
+import { MoveTabToSpaceDialog } from './MoveTabToSpaceDialog';
 
 interface SpaceItemProps {
     space: Space;
@@ -25,6 +27,11 @@ interface SpaceItemProps {
 const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
     const [isOpen, setIsOpen] = React.useState(isExpanded ?? false);
     const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
+    const [dialogState, setDialogState] = React.useState<{
+        isOpen: boolean;
+        tab: Tab | null;
+        mode: 'move' | 'copy';
+    }>({ isOpen: false, tab: null, mode: 'move' });
 
     React.useEffect(() => {
         if (isExpanded !== undefined) {
@@ -33,6 +40,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
     }, [isExpanded]);
 
     const { toast } = useToast();
+    const { copy } = useClipboard();
 
     // Subscribe to activeSpaces for this space
     const activeWindowId = space.id ? useAppStore((state) => state.activeSpaces[space.id!]) : undefined;
@@ -131,6 +139,30 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
         await deleteTab(tabId, "Tab deleted");
     };
 
+    const handleOpenTab = (url?: string) => {
+        if (url) {
+            chrome.tabs.create({ url, active: true }).catch(() => {});
+        }
+    };
+
+    const handleReadLater = async (tab: { url?: string; title?: string; favicon?: string }) => {
+        if (!tab.url) return;
+        try {
+            await readLaterService.addFromTab({
+                url: tab.url,
+                title: tab.title,
+                favIconUrl: tab.favicon
+            });
+            toast('Saved to Read Later', { description: tab.title || tab.url });
+        } catch (err: any) {
+            if (err?.name === 'DuplicateReadLaterError' || err?.message?.includes('already in Read Later')) {
+                toast('Already in Read Later', { description: 'This URL is already in your reading list.' });
+            } else {
+                toast('Failed to save to Read Later');
+            }
+        }
+    };
+
     const headerRow = (
         <InteractiveRow
             size="md"
@@ -213,10 +245,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                         {isActive ? 'Focus Window' : 'Restore Space'}
                     </ContextMenuItem>
                     <ContextMenuItem
-                        onSelect={(e) => {
-                            e.preventDefault();
-                            setIsEditDialogOpen(true);
-                        }}
+                        onSelect={() => setTimeout(() => setIsEditDialogOpen(true), 10)}
                     >
                         <Pencil className="mr-2 h-4 w-4" />
                         Edit Space
@@ -250,9 +279,19 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             {/* Controlled Edit Space Dialog */}
             {isEditDialogOpen && (
                 <EditSpaceDialog
+                    space={space}
                     open={isEditDialogOpen}
                     onOpenChange={setIsEditDialogOpen}
-                    space={space}
+                />
+            )}
+
+            {dialogState.isOpen && (
+                <MoveTabToSpaceDialog
+                    isOpen={dialogState.isOpen}
+                    onClose={() => setDialogState({ isOpen: false, tab: null, mode: 'move' })}
+                    tab={dialogState.tab}
+                    currentSpaceId={space.id!}
+                    mode={dialogState.mode}
                 />
             )}
 
@@ -260,11 +299,46 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             {isOpen && tabs && (
                 <div className="bg-transparent pl-8 pr-4 py-1.5 space-y-0.5 border-l border-border animate-in slide-in-from-top-2 fade-in duration-200 ml-4 mb-1">
                     {tabs.map((tab) => (
-                        <TabRow
-                            key={tab.id}
-                            data={savedTabToRowData(tab)}
-                            onDelete={(e) => tab.id && handleDeleteTab(e, tab.id)}
-                        />
+                        <ContextMenu key={tab.id}>
+                            <ContextMenuTrigger asChild>
+                                <TabRow
+                                    data={savedTabToRowData(tab)}
+                                    onDelete={(e) => tab.id && handleDeleteTab(e, tab.id)}
+                                    disableContextMenu
+                                />
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-52">
+                                <ContextMenuItem onClick={() => handleOpenTab(tab.url)}>
+                                    <ExternalLink className="mr-2 h-4 w-4 text-muted-foreground" />
+                                    Open Tab
+                                </ContextMenuItem>
+                                <ContextMenuItem onSelect={() => setTimeout(() => setDialogState({ isOpen: true, tab, mode: 'move' }), 10)}>
+                                    <FolderOutput className="mr-2 h-4 w-4 text-muted-foreground" />
+                                    Move to Space...
+                                </ContextMenuItem>
+                                <ContextMenuItem onSelect={() => setTimeout(() => setDialogState({ isOpen: true, tab, mode: 'copy' }), 10)}>
+                                    <CopyPlus className="mr-2 h-4 w-4 text-muted-foreground" />
+                                    Copy to Space...
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem onClick={() => handleReadLater(tab)}>
+                                    <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
+                                    Send to Read Later
+                                </ContextMenuItem>
+                                <ContextMenuItem onClick={() => tab.url && copy(tab.url)}>
+                                    <Copy className="mr-2 h-4 w-4 text-muted-foreground" />
+                                    Copy URL
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem
+                                    onClick={(e) => tab.id && handleDeleteTab(e, tab.id)}
+                                    className="text-destructive focus:text-destructive"
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4 text-destructive" />
+                                    Delete from Space
+                                </ContextMenuItem>
+                            </ContextMenuContent>
+                        </ContextMenu>
                     ))}
                     {tabs.length === 0 && (
                         <p className="text-xs text-muted-foreground italic py-2">No saved tabs</p>

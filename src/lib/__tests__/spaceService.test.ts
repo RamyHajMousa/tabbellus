@@ -211,6 +211,80 @@ describe('SpaceService — Dexie Integration', () => {
     expect(dupTabs[0].spaceId).toBe(dupId);
     expect(dupTabs[1].spaceId).toBe(dupId);
   });
+
+  // ── Move Tab Between Spaces ─────────────────────────────────────
+
+  it('should move a tab between spaces and return original position metadata', async () => {
+    const s1 = await seedSpace('Source Space');
+    const s2 = await seedSpace('Target Space');
+
+    await seedTab(s1, 'https://move-test.com', 0);
+    const tabsInS1 = await spaceService.getTabsForSpaceQuery(s1)();
+    const tabToMove = tabsInS1[0];
+
+    const result = await spaceService.moveTabBetweenSpaces(tabToMove.id!, s2);
+
+    expect(result.sourceSpaceId).toBe(s1);
+    expect(result.originalOrder).toBe(0);
+
+    const s1Tabs = await spaceService.getTabsForSpaceQuery(s1)();
+    const s2Tabs = await spaceService.getTabsForSpaceQuery(s2)();
+
+    expect(s1Tabs).toHaveLength(0);
+    expect(s2Tabs).toHaveLength(1);
+    expect(s2Tabs[0].url).toBe('https://move-test.com');
+    expect(s2Tabs[0].spaceId).toBe(s2);
+  });
+
+  it('should prevent moving a tab if duplicate URL exists in target space', async () => {
+    const s1 = await seedSpace('Source');
+    const s2 = await seedSpace('Target');
+
+    const duplicateUrl = 'https://duplicate-check.com';
+    await seedTab(s1, duplicateUrl, 0);
+    await seedTab(s2, duplicateUrl, 0);
+
+    const tabsInS1 = await spaceService.getTabsForSpaceQuery(s1)();
+    const tabToMove = tabsInS1[0];
+
+    await expect(spaceService.moveTabBetweenSpaces(tabToMove.id!, s2)).rejects.toThrow('DUPLICATE_TAB');
+  });
+
+  // ── Copy Tab To Space ──────────────────────────────────────────
+
+  it('should copy a tab to another space preserving the original tab', async () => {
+    const s1 = await seedSpace('Space A');
+    const s2 = await seedSpace('Space B');
+
+    await seedTab(s1, 'https://copy-test.com', 0);
+    const tabsInS1 = await spaceService.getTabsForSpaceQuery(s1)();
+    const tabToCopy = tabsInS1[0];
+
+    await spaceService.copyTabToSpace(tabToCopy.id!, s2);
+
+    const s1Tabs = await spaceService.getTabsForSpaceQuery(s1)();
+    const s2Tabs = await spaceService.getTabsForSpaceQuery(s2)();
+
+    expect(s1Tabs).toHaveLength(1);
+    expect(s2Tabs).toHaveLength(1);
+    expect(s1Tabs[0].url).toBe('https://copy-test.com');
+    expect(s2Tabs[0].url).toBe('https://copy-test.com');
+    expect(s2Tabs[0].spaceId).toBe(s2);
+  });
+
+  it('should prevent copying a tab if duplicate URL exists in target space', async () => {
+    const s1 = await seedSpace('Space 1');
+    const s2 = await seedSpace('Space 2');
+
+    const duplicateUrl = 'https://existing.com';
+    await seedTab(s1, duplicateUrl, 0);
+    await seedTab(s2, duplicateUrl, 0);
+
+    const tabsInS1 = await spaceService.getTabsForSpaceQuery(s1)();
+    const tabToCopy = tabsInS1[0];
+
+    await expect(spaceService.copyTabToSpace(tabToCopy.id!, s2)).rejects.toThrow('DUPLICATE_TAB');
+  });
 });
 
 describe('SpaceService Performance Stress Tests', () => {

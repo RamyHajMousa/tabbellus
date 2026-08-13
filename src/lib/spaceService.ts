@@ -507,6 +507,122 @@ class SpaceService {
             throw e;
         }
     }
+
+    /**
+     * Moves a tab from its current space to a target space.
+     * Checks for duplicate URLs in the target space and appends to the highest order index.
+     * Runs atomically inside a Dexie transaction and returns original space ID and order metadata for undo recovery.
+     */
+    async moveTabBetweenSpaces(tabId: number, targetSpaceId: number): Promise<{ sourceSpaceId: number; originalOrder: number }> {
+        try {
+            return await db.transaction('rw', db.tabs, async () => {
+                const sourceTab = await db.tabs.get(tabId);
+                if (!sourceTab) {
+                    throw new Error('Tab not found.');
+                }
+
+                const sourceSpaceId = sourceTab.spaceId;
+                const originalOrder = sourceTab.order;
+
+                if (sourceSpaceId === targetSpaceId) {
+                    return { sourceSpaceId, originalOrder }; // Already in target space
+                }
+
+                // 1. Check for duplicate URL in target space
+                const existing = await db.tabs
+                    .where('spaceId')
+                    .equals(targetSpaceId)
+                    .filter(t => t.url === sourceTab.url)
+                    .first();
+
+                if (existing) {
+                    throw new Error('DUPLICATE_TAB');
+                }
+
+                // 2. Get current max order in target space
+                const lastTab = await db.tabs
+                    .where('spaceId')
+                    .equals(targetSpaceId)
+                    .reverse()
+                    .sortBy('order')
+                    .then(tabs => tabs[0]);
+
+                const nextOrder = lastTab ? lastTab.order + 1 : 0;
+
+                // 3. Move tab to target space
+                await db.tabs.update(tabId, {
+                    spaceId: targetSpaceId,
+                    order: nextOrder,
+                });
+
+                return { sourceSpaceId, originalOrder };
+            });
+        } catch (e) {
+            console.error('SpaceService: Failed to move tab between spaces', e);
+            throw e;
+        }
+    }
+
+    /**
+     * Restores a tab back to its original space and order index (e.g. for Undo action).
+     */
+    async restoreTabPosition(tabId: number, spaceId: number, order: number): Promise<void> {
+        try {
+            await db.tabs.update(tabId, { spaceId, order });
+        } catch (e) {
+            console.error('SpaceService: Failed to restore tab position', e);
+            throw e;
+        }
+    }
+
+    /**
+     * Copies a tab record to a target space.
+     * Checks for duplicate URLs in the target space and appends to the highest order index.
+     * Runs atomically inside a Dexie transaction.
+     */
+    async copyTabToSpace(tabId: number, targetSpaceId: number): Promise<void> {
+        try {
+            await db.transaction('rw', db.tabs, async () => {
+                const sourceTab = await db.tabs.get(tabId);
+                if (!sourceTab) {
+                    throw new Error('Tab not found.');
+                }
+
+                // 1. Check for duplicate URL in target space
+                const existing = await db.tabs
+                    .where('spaceId')
+                    .equals(targetSpaceId)
+                    .filter(t => t.url === sourceTab.url)
+                    .first();
+
+                if (existing) {
+                    throw new Error('DUPLICATE_TAB');
+                }
+
+                // 2. Get current max order in target space
+                const lastTab = await db.tabs
+                    .where('spaceId')
+                    .equals(targetSpaceId)
+                    .reverse()
+                    .sortBy('order')
+                    .then(tabs => tabs[0]);
+
+                const nextOrder = lastTab ? lastTab.order + 1 : 0;
+
+                // 3. Add cloned tab to target space
+                await db.tabs.add({
+                    spaceId: targetSpaceId,
+                    url: sourceTab.url,
+                    title: sourceTab.title,
+                    favicon: sourceTab.favicon,
+                    order: nextOrder,
+                });
+            });
+        } catch (e) {
+            console.error('SpaceService: Failed to copy tab to space', e);
+            throw e;
+        }
+    }
 }
 
 // Singleton Export
