@@ -1,25 +1,36 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { spaceService } from '@/lib/spaceService';
 import { Search, X, Folder } from 'lucide-react';
 import { getGroupColorClasses } from '@/lib/colors';
 import { useToast } from '@/components/ui/Toaster';
-import { type Tab } from '@/lib';
+import { type Tab, type SavedTabResult } from '@/lib';
+import { type RowTabData } from '@/features/tabs/types';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 
-interface MoveTabToSpaceDialogProps {
+export interface SpaceSelectorModalProps {
     isOpen: boolean;
     onClose: () => void;
-    tab: Tab | null;
-    currentSpaceId: number;
-    mode: 'move' | 'copy';
+    mode: 'save' | 'move' | 'copy' | 'group-save';
+    currentSpaceId?: number; // To exclude current space during move/copy
+    tab?: RowTabData | SavedTabResult | Tab; // Payload for single tab actions
+    groupTabs?: (RowTabData | chrome.tabs.Tab)[]; // Payload for group save actions
 }
 
-export function MoveTabToSpaceDialog({ isOpen, onClose, tab, currentSpaceId, mode }: MoveTabToSpaceDialogProps) {
+export function SpaceSelectorModal({ isOpen, onClose, tab, groupTabs, currentSpaceId, mode }: SpaceSelectorModalProps) {
     const { toast } = useToast();
     const [searchQuery, setSearchQuery] = useState('');
     const [error, setError] = useState<string | null>(null);
+
+    // Bulletproof cleanup for Radix UI pointer-events lock bug
+    useEffect(() => {
+        return () => {
+            setTimeout(() => {
+                document.body.style.pointerEvents = '';
+            }, 100);
+        };
+    }, []);
 
     // Query spaces ordered by creation/pin, similar to main list but flat
     const allSpaces = useLiveQuery(spaceService.getSpacesOrderedQuery(), []);
@@ -28,7 +39,7 @@ export function MoveTabToSpaceDialog({ isOpen, onClose, tab, currentSpaceId, mod
     const filteredSpaces = useMemo(() => {
         if (!allSpaces) return [];
         return allSpaces.filter((space) => {
-            if (space.id === currentSpaceId) return false;
+            if (currentSpaceId !== undefined && space.id === currentSpaceId) return false;
             if (!searchQuery.trim()) return true;
             const normalizedQuery = searchQuery.toLowerCase().trim();
             const spaceName = space.name || 'Unnamed Space';
@@ -37,40 +48,102 @@ export function MoveTabToSpaceDialog({ isOpen, onClose, tab, currentSpaceId, mod
     }, [allSpaces, currentSpaceId, searchQuery]);
 
     const handleSelectSpace = async (targetSpaceId: number, targetSpaceName: string) => {
-        if (!tab || !tab.id) return;
-
         try {
             setError(null);
-            if (mode === 'move') {
-                const { originalOrder } = await spaceService.moveTabBetweenSpaces(tab.id, targetSpaceId);
+
+            if (mode === 'save') {
+                if (!tab) throw new Error('No tab data provided for save action.');
+                const tabData = {
+                    url: tab.url,
+                    title: tab.title,
+                    favIconUrl: (('favIconUrl' in tab) ? tab.favIconUrl : ('favicon' in tab ? tab.favicon : undefined)) as string | undefined
+                };
+                await spaceService.addTabToSpace(targetSpaceId, tabData);
+                toast(`Saved to "${targetSpaceName}"`);
+            } 
+            else if (mode === 'move') {
+                const tabId = tab && 'id' in tab && tab.id ? (typeof tab.id === 'string' ? parseInt(tab.id.replace('saved-', '')) : (tab.id as number)) : null;
+                if (!tabId) throw new Error('Invalid tab data provided for move action.');
+                if (currentSpaceId === undefined) throw new Error('Missing currentSpaceId for move action.');
+                
+                const { originalOrder } = await spaceService.moveTabBetweenSpaces(tabId, targetSpaceId);
                 toast(`Moved tab to "${targetSpaceName}"`, {
                     onUndo: () => {
-                        spaceService.restoreTabPosition(tab.id!, currentSpaceId, originalOrder)
+                        spaceService.restoreTabPosition(tabId, currentSpaceId, originalOrder)
                             .then(() => toast('Move undone', { description: 'Tab restored to original space.' }))
                             .catch(() => toast('Failed to undo', { description: 'Could not restore tab position.' }));
                     }
                 });
-            } else {
-                await spaceService.copyTabToSpace(tab.id, targetSpaceId);
+            } 
+            else if (mode === 'copy') {
+                const tabId = tab && 'id' in tab && tab.id ? (typeof tab.id === 'string' ? parseInt(tab.id.replace('saved-', '')) : (tab.id as number)) : null;
+                if (!tabId) throw new Error('Invalid tab data provided for copy action.');
+                await spaceService.copyTabToSpace(tabId, targetSpaceId);
                 toast(`Copied tab to "${targetSpaceName}"`);
+            } 
+            else if (mode === 'group-save') {
+                if (!groupTabs || groupTabs.length === 0) throw new Error('No group tabs provided.');
+                
+                let successCount = 0;
+                let duplicateCount = 0;
+                
+                for (const groupTab of groupTabs) {
+                    try {
+                        const tabData = {
+                            url: groupTab.url,
+                            title: groupTab.title,
+                            favIconUrl: (('favIconUrl' in groupTab) ? groupTab.favIconUrl : ('favicon' in groupTab ? groupTab.favicon : undefined)) as string | undefined
+                        };
+                        await spaceService.addTabToSpace(targetSpaceId, tabData);
+                        successCount++;
+                    } catch (err: any) {
+                        if (err?.message === 'DUPLICATE_TAB') {
+                            duplicateCount++;
+                        } else {
+                            throw err;
+                        }
+                    }
+                }
+                
+                if (successCount === 0 && duplicateCount > 0) {
+                    throw new Error('ALL_DUPLICATES');
+                } else if (duplicateCount > 0) {
+                    toast(`Saved ${successCount} tab(s) to "${targetSpaceName}"`, {
+                        description: `${duplicateCount} tab(s) were skipped (already exist).`
+                    });
+                } else {
+                    toast(`Saved group to "${targetSpaceName}"`);
+                }
             }
+
             onClose();
         } catch (err: any) {
-            if (err?.message === 'DUPLICATE_TAB') {
-                setError('Tab already exists in target space.');
+            if (err?.message === 'DUPLICATE_TAB' || err?.message === 'ALL_DUPLICATES') {
+                setError('Tab(s) already exist in the target space.');
             } else {
-                setError(`Failed to ${mode} tab.`);
+                setError(`Failed to complete action: ${err?.message || 'Unknown error'}`);
             }
         }
     };
 
+    let modalTitle = 'Select Space';
+    if (mode === 'save') modalTitle = 'Save Tab to Space';
+    if (mode === 'move') modalTitle = 'Move Tab to Space';
+    if (mode === 'copy') modalTitle = 'Copy Tab to Space';
+    if (mode === 'group-save') modalTitle = 'Save Group to Space';
+
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
+        <Dialog 
+            open={isOpen} 
+            onOpenChange={(val) => {
+                if (!val) onClose();
+            }}
+        >
             <DialogContent className="max-w-md p-0 overflow-hidden flex flex-col max-h-[80vh] gap-0">
                 <DialogHeader className="px-4 py-3 border-b space-y-1">
-                    <DialogTitle>{mode === 'move' ? 'Move to Space' : 'Copy to Space'}</DialogTitle>
+                    <DialogTitle>{modalTitle}</DialogTitle>
                     <DialogDescription className="sr-only">
-                        Select a target space to {mode} the tab.
+                        Select a target space to {mode} the item(s).
                     </DialogDescription>
                 </DialogHeader>
 
@@ -116,7 +189,7 @@ export function MoveTabToSpaceDialog({ isOpen, onClose, tab, currentSpaceId, mod
                         </div>
                     ) : (
                         <div className="flex flex-col gap-1">
-                            {filteredSpaces.map(space => (
+                            {filteredSpaces.map((space) => (
                                 <button
                                     key={space.id}
                                     onClick={() => handleSelectSpace(space.id!, space.name || 'Unnamed Space')}

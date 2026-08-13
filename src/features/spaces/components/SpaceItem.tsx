@@ -17,7 +17,7 @@ import {
     ContextMenuItem,
     ContextMenuSeparator,
 } from '@/components/ui/context-menu';
-import { MoveTabToSpaceDialog } from './MoveTabToSpaceDialog';
+import { SpaceSelectorModal } from './SpaceSelectorModal';
 
 interface SpaceItemProps {
     space: Space;
@@ -286,10 +286,10 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             )}
 
             {dialogState.isOpen && (
-                <MoveTabToSpaceDialog
+                <SpaceSelectorModal
                     isOpen={dialogState.isOpen}
                     onClose={() => setDialogState({ isOpen: false, tab: null, mode: 'move' })}
-                    tab={dialogState.tab}
+                    tab={dialogState.tab!}
                     currentSpaceId={space.id!}
                     mode={dialogState.mode}
                 />
@@ -312,11 +312,11 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                                     <ExternalLink className="mr-2 h-4 w-4 text-muted-foreground" />
                                     Open Tab
                                 </ContextMenuItem>
-                                <ContextMenuItem onSelect={() => setTimeout(() => setDialogState({ isOpen: true, tab, mode: 'move' }), 10)}>
+                                <ContextMenuItem onSelect={() => setTimeout(() => setDialogState({ isOpen: true, tab, mode: 'move' }), 50)}>
                                     <FolderOutput className="mr-2 h-4 w-4 text-muted-foreground" />
                                     Move to Space...
                                 </ContextMenuItem>
-                                <ContextMenuItem onSelect={() => setTimeout(() => setDialogState({ isOpen: true, tab, mode: 'copy' }), 10)}>
+                                <ContextMenuItem onSelect={() => setTimeout(() => setDialogState({ isOpen: true, tab, mode: 'copy' }), 50)}>
                                     <CopyPlus className="mr-2 h-4 w-4 text-muted-foreground" />
                                     Copy to Space...
                                 </ContextMenuItem>

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { X, Clock, Trash2, Copy, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
-import { AddToSpaceMenu } from '@/features/spaces/components/AddToSpaceMenu';
-import { SaveToSpaceDialog } from '@/features/spaces/components/SaveToSpaceDialog';
+import { SpaceSelectorModal } from '@/features/spaces/components/SpaceSelectorModal';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
 import { type RowTabData } from '../types';
@@ -49,7 +48,7 @@ export const TabRow = React.memo(
         const { toast } = useToast();
         const isActive = propIsActive ?? data.isActive;
         const canAddToSpace = data.source === 'active';
-        const [isSaveToSpaceOpen, setIsSaveToSpaceOpen] = useState(false);
+        const [isSpaceSelectorOpen, setIsSpaceSelectorOpen] = useState(false);
 
         const isLocked = useTabLockStore((state) => data.chromeTabId !== undefined && state.lockedTabIds.includes(data.chromeTabId));
         const toggleLock = useTabLockStore((state) => state.toggleLock);
@@ -179,7 +178,13 @@ export const TabRow = React.memo(
                     className={`gap-0.5 px-1 py-0.5 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto ${isActive ? 'bg-accent' : 'bg-background group-hover/tab:bg-accent'}`}
                 >
                     {canAddToSpace && (
-                        <AddToSpaceMenu tab={data} />
+                        <TooltipSimple content="Save to Space..." side="top">
+                            <InteractiveRow.Action
+                                icon={FolderPlus}
+                                onClick={(e) => { e.stopPropagation(); setIsSpaceSelectorOpen(true); }}
+                                variant="primary"
+                            />
+                        </TooltipSimple>
                     )}
 
                     {onReadLater && (
@@ -213,10 +218,11 @@ export const TabRow = React.memo(
                     )}
                 </InteractiveRow.Actions>
 
-                {isSaveToSpaceOpen && (
-                    <SaveToSpaceDialog
-                        open={isSaveToSpaceOpen}
-                        onOpenChange={setIsSaveToSpaceOpen}
+                {isSpaceSelectorOpen && (
+                    <SpaceSelectorModal
+                        isOpen={isSpaceSelectorOpen}
+                        onClose={() => setIsSpaceSelectorOpen(false)}
+                        mode="save"
                         tab={data}
                     />
                 )}
@@ -299,7 +305,7 @@ export const TabRow = React.memo(
                             onSelect={(e) => {
                                 e.preventDefault();
                                 setTimeout(() => {
-                                    setIsSaveToSpaceOpen(true);
+                                    setIsSpaceSelectorOpen(true);
                                 }, 50);
                             }}
                         >

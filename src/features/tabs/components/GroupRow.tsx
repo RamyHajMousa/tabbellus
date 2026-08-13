@@ -4,7 +4,7 @@ import { getGroupColorClasses } from '@/lib/colors';
 import { InteractiveRow } from './InteractiveRow';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useClipboard } from '@/hooks/useClipboard';
-import { spaceService } from '@/lib/spaceService';
+import { SpaceSelectorModal } from '@/features/spaces/components/SpaceSelectorModal';
 import {
     ContextMenu,
     ContextMenuTrigger,
@@ -57,6 +57,7 @@ const GroupRowComponent = React.memo(({
     const [isRenameOpen, setIsRenameOpen] = useState(false);
     const [newTitle, setNewTitle] = useState(group.title || '');
     const [newColor, setNewColor] = useState<chrome.tabGroups.ColorEnum>(group.color);
+    const [isSpaceSelectorOpen, setIsSpaceSelectorOpen] = useState(false);
 
     const handleToggleCollapse = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -85,14 +86,6 @@ const GroupRowComponent = React.memo(({
         }
     };
 
-    const handleSaveGroupToSpace = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (onArchive) {
-            onArchive(e);
-        } else if (groupTabs.length > 0) {
-            spaceService.createSpaceFromTabs(group.title || 'Untitled Group', groupTabs);
-        }
-    };
 
     const handleCloseGroup = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -206,7 +199,17 @@ const GroupRowComponent = React.memo(({
                         Copy URLs
                     </ContextMenuItem>
 
-                    <ContextMenuItem onClick={handleSaveGroupToSpace} disabled={groupTabs.length === 0}>
+                    <ContextMenuItem 
+                        onSelect={(e) => {
+                            e.preventDefault();
+                            if (groupTabs.length > 0) {
+                                setTimeout(() => {
+                                    setIsSpaceSelectorOpen(true);
+                                }, 50);
+                            }
+                        }} 
+                        disabled={groupTabs.length === 0}
+                    >
                         <FolderPlus className="w-4 h-4 mr-2 text-muted-foreground" />
                         Save Group to Space
                     </ContextMenuItem>
@@ -288,6 +291,15 @@ const GroupRowComponent = React.memo(({
                         </form>
                     </DialogContent>
                 </Dialog>
+            )}
+
+            {isSpaceSelectorOpen && (
+                <SpaceSelectorModal
+                    isOpen={isSpaceSelectorOpen}
+                    onClose={() => setIsSpaceSelectorOpen(false)}
+                    mode="group-save"
+                    groupTabs={groupTabs}
+                />
             )}
         </>
     );
