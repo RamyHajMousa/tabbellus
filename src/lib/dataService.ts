@@ -65,22 +65,54 @@ export const dataService = {
      * Import data from a JSON backup file.
      * Removes IDs to let Dexie auto-generate new ones.
      */
-    async importData(file: File): Promise<{ spacesCount: number; tabsCount: number; readLaterCount: number }> {
-        const text = await file.text();
-        const data = JSON.parse(text);
+    async importData(file: File): Promise<{
+        spacesImported: number;
+        tabsImported: number;
+        spacesCount: number;
+        tabsCount: number;
+        readLaterCount: number;
+    }> {
+        if (file.name && !file.name.toLowerCase().endsWith('.json')) {
+            throw new Error('Invalid file format. Please upload a valid JSON backup file.');
+        }
+
+        let data: any;
+        try {
+            const text = await file.text();
+            data = JSON.parse(text);
+        } catch {
+            throw new Error('Corrupt or malformed JSON. Could not parse backup file.');
+        }
+
+        if (!data || typeof data !== 'object') {
+            throw new Error('Invalid backup file: Payload is not a valid JSON object.');
+        }
 
         // Support both multi-space backups (data.spaces) and single-space exports (data.space)
         const spacesRaw = Array.isArray(data.spaces)
             ? data.spaces
-            : (data.space ? [data.space] : []);
+            : (data.space && typeof data.space === 'object' ? [data.space] : []);
 
         if (spacesRaw.length === 0) {
             throw new Error('Invalid backup file: missing spaces data');
         }
 
+        for (const s of spacesRaw) {
+            if (!s || typeof s !== 'object' || typeof s.name !== 'string') {
+                throw new Error('Invalid backup file: contains invalid space entries.');
+            }
+        }
+
+        const tabsRaw = Array.isArray(data.tabs) ? data.tabs : [];
+        for (const t of tabsRaw) {
+            if (!t || typeof t !== 'object' || typeof t.url !== 'string') {
+                throw new Error('Invalid backup file: contains invalid tab entries.');
+            }
+        }
+
         let spacesCount = 0;
         let tabsCount = 0;
-        const readLaterCount = (data.readLater || []).length;
+        const readLaterCount = (Array.isArray(data.readLater) ? data.readLater : []).length;
 
         // Bulk add in transaction
         await db.transaction('rw', db.spaces, db.tabs, db.readLater, async () => {
@@ -99,7 +131,6 @@ export const dataService = {
             }
 
             // 2. Import Tabs (Remap spaceId)
-            const tabsRaw = data.tabs || [];
             const tabsToImport: Tab[] = [];
 
             for (const t of tabsRaw) {
@@ -122,7 +153,7 @@ export const dataService = {
             }
 
             // 3. Import Read Later
-            const readLaterRaw = data.readLater || [];
+            const readLaterRaw = Array.isArray(data.readLater) ? data.readLater : [];
             if (readLaterRaw.length > 0) {
                 const readLaterToImport = readLaterRaw.map((r: any) => {
                     const { id, ...rest } = r;
@@ -133,6 +164,8 @@ export const dataService = {
         });
 
         return {
+            spacesImported: spacesCount,
+            tabsImported: tabsCount,
             spacesCount,
             tabsCount,
             readLaterCount,

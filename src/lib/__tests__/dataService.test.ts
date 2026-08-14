@@ -185,5 +185,46 @@ describe('DataService — Backup & Restore Integration', () => {
     // Make sure old IDs do not bleed into the imported tab records
     expect(workTabs.every((t) => t.spaceId !== spaceId1)).toBe(true);
     expect(personalTabs.every((t) => t.spaceId !== spaceId2)).toBe(true);
+
+    // Verify telemetry keys
+    expect(importResult.spacesImported).toBe(2);
+    expect(importResult.tabsImported).toBe(4);
+  });
+
+  // ── Test Case 4: Invalid File Format Rejection ─────────────────
+  it('should reject non-JSON files with descriptive error', async () => {
+    const mockFile = {
+      name: 'notes.txt',
+      text: async () => 'some plain text content',
+    } as unknown as File;
+
+    await expect(dataService.importData(mockFile)).rejects.toThrow(
+      'Invalid file format. Please upload a valid JSON backup file.'
+    );
+  });
+
+  // ── Test Case 5: Corrupt JSON Handling ─────────────────────────
+  it('should reject malformed JSON with descriptive error', async () => {
+    const mockFile = {
+      name: 'corrupt.json',
+      text: async () => '{"version": 1, "spaces": [ incomplete...',
+    } as unknown as File;
+
+    await expect(dataService.importData(mockFile)).rejects.toThrow(
+      'Corrupt or malformed JSON. Could not parse backup file.'
+    );
+  });
+
+  // ── Test Case 6: Schema Validation (Missing Spaces) ────────────
+  it('should reject JSON payload missing spaces', async () => {
+    const mockFile = {
+      name: 'empty.json',
+      text: async () => JSON.stringify({ version: 1, date: new Date().toISOString() }),
+    } as unknown as File;
+
+    await expect(dataService.importData(mockFile)).rejects.toThrow(
+      'Invalid backup file: missing spaces data'
+    );
   });
 });
+

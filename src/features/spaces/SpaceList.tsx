@@ -1,12 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useSpaces } from './useSpaces';
 import { Virtuoso } from 'react-virtuoso';
 import { Layers } from 'lucide-react';
 import { SpaceItem } from './components/SpaceItem';
 import { SpacesToolbar } from './components/SpacesToolbar';
+import { SpaceDropzoneOverlay } from './components/SpaceDropzoneOverlay';
 import { spaceService } from '@/lib/spaceService';
+import { dataService } from '@/lib/dataService';
 import { useAppStore } from '@/store/appStore';
 import { useWindowId } from '@/features/tabs/hooks/useWindowId';
+import { useToast } from '@/components/ui/Toaster';
 import {
     Dialog,
     DialogContent,
@@ -20,12 +23,74 @@ export const SpaceList = () => {
     const spaces = useSpaces();
     const activeSpaces = useAppStore((state) => state.activeSpaces) || {};
     const currentWindowId = useWindowId();
+    const { toast } = useToast();
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedColorFilter, setSelectedColorFilter] = useState<string | null>(null);
     const [sortOrder, setSortOrder] = useState<'newest' | 'alpha'>('newest');
     const [isAllExpanded, setIsAllExpanded] = useState(false);
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [newSpaceName, setNewSpaceName] = useState('');
+    const [isDraggingFile, setIsDraggingFile] = useState(false);
+    const dragCounterRef = useRef(0);
+
+    useEffect(() => {
+        const handleWindowBlur = () => {
+            dragCounterRef.current = 0;
+            setIsDraggingFile(false);
+        };
+        window.addEventListener('blur', handleWindowBlur);
+        return () => {
+            window.removeEventListener('blur', handleWindowBlur);
+        };
+    }, []);
+
+    const handleDragEnter = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('Files')) {
+            dragCounterRef.current += 1;
+            setIsDraggingFile(true);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('Files')) {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('Files')) {
+            dragCounterRef.current -= 1;
+            if (dragCounterRef.current <= 0) {
+                dragCounterRef.current = 0;
+                setIsDraggingFile(false);
+            }
+        }
+    };
+
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current = 0;
+        setIsDraggingFile(false);
+
+        if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+        const file = e.dataTransfer.files[0];
+
+        try {
+            const result = await dataService.importData(file);
+            toast(`Imported ${result.spacesImported} space${result.spacesImported === 1 ? '' : 's'} and ${result.tabsImported} tab${result.tabsImported === 1 ? '' : 's'} successfully`);
+        } catch (error) {
+            console.error('Failed to import space backup:', error);
+            const message = error instanceof Error ? error.message : 'Unknown error occurred during import';
+            toast(`Import failed: ${message}`);
+        }
+    };
 
     const sortedSpaces = useMemo(() => {
         if (!spaces) return [];
@@ -91,7 +156,15 @@ export const SpaceList = () => {
     };
 
     return (
-        <div className="flex flex-col h-full bg-background select-none">
+        <div
+            className="relative flex flex-col h-full bg-background select-none"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            <SpaceDropzoneOverlay isDragging={isDraggingFile} />
+
             <SpacesToolbar
                 onAddSpace={() => setIsAddDialogOpen(true)}
                 sortOrder={sortOrder}
@@ -173,3 +246,4 @@ export const SpaceList = () => {
         </div>
     );
 };
+
