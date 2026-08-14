@@ -169,7 +169,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             className="group/space h-auto py-2 items-center"
             onClick={handleClick}
         >
-            {/* Expand/Collapse Toggle & Active Dot */}
+            {/* Expand/Collapse Toggle, Color Badge, Pin & Active Dot */}
             <InteractiveRow.Leading>
                 <button
                     onClick={handleToggle}
@@ -177,6 +177,11 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                 >
                     {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 </button>
+                {space.color && (
+                    <span
+                        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getGroupColorClasses(space.color).badge}`}
+                    />
+                )}
                 {space.isPinned && (
                     <Pin className="w-3.5 h-3.5 text-primary fill-current flex-shrink-0" />
                 )}
@@ -189,6 +194,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
 
             {/* Content */}
             <InteractiveRow.Title
+                className="text-sm font-semibold text-foreground"
                 subTitle={(
                     <span className="flex items-center gap-3 text-xxs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">
                         <span className="flex items-center gap-1">
@@ -202,14 +208,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                     </span>
                 )}
             >
-                <span className="text-sm font-semibold text-foreground flex items-center gap-1.5 min-w-0">
-                    {space.color && (
-                        <span
-                            className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getGroupColorClasses(space.color).badge}`}
-                        />
-                    )}
-                    <span className="truncate">{space.name}</span>
-                </span>
+                <span className="whitespace-nowrap">{space.name}</span>
             </InteractiveRow.Title>
 
             {/* Actions (Visible on Hover) */}

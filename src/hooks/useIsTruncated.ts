@@ -26,7 +26,18 @@ export function useIsTruncated<T extends HTMLElement>(): [(node: T | null) => vo
 
         if (node) {
             const check = () => {
-                setIsTruncated(node.scrollWidth > node.clientWidth);
+                let truncated = node.scrollWidth > node.clientWidth;
+                if (!truncated) {
+                    const descendants = node.querySelectorAll<HTMLElement>('*');
+                    for (let i = 0; i < descendants.length; i++) {
+                        const el = descendants[i];
+                        if (el.scrollWidth > el.clientWidth) {
+                            truncated = true;
+                            break;
+                        }
+                    }
+                }
+                setIsTruncated(truncated);
             };
             check();
 
