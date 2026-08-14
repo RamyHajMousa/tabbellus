@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '@/store/appStore';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { spaceService } from '@/lib/spaceService';
+import { db } from '@/lib/db';
 
 export function useCurrentSpace() {
     const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
@@ -28,5 +29,10 @@ export function useCurrentSpace() {
         [spaceId]
     );
 
-    return space || null;
+    const tabCount = useLiveQuery(
+        () => (spaceId ? db.tabs.where({ spaceId }).count() : 0),
+        [spaceId]
+    ) || 0;
+
+    return space ? { ...space, tabCount, windowId: currentWindowId } : null;
 }
