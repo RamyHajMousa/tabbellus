@@ -314,6 +314,15 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Implemented visual folding of recently closed group tabs in `HistoryDialog.tsx` into `"Closed Group (X tabs)"` entries with domain host summaries.
     *   Eliminated `[Violation] mousemove` re-render cascades during drag-and-drop by adding custom primitive comparators to `React.memo` in `TabRow` and `GroupRow`, memoizing sub-renderers, and stabilizing action callbacks with `useCallback()`.
 
+### Phase 11: Smart Focus-If-Open History Routing & Active Space State Hardening
+*   **Outcome:**
+    *   Updated `tabService.focusOrCreate(url)` with `FocusOrCreateResult` typed telemetry (`{ action: 'focused' | 'created', tabId, windowId }`), ensuring parent windows are brought to foreground via `chrome.windows.update(windowId, { focused: true })`.
+    *   Integrated Smart "Focus-If-Open" routing in `HistoryDialog.tsx`:
+        *   Checks `useAppStore.activeSpaces` and verifies window existence before restoring matched spaces; if alive, focuses the existing window with `useToast` feedback (`"Focused active space window"`).
+        *   Checks for open browser tabs matching normalized URLs before restoring single tabs; if open, focuses the tab with `useToast` feedback (`"Focused open tab"`).
+    *   Hardened background worker `chrome.windows.onRemoved` to check remaining open windows for matching space footprints (≥85% coverage) before unregistering `activeSpaces` mappings, preventing state desync.
+    *   Expanded unit test suite with `tabService.test.ts` (8 tests), bringing total suite to 45 passing tests across 5 files.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -321,11 +330,12 @@ The project has completed major refactoring phases to optimize performance, clea
 ### 6.1 Unit & Integration Testing (Vitest)
 *   **Configuration (`vitest.config.ts`):** Standard Node environment with in-memory IndexedDB bindings (`fake-indexeddb/auto`).
 *   **Core Suites:**
+    *   `tabService.test.ts` (8 tests)
     *   `sessionUtils.test.ts` (10 tests)
-    *   `spaceService.test.ts` (9 tests)
+    *   `spaceService.test.ts` (16 tests)
     *   `readLaterService.test.ts` (5 tests)
-    *   `dataService.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (27/27 passing).
+    *   `dataService.test.ts` (6 tests)
+*   **Execution Command:** `npm test` (45/45 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -347,9 +357,12 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 8: Context-Aware Local Toolbars** - Complete.
 - **Phase 9: UI Compaction, Smart Fallback Icons & 4-Tier Space Sorting** - Complete.
 - **Phase 10: 1-to-1 Window Binding, Group Undo Restoration, History Folding & Drag-and-Drop Performance** - Complete.
+- **Phase 11: Smart Focus-If-Open History Routing & Active Space State Hardening** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
   - Design a local-first sync protocol syncing space changes across multiple client browser installations.
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
+
+<!-- Last Updated: 2026-08-17T14:43:00+02:00 -->

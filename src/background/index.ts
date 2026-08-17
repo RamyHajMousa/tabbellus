@@ -291,16 +291,76 @@ chrome.tabs.onReplaced.addListener(async (addedTabId) => {
     }
 });
 
-// Listener for Window Closed (Cleanup tracked space mapping)
+// Listener for Window Closed (Cleanup tracked space mapping with footprint verification)
 chrome.windows.onRemoved.addListener(async (windowId) => {
     try {
         const activeSpaces = await chrome.storage.session.get('activeSpaces').then(res => res.activeSpaces || {});
+        
+        // Find all space IDs mapped to the closed window
+        const closingSpaceIds = Object.keys(activeSpaces)
+            .filter(k => activeSpaces[parseInt(k, 10)] === windowId)
+            .map(k => parseInt(k, 10));
+
+        if (closingSpaceIds.length === 0) return;
+
+        // Fetch all remaining open windows with their tabs
+        const remainingWindows = await chrome.windows.getAll({ populate: true });
+
+        // Collect window IDs already claiming other active spaces to preserve 1-to-1 binding
+        const otherClaimedWindowIds = new Set<number>(
+            Object.entries(activeSpaces)
+                .filter(([sId]) => !closingSpaceIds.includes(parseInt(sId, 10)))
+                .map(([_, wId]) => wId as number)
+        );
+
         let modified = false;
 
-        for (const key in activeSpaces) {
-            if (activeSpaces[key] === windowId) {
-                delete activeSpaces[key];
+        for (const spaceId of closingSpaceIds) {
+            // Check if space has saved tabs in IndexedDB
+            const spaceTabs = await db.tabs.where('spaceId').equals(spaceId).toArray();
+            const spaceUrls = spaceTabs
+                .map(t => t.url)
+                .filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://') && !u.startsWith('about:'));
+
+            let candidateWindowId: number | null = null;
+
+            if (spaceUrls.length > 0) {
+                // Search remaining unclaimed windows for a matching footprint (>= 85% coverage)
+                for (const win of remainingWindows) {
+                    if (!win.id || win.id === windowId || otherClaimedWindowIds.has(win.id) || !win.tabs || win.tabs.length === 0) {
+                        continue;
+                    }
+
+                    const winUrls = win.tabs
+                        .map(t => t.url || '')
+                        .filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://') && !u.startsWith('about:'));
+
+                    if (winUrls.length === 0) continue;
+
+                    let matchCount = 0;
+                    for (const wUrl of winUrls) {
+                        if (spaceUrls.some(sUrl => isFuzzyMatch(sUrl, wUrl))) {
+                            matchCount++;
+                        }
+                    }
+
+                    const spaceCoverage = matchCount / spaceUrls.length;
+                    if (spaceCoverage >= 0.85) {
+                        candidateWindowId = win.id;
+                        otherClaimedWindowIds.add(win.id);
+                        break;
+                    }
+                }
+            }
+
+            if (candidateWindowId !== null) {
+                activeSpaces[spaceId] = candidateWindowId;
                 modified = true;
+                console.log(`Background Sync: Window ${windowId} closed, but re-bound Space ${spaceId} to Window ${candidateWindowId} matching footprint.`);
+            } else {
+                delete activeSpaces[spaceId];
+                modified = true;
+                console.log(`Background Sync: Unregistered Space ${spaceId} on Window ${windowId} closure (no matching window found).`);
             }
         }
 

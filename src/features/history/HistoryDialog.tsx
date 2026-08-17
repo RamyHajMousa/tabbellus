@@ -4,8 +4,10 @@ import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
 import { RotateCcw, LayoutTemplate, Copy, Layers, Check } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
+import { useToast } from '@/components/ui/Toaster';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { spaceService } from '@/lib/spaceService';
+import { tabService } from '@/lib/tabService';
 import { isValidUrl, isFuzzyMatch, tryParseHost } from '@/lib/sessionUtils';
 import type { Space } from '@/lib/db';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
@@ -34,6 +36,7 @@ interface FoldedHistorySession {
 export const HistoryDialog = () => {
     const { isHistoryOpen, setHistoryOpen } = useUIStore();
     const registerActiveSpace = useAppStore((s) => s.registerActiveSpace);
+    const { toast } = useToast();
     const [sessions, setSessions] = useState<chrome.sessions.Session[]>([]);
 
     // 1. Fetch Chrome sessions
@@ -209,9 +212,60 @@ export const HistoryDialog = () => {
         return result;
     }, [enrichedSessions]);
 
-    // 5. Restore handler
-    const handleRestoreFolded = async (sessionIds: string[], matchedSpaceId?: number) => {
-        if (sessionIds.length === 0) return;
+    // 5. Restore handler with smart routing
+    const handleRestore = async (item: FoldedHistorySession) => {
+        const { isFoldedGroup, sessionIds, matchedSpaceId, session } = item;
+
+        // A. Window / Space Restoration: Check if space is already active in an open window
+        if (matchedSpaceId !== undefined) {
+            const activeSpaces = useAppStore.getState().activeSpaces;
+            const activeWindowId = activeSpaces[matchedSpaceId];
+
+            if (activeWindowId !== undefined) {
+                let windowExists = false;
+                try {
+                    const win = await chrome.windows.get(activeWindowId);
+                    if (win) windowExists = true;
+                } catch {
+                    windowExists = false;
+                }
+
+                if (windowExists) {
+                    await chrome.windows.update(activeWindowId, { focused: true }).catch(() => {});
+                    setHistoryOpen(false);
+                    toast('Focused active space window');
+                    return;
+                } else {
+                    // Stale mapping cleanup
+                    useAppStore.getState().unregisterWindow(activeWindowId);
+                }
+            }
+        }
+
+        // B. Single Tab Restoration: Check if any open tab matches the normalized URL
+        if (!isFoldedGroup && session.tab?.url) {
+            const url = session.tab.url;
+            if (isValidUrl(url)) {
+                const allTabs = await chrome.tabs.query({});
+                const normalizedTarget = tabService.normalizeUrl(url);
+                const hasOpenMatch = allTabs.some(
+                    (t) => t.url && tabService.normalizeUrl(t.url) === normalizedTarget
+                );
+
+                if (hasOpenMatch) {
+                    await tabService.focusOrCreate(url);
+                    setHistoryOpen(false);
+                    toast('Focused open tab');
+                    return;
+                }
+            }
+        }
+
+        // C. Standard Restoration (Fallback / Default)
+        if (sessionIds.length === 0) {
+            setHistoryOpen(false);
+            return;
+        }
 
         for (const id of sessionIds) {
             try {
@@ -252,7 +306,7 @@ export const HistoryDialog = () => {
                                 <HistoryItem
                                     key={`${item.lastModified}-${i}`}
                                     item={item}
-                                    onRestore={handleRestoreFolded}
+                                    onRestore={handleRestore}
                                 />
                             ))}
                         </div>
@@ -267,9 +321,9 @@ export const HistoryDialog = () => {
 
 const HistoryItem = ({ item, onRestore }: {
     item: FoldedHistorySession;
-    onRestore: (ids: string[], matchedSpaceId?: number) => void;
+    onRestore: (item: FoldedHistorySession) => void;
 }) => {
-    const { session, isFoldedGroup, sessionIds, title, subtitle } = item;
+    const { session, isFoldedGroup, title, subtitle } = item;
     const { tab } = session;
     const isTab = !isFoldedGroup && !!tab;
     const isMatchedSpace = !!session.matchedSpaceName;
@@ -287,7 +341,7 @@ const HistoryItem = ({ item, onRestore }: {
     return (
         <InteractiveRow
             size="md"
-            onClick={() => onRestore(sessionIds, item.matchedSpaceId)}
+            onClick={() => onRestore(item)}
         >
             {/* Icon / Favicon */}
             <InteractiveRow.Leading>
@@ -332,7 +386,7 @@ const HistoryItem = ({ item, onRestore }: {
                     icon={RotateCcw}
                     onClick={(e) => {
                         e.stopPropagation();
-                        onRestore(sessionIds, item.matchedSpaceId);
+                        onRestore(item);
                     }}
                     title="Restore Session"
                     variant="primary"

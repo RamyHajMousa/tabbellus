@@ -8,6 +8,12 @@ export function formatSavedRam(discardedCount: number): string {
     return `~${totalMb} MB`;
 }
 
+export interface FocusOrCreateResult {
+    action: 'focused' | 'created';
+    tabId: number;
+    windowId: number;
+}
+
 class TabService {
     /**
      * Normalizes a URL for comparison by stripping trailing slashes, handling case, and removing tracking params.
@@ -37,9 +43,10 @@ class TabService {
     /**
      * Focuses an existing tab with the matching URL, or creates a new one.
      * @param url The URL to navigate to.
+     * @returns Typed result containing the action ('focused' | 'created'), tabId, and windowId.
      */
-    async focusOrCreate(url: string): Promise<void> {
-        if (!url) return;
+    async focusOrCreate(url: string): Promise<FocusOrCreateResult | undefined> {
+        if (!url) return undefined;
 
         try {
             // 1. Find all tabs
@@ -52,8 +59,7 @@ class TabService {
                 return this.normalizeUrl(tab.url) === target;
             });
 
-            // 3. Logic: Pick the best match (most recently accessed if possible, though lastAccessed is tricky in MV3 without history permission, we'll use active or just first one for now as a robust default. Actually, `lastAccessed` property exists on Tab object since Chrome 121, let's try to use it if available, falling back to index 0)
-
+            // 3. Logic: Pick the best match (most recently accessed if possible, falling back to index 0)
             let bestMatch = matches[0];
             if (matches.length > 1) {
                 // Sort by lastAccessed descending if available
@@ -66,19 +72,41 @@ class TabService {
             }
 
             if (bestMatch && bestMatch.id && bestMatch.windowId) {
-                // 4a. Focus Existing
+                // 4a. Focus Existing Window & Tab
                 await chrome.windows.update(bestMatch.windowId, { focused: true }).catch(() => { });
-                await chrome.tabs.update(bestMatch.id, { active: true }).catch(async () => {
-                    // Fallback: If update fails (tab closed?), create new
-                    await chrome.tabs.create({ url }).catch(() => { });
-                });
+                try {
+                    await chrome.tabs.update(bestMatch.id, { active: true });
+                    return {
+                        action: 'focused',
+                        tabId: bestMatch.id,
+                        windowId: bestMatch.windowId
+                    };
+                } catch {
+                    // Fallback: If update fails (tab closed in race condition), create new
+                    const newTab = await chrome.tabs.create({ url }).catch(() => null);
+                    if (newTab && newTab.id && newTab.windowId) {
+                        return {
+                            action: 'created',
+                            tabId: newTab.id,
+                            windowId: newTab.windowId
+                        };
+                    }
+                }
             } else {
-                // 4b. Create New
-                await chrome.tabs.create({ url }).catch(() => { });
+                // 4b. Create New Tab
+                const newTab = await chrome.tabs.create({ url }).catch(() => null);
+                if (newTab && newTab.id && newTab.windowId) {
+                    return {
+                        action: 'created',
+                        tabId: newTab.id,
+                        windowId: newTab.windowId
+                    };
+                }
             }
         } catch (e) {
             console.warn('TabService: Failed to focus or create tab:', e);
         }
+        return undefined;
     }
 
     /**
