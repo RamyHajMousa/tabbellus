@@ -1,6 +1,13 @@
 import { db, type Tab, type Space, type SpaceWithTabs, type SavedTabResult } from './db';
+import { tabService } from './tabService';
 
 export type SpaceRestoreListener = (spaceId: number, windowId: number) => void;
+
+export interface AppendTabsResult {
+    total: number;
+    appended: number;
+    skipped: number;
+}
 
 class SpaceService {
     private restoreListeners = new Set<SpaceRestoreListener>();
@@ -92,6 +99,18 @@ class SpaceService {
      */
     getTabsForSpaceQuery(spaceId: number | undefined) {
         return () => (spaceId ? db.tabs.where({ spaceId }).sortBy('order') : []);
+    }
+
+    /**
+     * Fetches all sorted tabs for a specific space ID.
+     */
+    async getTabsForSpace(spaceId: number): Promise<Tab[]> {
+        try {
+            return await db.tabs.where({ spaceId }).sortBy('order');
+        } catch (error) {
+            console.error('SpaceService: Failed to get tabs for space', error);
+            return [];
+        }
     }
 
     /**
@@ -419,6 +438,69 @@ class SpaceService {
             }
         } catch (e) {
             console.error('SpaceService: Failed to restore space', e);
+        }
+    }
+
+    /**
+     * Appends tabs from a space into an existing Chrome window without altering active space session bindings.
+     * Deduplicates against already open tabs in the target window using normalized URLs.
+     * Applies staggered tab creation (200ms interval) to prevent tab storm performance degradation.
+     * @param spaceId The space ID whose tabs to append.
+     * @param windowId The target Chrome window ID.
+     * @returns Telemetry containing total, appended, and skipped counts.
+     */
+    async appendSpaceTabsToWindow(spaceId: number, windowId: number): Promise<AppendTabsResult> {
+        try {
+            const tabs = await this.getTabsForSpace(spaceId);
+            if (tabs.length === 0) {
+                return { total: 0, appended: 0, skipped: 0 };
+            }
+
+            // Query existing tabs in the target window to deduplicate
+            const windowTabs = await chrome.tabs.query({ windowId });
+            const openUrls = new Set(
+                windowTabs
+                    .map((t) => (t.url ? tabService.normalizeUrl(t.url) : ''))
+                    .filter(Boolean)
+            );
+
+            // Filter out tabs that are already open in the window
+            const tabsToCreate = tabs.filter((tab) => {
+                if (!tab.url) return false;
+                const normalized = tabService.normalizeUrl(tab.url);
+                return !openUrls.has(normalized);
+            });
+
+            const skipped = tabs.length - tabsToCreate.length;
+
+            if (tabsToCreate.length === 0) {
+                return { total: tabs.length, appended: 0, skipped };
+            }
+
+            for (let i = 0; i < tabsToCreate.length; i++) {
+                const tab = tabsToCreate[i];
+                if (i > 0) {
+                    await new Promise((r) => setTimeout(r, 200));
+                }
+                try {
+                    await chrome.tabs.create({
+                        windowId,
+                        url: tab.url,
+                        active: false,
+                    });
+                } catch (tabErr) {
+                    console.error('SpaceService: Failed to append tab to window', tabErr);
+                }
+            }
+
+            return {
+                total: tabs.length,
+                appended: tabsToCreate.length,
+                skipped,
+            };
+        } catch (error) {
+            console.error('SpaceService: Failed to append space tabs to window', error);
+            throw error instanceof Error ? error : new Error('Failed to append space tabs to window.');
         }
     }
 

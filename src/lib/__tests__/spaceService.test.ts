@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { db } from '@/lib/db';
 import { spaceService } from '@/lib/spaceService';
 
@@ -285,7 +285,94 @@ describe('SpaceService — Dexie Integration', () => {
 
     await expect(spaceService.copyTabToSpace(tabToCopy.id!, s2)).rejects.toThrow('DUPLICATE_TAB');
   });
+
+  // ── getTabsForSpace & appendSpaceTabsToWindow ──────────────────
+
+  it('should fetch all sorted tabs for a space via getTabsForSpace', async () => {
+    const spaceId = await seedSpace('Ordered Space');
+    await seedTab(spaceId, 'https://first.com', 0);
+    await seedTab(spaceId, 'https://second.com', 1);
+
+    const tabs = await spaceService.getTabsForSpace(spaceId);
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].url).toBe('https://first.com');
+    expect(tabs[1].url).toBe('https://second.com');
+  });
+
+  it('should append space tabs and deduplicate against open window tabs', async () => {
+    const spaceId = await seedSpace('Append Space');
+    await seedTab(spaceId, 'https://tab1.com', 0);
+    await seedTab(spaceId, 'https://tab2.com', 1);
+
+    // Mock chrome.tabs.query and chrome.tabs.create: tab1 is already open in window 42
+    const createdTabs: Array<{ windowId: number; url: string; active: boolean }> = [];
+    (globalThis as any).chrome = {
+      tabs: {
+        query: vi.fn().mockResolvedValue([
+          { id: 101, windowId: 42, url: 'https://tab1.com' },
+          { id: 102, windowId: 42, url: 'https://other-site.com' },
+        ]),
+        create: vi.fn().mockImplementation((args) => {
+          createdTabs.push(args);
+          return Promise.resolve({ id: 999, ...args });
+        }),
+      },
+    };
+
+    const result = await spaceService.appendSpaceTabsToWindow(spaceId, 42);
+
+    expect(result).toEqual({
+      total: 2,
+      appended: 1,
+      skipped: 1,
+    });
+    expect(createdTabs).toHaveLength(1);
+    expect(createdTabs[0]).toEqual({ windowId: 42, url: 'https://tab2.com', active: false });
+  });
+
+  it('should skip creation if all space tabs are already open in the window', async () => {
+    const spaceId = await seedSpace('Already Open Space');
+    await seedTab(spaceId, 'https://tab1.com', 0);
+    await seedTab(spaceId, 'https://tab2.com?utm_source=test', 1);
+
+    const createdTabs: Array<{ windowId: number; url: string; active: boolean }> = [];
+    (globalThis as any).chrome = {
+      tabs: {
+        query: vi.fn().mockResolvedValue([
+          { id: 101, windowId: 42, url: 'https://tab1.com' },
+          { id: 102, windowId: 42, url: 'https://tab2.com' },
+        ]),
+        create: vi.fn().mockImplementation((args) => {
+          createdTabs.push(args);
+          return Promise.resolve({ id: 999, ...args });
+        }),
+      },
+    };
+
+    const result = await spaceService.appendSpaceTabsToWindow(spaceId, 42);
+
+    expect(result).toEqual({
+      total: 2,
+      appended: 0,
+      skipped: 2,
+    });
+    expect(createdTabs).toHaveLength(0);
+  });
+
+  it('should return 0 counts when appending tabs for an empty space', async () => {
+    const emptySpaceId = await seedSpace('Empty Space');
+    (globalThis as any).chrome = {
+      tabs: {
+        query: vi.fn().mockResolvedValue([]),
+        create: vi.fn(),
+      },
+    };
+
+    const result = await spaceService.appendSpaceTabsToWindow(emptySpaceId, 42);
+    expect(result).toEqual({ total: 0, appended: 0, skipped: 0 });
+  });
 });
+
 
 describe('SpaceService Performance Stress Tests', () => {
   it('should read and process 500 tabs within a 16ms frame budget', async () => {

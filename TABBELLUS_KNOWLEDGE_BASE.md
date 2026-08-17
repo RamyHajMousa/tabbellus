@@ -323,6 +323,18 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Hardened background worker `chrome.windows.onRemoved` to check remaining open windows for matching space footprints (≥85% coverage) before unregistering `activeSpaces` mappings, preventing state desync.
     *   Expanded unit test suite with `tabService.test.ts` (8 tests), bringing total suite to 45 passing tests across 5 files.
 
+### Phase 12: Space Context Menu Expansion & Non-Destructive Window Appending
+*   **Outcome:**
+    *   Added `spaceService.getTabsForSpace(spaceId)` and `spaceService.appendSpaceTabsToWindow(spaceId, windowId)`:
+        *   Deduplicates against already open tabs in the target window using normalized URLs.
+        *   Implements staggered tab creation (200ms interval) to safely append space tabs without tab storms or altering active space window bindings.
+        *   Returns structured telemetry `AppendTabsResult: { total, appended, skipped }`.
+    *   Enhanced `SpaceItem.tsx` Radix context menu with:
+        *   **"Append Tabs to Current Window"** (`FolderPlus` icon): Queries current window, appends non-duplicate space tabs, and triggers dynamic `useToast` telemetry notifications (`"Appended X tabs"`, `"Appended X tabs (Y already open)"`, `"All Y tabs are already open in this window"`).
+        *   **"Copy All URLs"** (`Link` icon): Formats space URLs into strictly newline-separated (`\n`) text and copies via `useClipboard` with `useToast` feedback.
+    *   Preserved `arePropsEqual` comparator preventing re-render cascades in virtualized `SpaceList`.
+    *   Expanded unit tests in `spaceService.test.ts` to 20 tests, bringing total test suite to 49 passing tests across 5 files.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -332,10 +344,10 @@ The project has completed major refactoring phases to optimize performance, clea
 *   **Core Suites:**
     *   `tabService.test.ts` (8 tests)
     *   `sessionUtils.test.ts` (10 tests)
-    *   `spaceService.test.ts` (16 tests)
+    *   `spaceService.test.ts` (20 tests)
     *   `readLaterService.test.ts` (5 tests)
     *   `dataService.test.ts` (6 tests)
-*   **Execution Command:** `npm test` (45/45 passing).
+*   **Execution Command:** `npm test` (49/49 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -358,6 +370,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 9: UI Compaction, Smart Fallback Icons & 4-Tier Space Sorting** - Complete.
 - **Phase 10: 1-to-1 Window Binding, Group Undo Restoration, History Folding & Drag-and-Drop Performance** - Complete.
 - **Phase 11: Smart Focus-If-Open History Routing & Active Space State Hardening** - Complete.
+- **Phase 12: Space Context Menu Expansion & Non-Destructive Window Appending** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
@@ -365,4 +378,6 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
 
-<!-- Last Updated: 2026-08-17T14:43:00+02:00 -->
+<!-- Last Updated: 2026-08-17T15:28:00+02:00 -->
+
+

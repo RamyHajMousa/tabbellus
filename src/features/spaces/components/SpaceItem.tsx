@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil, Download, Copy, FolderOutput, CopyPlus, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil, Download, Copy, FolderOutput, CopyPlus, Clock, Link, FolderPlus } from 'lucide-react';
 import { type Space, type Tab, spaceService, readLaterService, dataService, getGroupColorClasses } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { useClipboard } from '@/hooks/useClipboard';
@@ -75,6 +75,70 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
         } else {
             // Restore (opens in new window)
             await spaceService.restoreSpace(space.id);
+        }
+    };
+
+    const handleAppendToCurrentWindow = async (e?: React.MouseEvent<HTMLElement>) => {
+        if (e) {
+            e.stopPropagation();
+            e.currentTarget.blur();
+        }
+        if (!space.id) return;
+
+        try {
+            const currentWin = await chrome.windows.getCurrent();
+            if (!currentWin?.id) {
+                toast('Failed to find current window');
+                return;
+            }
+
+            const result = await spaceService.appendSpaceTabsToWindow(space.id, currentWin.id);
+            if (result.total === 0) {
+                toast('No tabs to append', { description: 'This space does not contain any saved tabs.' });
+                return;
+            }
+
+            if (result.appended > 0 && result.skipped === 0) {
+                const label = result.appended === 1 ? '1 tab' : `${result.appended} tabs`;
+                toast(`Appended ${label} to current window`);
+            } else if (result.appended > 0 && result.skipped > 0) {
+                const appLabel = result.appended === 1 ? '1 tab' : `${result.appended} tabs`;
+                const skipLabel = result.skipped === 1 ? '1 already open' : `${result.skipped} already open`;
+                toast(`Appended ${appLabel} (${skipLabel})`);
+            } else if (result.appended === 0 && result.skipped > 0) {
+                const allLabel = result.skipped === 1 ? 'Tab is' : `All ${result.skipped} tabs are`;
+                toast(`${allLabel} already open in this window`);
+            }
+        } catch (err) {
+            console.error('Failed to append tabs to window', err);
+            toast('Failed to append tabs to window');
+        }
+    };
+
+    const handleCopyAllUrls = async (e?: React.MouseEvent<HTMLElement>) => {
+        if (e) {
+            e.stopPropagation();
+            e.currentTarget.blur();
+        }
+        if (!space.id) return;
+
+        try {
+            const spaceTabs = await spaceService.getTabsForSpace(space.id);
+            const urls = spaceTabs.map((t) => t.url).filter(Boolean);
+
+            if (urls.length === 0) {
+                toast('No tabs to copy', { description: 'This space does not contain any saved tabs.' });
+                return;
+            }
+
+            // Strictly join using newlines producing multi-line individual lines
+            const text = urls.join('\n');
+            await copy(text);
+            const label = urls.length === 1 ? '1 URL' : `${urls.length} URLs`;
+            toast(`Copied ${label} to clipboard`);
+        } catch (err) {
+            console.error('Failed to copy space URLs', err);
+            toast('Failed to copy URLs');
         }
     };
 
@@ -238,10 +302,14 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                 <ContextMenuTrigger asChild>
                     {headerRow}
                 </ContextMenuTrigger>
-                <ContextMenuContent className="w-48">
+                <ContextMenuContent className="w-60">
                     <ContextMenuItem onClick={handleClick}>
                         <ExternalLink className="mr-2 h-4 w-4" />
                         {isActive ? 'Focus Window' : 'Restore Space'}
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={handleAppendToCurrentWindow}>
+                        <FolderPlus className="mr-2 h-4 w-4" />
+                        Append Tabs to Current Window
                     </ContextMenuItem>
                     <ContextMenuItem
                         onSelect={() => setTimeout(() => setIsEditDialogOpen(true), 10)}
@@ -257,6 +325,10 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                     <ContextMenuItem onClick={handlePin}>
                         <Pin className={`mr-2 h-4 w-4 ${space.isPinned ? 'fill-current' : ''}`} />
                         {space.isPinned ? 'Unpin Space' : 'Pin Space'}
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={handleCopyAllUrls}>
+                        <Link className="mr-2 h-4 w-4" />
+                        Copy All URLs
                     </ContextMenuItem>
                     <ContextMenuItem
                         onClick={() => space.id && dataService.exportSpaceAsJson(space.id)}
