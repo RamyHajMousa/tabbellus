@@ -59,7 +59,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
         restore: (tab) => spaceService.restoreTab(tab),
     });
 
-    const handleClick = async () => {
+    const handleClick = React.useCallback(async () => {
         if (!space.id) return;
 
         if (isActive && activeWindowId) {
@@ -76,9 +76,9 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             // Restore (opens in new window)
             await spaceService.restoreSpace(space.id);
         }
-    };
+    }, [space.id, isActive, activeWindowId, unregisterWindow]);
 
-    const handleAppendToCurrentWindow = async (e?: React.MouseEvent<HTMLElement>) => {
+    const handleAppendToCurrentWindow = React.useCallback(async (e?: React.MouseEvent<HTMLElement>) => {
         if (e) {
             e.stopPropagation();
             e.currentTarget.blur();
@@ -113,9 +113,9 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             console.error('Failed to append tabs to window', err);
             toast('Failed to append tabs to window');
         }
-    };
+    }, [space.id, toast]);
 
-    const handleCopyAllUrls = async (e?: React.MouseEvent<HTMLElement>) => {
+    const handleCopyAllUrls = React.useCallback(async (e?: React.MouseEvent<HTMLElement>) => {
         if (e) {
             e.stopPropagation();
             e.currentTarget.blur();
@@ -140,15 +140,15 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             console.error('Failed to copy space URLs', err);
             toast('Failed to copy URLs');
         }
-    };
+    }, [space.id, copy, toast]);
 
-    const handlePin = (e: React.MouseEvent<HTMLElement>) => {
+    const handlePin = React.useCallback((e: React.MouseEvent<HTMLElement>) => {
         e.stopPropagation();
         e.currentTarget.blur();
         if (space.id) spaceService.toggleSpacePin(space.id);
-    };
+    }, [space.id]);
 
-    const handleDuplicate = async (e?: React.MouseEvent<HTMLElement>) => {
+    const handleDuplicate = React.useCallback(async (e?: React.MouseEvent<HTMLElement>) => {
         if (e) {
             e.stopPropagation();
             e.currentTarget.blur();
@@ -161,14 +161,14 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
         } catch {
             toast('Failed to duplicate space', { description: 'An error occurred while copying space.' });
         }
-    };
+    }, [space.id, space.name, toast]);
 
-    const handleToggle = (e: React.MouseEvent) => {
+    const handleToggle = React.useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
-        setIsOpen(!isOpen);
-    };
+        setIsOpen((prev) => !prev);
+    }, []);
 
-    const handleDelete = async (e: React.MouseEvent<HTMLElement>) => {
+    const handleDelete = React.useCallback(async (e: React.MouseEvent<HTMLElement>) => {
         e.stopPropagation();
         e.currentTarget.blur();
         if (!space.id) return;
@@ -192,24 +192,24 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                 await spaceService.hardDeleteSpace(space.id!);
             }
         }, 10001);
-    };
+    }, [space.id, space.name, toast]);
 
-    const formatDate = (ts: number) => new Date(ts).toLocaleDateString(undefined, {
+    const formatDate = React.useCallback((ts: number) => new Date(ts).toLocaleDateString(undefined, {
         month: 'short', day: 'numeric'
-    });
+    }), []);
 
-    const handleDeleteTab = async (e: React.MouseEvent, tabId: number) => {
+    const handleDeleteTab = React.useCallback(async (e: React.MouseEvent, tabId: number) => {
         e.stopPropagation();
         await deleteTab(tabId, "Tab deleted");
-    };
+    }, [deleteTab]);
 
-    const handleOpenTab = (url?: string) => {
+    const handleOpenTab = React.useCallback((url?: string) => {
         if (url) {
             chrome.tabs.create({ url, active: true }).catch(() => {});
         }
-    };
+    }, []);
 
-    const handleReadLater = async (tab: { url?: string; title?: string; favicon?: string }) => {
+    const handleReadLater = React.useCallback(async (tab: { url?: string; title?: string; favicon?: string }) => {
         if (!tab.url) return;
         try {
             await readLaterService.addFromTab({
@@ -218,14 +218,15 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                 favIconUrl: tab.favicon
             });
             toast('Saved to Read Later', { description: tab.title || tab.url });
-        } catch (err: any) {
-            if (err?.name === 'DuplicateReadLaterError' || err?.message?.includes('already in Read Later')) {
+        } catch (err: unknown) {
+            const error = err as { name?: string; message?: string };
+            if (error?.name === 'DuplicateReadLaterError' || error?.message?.includes('already in Read Later')) {
                 toast('Already in Read Later', { description: 'This URL is already in your reading list.' });
             } else {
                 toast('Failed to save to Read Later');
             }
         }
-    };
+    }, [toast]);
 
     const headerRow = (
         <InteractiveRow

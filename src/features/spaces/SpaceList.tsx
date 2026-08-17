@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useSpaces } from './useSpaces';
 import { Virtuoso } from 'react-virtuoso';
 import { Layers } from 'lucide-react';
@@ -44,24 +44,24 @@ export const SpaceList = () => {
         };
     }, []);
 
-    const handleDragEnter = (e: React.DragEvent) => {
+    const handleDragEnter = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         if (e.dataTransfer.types.includes('Files')) {
             dragCounterRef.current += 1;
             setIsDraggingFile(true);
         }
-    };
+    }, []);
 
-    const handleDragOver = (e: React.DragEvent) => {
+    const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         if (e.dataTransfer.types.includes('Files')) {
             e.dataTransfer.dropEffect = 'copy';
         }
-    };
+    }, []);
 
-    const handleDragLeave = (e: React.DragEvent) => {
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         if (e.dataTransfer.types.includes('Files')) {
@@ -71,9 +71,9 @@ export const SpaceList = () => {
                 setIsDraggingFile(false);
             }
         }
-    };
+    }, []);
 
-    const handleDrop = async (e: React.DragEvent) => {
+    const handleDrop = useCallback(async (e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         dragCounterRef.current = 0;
@@ -90,7 +90,7 @@ export const SpaceList = () => {
             const message = error instanceof Error ? error.message : 'Unknown error occurred during import';
             toast(`Import failed: ${message}`);
         }
-    };
+    }, [toast]);
 
     const sortedSpaces = useMemo(() => {
         if (!spaces) return [];
@@ -131,7 +131,7 @@ export const SpaceList = () => {
         });
     }, [spaces, activeSpaces, currentWindowId, sortOrder, searchQuery, selectedColorFilter]);
 
-    const handleCreateSpace = async (e: React.FormEvent) => {
+    const handleCreateSpace = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newSpaceName.trim()) return;
         try {
@@ -141,19 +141,28 @@ export const SpaceList = () => {
         } catch (error) {
             console.error('Failed to create space:', error);
         }
-    };
+    }, [newSpaceName]);
 
-    const handleToggleSort = () => {
+    const handleToggleSort = useCallback(() => {
         setSortOrder((prev) => (prev === 'newest' ? 'alpha' : 'newest'));
-    };
+    }, []);
 
-    const handleToggleExpandAll = () => {
+    const handleToggleExpandAll = useCallback(() => {
         setIsAllExpanded((prev) => !prev);
-    };
+    }, []);
 
-    const handleSelectColorFilter = (color: string | null) => {
+    const handleSelectColorFilter = useCallback((color: string | null) => {
         setSelectedColorFilter((prev) => (prev === color ? null : color));
-    };
+    }, []);
+
+    const computeItemKey = useCallback((index: number) => sortedSpaces[index].id!, [sortedSpaces]);
+
+    const renderSpaceItem = useCallback((index: number) => (
+        <SpaceItem
+            space={sortedSpaces[index]}
+            isExpanded={isAllExpanded}
+        />
+    ), [sortedSpaces, isAllExpanded]);
 
     return (
         <div
@@ -233,13 +242,8 @@ export const SpaceList = () => {
                     <Virtuoso
                         style={{ height: '100%', width: '100%' }}
                         totalCount={sortedSpaces.length}
-                        computeItemKey={(index) => sortedSpaces[index].id!}
-                        itemContent={(index) => (
-                            <SpaceItem
-                                space={sortedSpaces[index]}
-                                isExpanded={isAllExpanded}
-                            />
-                        )}
+                        computeItemKey={computeItemKey}
+                        itemContent={renderSpaceItem}
                     />
                 )}
             </div>

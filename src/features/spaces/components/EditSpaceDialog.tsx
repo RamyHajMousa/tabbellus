@@ -27,6 +27,8 @@ export const EditSpaceDialog: React.FC<EditSpaceDialogProps> = ({
     const [color, setColor] = useState<string | undefined>(space.color);
     const { toast } = useToast();
 
+    const pointerTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
         if (open) {
             setName(space.name);
@@ -34,29 +36,33 @@ export const EditSpaceDialog: React.FC<EditSpaceDialogProps> = ({
         }
     }, [open, space.name, space.color]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    useEffect(() => {
+        return () => {
+            if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
+        };
+    }, []);
+
+    const handleClose = React.useCallback(() => {
+        onOpenChange(false);
+        if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
+        pointerTimerRef.current = setTimeout(() => {
+            document.body.style.pointerEvents = '';
+        }, 100);
+    }, [onOpenChange]);
+
+    const handleSubmit = React.useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         const trimmedName = name.trim();
         if (!trimmedName || !space.id) return;
 
         try {
             await spaceService.updateSpaceDetails(space.id, trimmedName, color);
-            onOpenChange(false);
-            setTimeout(() => {
-                document.body.style.pointerEvents = '';
-            }, 100);
+            handleClose();
             toast(`Space "${trimmedName}" updated`);
         } catch {
             toast('Failed to update space', { description: 'An error occurred while updating space details.' });
         }
-    };
-
-    const handleClose = () => {
-        onOpenChange(false);
-        setTimeout(() => {
-            document.body.style.pointerEvents = '';
-        }, 100);
-    };
+    }, [name, space.id, color, handleClose, toast]);
 
     return (
         <Dialog open={open} onOpenChange={(val) => {

@@ -335,6 +335,13 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Preserved `arePropsEqual` comparator preventing re-render cascades in virtualized `SpaceList`.
     *   Expanded unit tests in `spaceService.test.ts` to 20 tests, bringing total test suite to 49 passing tests across 5 files.
 
+### Phase 13: Forensic Architectural, Performance & Memoization Audit for Spaces
+*   **Outcome:**
+    *   Hardened `SpaceItem.tsx` and `SpaceList.tsx` memoization graphs: wrapped all event handlers, Drag-and-Drop listeners, and `Virtuoso` item renderers in `useCallback` to prevent closure thrashing.
+    *   Optimized `useCurrentSpace.ts` Zustand selector to subscribe exclusively to the current window's assigned space ID rather than the entire `activeSpaces` dictionary reference.
+    *   Audited and confirmed 100% strict TypeScript types: removed obsolete type assertions (`as (Space & ...)`), typed catch blocks as `unknown`, and added ref-managed timer cleanups for pointer events unlock handlers.
+    *   Audited all Spaces UI elements for Design System compliance: zero native `title` attributes, universal `TooltipSimple`/`TooltipOverflow` wrapping, and `useUndoDelete` integration.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -371,6 +378,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 10: 1-to-1 Window Binding, Group Undo Restoration, History Folding & Drag-and-Drop Performance** - Complete.
 - **Phase 11: Smart Focus-If-Open History Routing & Active Space State Hardening** - Complete.
 - **Phase 12: Space Context Menu Expansion & Non-Destructive Window Appending** - Complete.
+- **Phase 13: Forensic Architectural, Performance & Memoization Audit for Spaces** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
@@ -378,6 +386,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
 
-<!-- Last Updated: 2026-08-17T15:28:00+02:00 -->
+<!-- Last Updated: 2026-08-17T15:52:00+02:00 -->
+
 
 

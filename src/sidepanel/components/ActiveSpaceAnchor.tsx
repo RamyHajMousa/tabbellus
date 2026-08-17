@@ -1,5 +1,5 @@
+import React from 'react';
 import { useCurrentSpace } from '@/hooks/useCurrentSpace';
-import { Space } from '@/lib/db';
 import { Link2, X } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { getGroupColorClasses } from '@/lib/colors';
@@ -8,19 +8,19 @@ import { useIsTruncated } from '@/hooks/useIsTruncated';
 import { useToast } from '@/components/ui/Toaster';
 
 export const ActiveSpaceAnchor = () => {
-    const currentSpace = useCurrentSpace() as (Space & { tabCount?: number, windowId?: number }) | null;
+    const currentSpace = useCurrentSpace();
     const unregisterWindow = useAppStore(state => state.unregisterWindow);
     const { toast } = useToast();
     const [titleRef, isTruncated] = useIsTruncated<HTMLSpanElement>();
 
-    if (!currentSpace) return null;
-
-    const handleUnlink = () => {
-        if (currentSpace.windowId) {
+    const handleUnlink = React.useCallback(() => {
+        if (currentSpace?.windowId) {
             unregisterWindow(currentSpace.windowId);
             toast(`Window unlinked from space "${currentSpace.name}"`);
         }
-    };
+    }, [currentSpace?.windowId, currentSpace?.name, unregisterWindow, toast]);
+
+    if (!currentSpace) return null;
 
     const colorDef = currentSpace.color ? getGroupColorClasses(currentSpace.color) : null;
 

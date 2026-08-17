@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/Dialog';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { spaceService } from '@/lib/spaceService';
@@ -22,11 +22,13 @@ export function SpaceSelectorModal({ isOpen, onClose, tab, groupTabs, currentSpa
     const { toast } = useToast();
     const [searchQuery, setSearchQuery] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const pointerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Bulletproof cleanup for Radix UI pointer-events lock bug
     useEffect(() => {
         return () => {
-            setTimeout(() => {
+            if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
+            pointerTimerRef.current = setTimeout(() => {
                 document.body.style.pointerEvents = '';
             }, 100);
         };
@@ -47,7 +49,7 @@ export function SpaceSelectorModal({ isOpen, onClose, tab, groupTabs, currentSpa
         });
     }, [allSpaces, currentSpaceId, searchQuery]);
 
-    const handleSelectSpace = async (targetSpaceId: number, targetSpaceName: string) => {
+    const handleSelectSpace = useCallback(async (targetSpaceId: number, targetSpaceName: string) => {
         try {
             setError(null);
 
@@ -96,8 +98,9 @@ export function SpaceSelectorModal({ isOpen, onClose, tab, groupTabs, currentSpa
                         };
                         await spaceService.addTabToSpace(targetSpaceId, tabData);
                         successCount++;
-                    } catch (err: any) {
-                        if (err?.message === 'DUPLICATE_TAB') {
+                    } catch (err: unknown) {
+                        const errorObj = err as { message?: string };
+                        if (errorObj?.message === 'DUPLICATE_TAB') {
                             duplicateCount++;
                         } else {
                             throw err;
@@ -117,14 +120,15 @@ export function SpaceSelectorModal({ isOpen, onClose, tab, groupTabs, currentSpa
             }
 
             onClose();
-        } catch (err: any) {
-            if (err?.message === 'DUPLICATE_TAB' || err?.message === 'ALL_DUPLICATES') {
+        } catch (err: unknown) {
+            const errorObj = err as { message?: string };
+            if (errorObj?.message === 'DUPLICATE_TAB' || errorObj?.message === 'ALL_DUPLICATES') {
                 setError('Tab(s) already exist in the target space.');
             } else {
-                setError(`Failed to complete action: ${err?.message || 'Unknown error'}`);
+                setError(`Failed to complete action: ${errorObj?.message || 'Unknown error'}`);
             }
         }
-    };
+    }, [mode, tab, currentSpaceId, groupTabs, toast, onClose]);
 
     let modalTitle = 'Select Space';
     if (mode === 'save') modalTitle = 'Save Tab to Space';
