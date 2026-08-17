@@ -19,7 +19,18 @@ class ReadLaterService {
      * Restores (adds back) a read later item record.
      */
     async restoreItem(item: ReadLaterItem): Promise<void> {
-        await db.readLater.add(item);
+        await db.readLater.put(item);
+    }
+
+    /**
+     * Restores (re-adds) multiple read later item records inside an atomic transaction.
+     */
+    async restoreItems(items: ReadLaterItem[]): Promise<void> {
+        await db.transaction('rw', db.readLater, async () => {
+            for (const item of items) {
+                await db.readLater.put(item);
+            }
+        });
     }
 
     /**
@@ -45,6 +56,23 @@ class ReadLaterService {
      */
     async getAllItems(): Promise<ReadLaterItem[]> {
         return db.readLater.toArray();
+    }
+
+    /**
+     * Computes distinct domain hostnames from items matching a given status.
+     * Returns a sorted array of unique hostnames.
+     */
+    async getDistinctDomains(status: ReadLaterItem['status']): Promise<string[]> {
+        const items = await db.readLater.where('status').equals(status).toArray();
+        const hosts = new Set<string>();
+        for (const item of items) {
+            try {
+                hosts.add(new URL(item.url).hostname);
+            } catch {
+                // Skip malformed URLs
+            }
+        }
+        return [...hosts].sort();
     }
     /**
      * Saves a Chrome tab to Read Later.
@@ -84,9 +112,9 @@ class ReadLaterService {
     }
 
     /**
-     * Marks all unread items as archived (read).
+     * Marks all unread items as archived inside an atomic transaction.
      */
-    async markAllAsRead(): Promise<number> {
+    async archiveAllUnread(): Promise<number> {
         const unreadItems = await db.readLater.where('status').equals('unread').toArray();
         if (unreadItems.length === 0) return 0;
         await db.transaction('rw', db.readLater, async () => {
@@ -98,14 +126,31 @@ class ReadLaterService {
     }
 
     /**
-     * Clears (deletes) all archived items.
+     * Alias for archiveAllUnread.
      */
-    async clearAllArchived(): Promise<number> {
+    async markAllAsRead(): Promise<number> {
+        return this.archiveAllUnread();
+    }
+
+    /**
+     * Clears (deletes) all archived items inside an atomic transaction.
+     * Returns the array of deleted item snapshots for undo recovery.
+     */
+    async clearAllArchived(): Promise<ReadLaterItem[]> {
         const archivedItems = await db.readLater.where('status').equals('archived').toArray();
-        if (archivedItems.length === 0) return 0;
+        if (archivedItems.length === 0) return [];
         const ids = archivedItems.map(i => i.id!).filter(id => id !== undefined);
-        await db.readLater.bulkDelete(ids);
-        return ids.length;
+        await db.transaction('rw', db.readLater, async () => {
+            await db.readLater.bulkDelete(ids);
+        });
+        return archivedItems;
+    }
+
+    /**
+     * Alias for clearAllArchived.
+     */
+    async clearAllRead(): Promise<ReadLaterItem[]> {
+        return this.clearAllArchived();
     }
 }
 

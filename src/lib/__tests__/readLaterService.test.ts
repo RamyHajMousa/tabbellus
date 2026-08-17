@@ -132,4 +132,103 @@ describe('ReadLaterService — Dexie Integration', () => {
     await readLaterService.updateStatus(id2 as number, 'archived');
     expect(await countQueryFn()).toBe(initialCount);
   });
+
+  // ── Test Case 6: Distinct Domains ───────────────────────────────
+  it('should return sorted unique hostnames for items matching a status', async () => {
+    await db.readLater.bulkAdd([
+      { url: 'https://github.com/repo-1', title: 'Repo 1', addedAt: Date.now(), status: 'unread' },
+      { url: 'https://github.com/repo-2', title: 'Repo 2', addedAt: Date.now(), status: 'unread' },
+      { url: 'https://youtube.com/watch?v=abc', title: 'Video', addedAt: Date.now(), status: 'unread' },
+      { url: 'https://docs.google.com/doc', title: 'Doc', addedAt: Date.now(), status: 'read' },
+    ]);
+
+    const domains = await readLaterService.getDistinctDomains('unread');
+    expect(domains).toContain('github.com');
+    expect(domains).toContain('youtube.com');
+    expect(domains).not.toContain('docs.google.com'); // different status
+    // Verify sorted
+    expect(domains).toEqual([...domains].sort());
+  });
+
+  // ── Test Case 7: Distinct Domains with Malformed URLs ───────────
+  it('should skip malformed URLs gracefully in getDistinctDomains', async () => {
+    await db.readLater.bulkAdd([
+      { url: 'https://valid.com/page', title: 'Valid', addedAt: Date.now(), status: 'unread' },
+      { url: 'not-a-url', title: 'Invalid', addedAt: Date.now(), status: 'unread' },
+      { url: '', title: 'Empty', addedAt: Date.now(), status: 'unread' },
+    ]);
+
+    const domains = await readLaterService.getDistinctDomains('unread');
+    expect(domains).toContain('valid.com');
+    expect(domains).toHaveLength(1); // only valid.com, others skipped
+  });
+
+  // ── Test Case 8: Archive All Unread (unread → archived) ────────
+  it('should transition all unread items to archived status atomically', async () => {
+    await db.readLater.bulkAdd([
+      { url: 'https://a.com/1', title: 'A1', addedAt: Date.now(), status: 'unread' },
+      { url: 'https://b.com/2', title: 'B2', addedAt: Date.now(), status: 'unread' },
+      { url: 'https://c.com/3', title: 'C3', addedAt: Date.now(), status: 'archived' },
+    ]);
+
+    const count = await readLaterService.archiveAllUnread();
+    expect(count).toBe(2);
+
+    // Verify transitions
+    const allItems = await db.readLater.toArray();
+    const archivedItems = allItems.filter(i => i.status === 'archived');
+    expect(archivedItems.length).toBeGreaterThanOrEqual(3);
+    expect(archivedItems.some(i => i.url === 'https://a.com/1')).toBe(true);
+    expect(archivedItems.some(i => i.url === 'https://b.com/2')).toBe(true);
+    expect(archivedItems.some(i => i.url === 'https://c.com/3')).toBe(true);
+  });
+
+  // ── Test Case 9: Clear All Archived ──────────────────────────────
+  it('should delete all items with archived status and return snapshot for undo', async () => {
+    const id1 = await db.readLater.add({ url: 'https://archived1.com', title: 'A1', addedAt: Date.now(), status: 'archived' });
+    const id2 = await db.readLater.add({ url: 'https://archived2.com', title: 'A2', addedAt: Date.now(), status: 'archived' });
+    await db.readLater.add({ url: 'https://unread1.com', title: 'U1', addedAt: Date.now(), status: 'unread' });
+
+    const deleted = await readLaterService.clearAllArchived();
+    expect(deleted).toHaveLength(2);
+    expect(deleted.some(i => i.id === id1)).toBe(true);
+    expect(deleted.some(i => i.id === id2)).toBe(true);
+
+    // Verify deletions
+    expect(await db.readLater.get(id1 as number)).toBeUndefined();
+    expect(await db.readLater.get(id2 as number)).toBeUndefined();
+
+    // Unread item should survive
+    const remaining = await db.readLater.toArray();
+    expect(remaining.some(i => i.url === 'https://unread1.com')).toBe(true);
+  });
+
+  // ── Test Case 10: Archive All Unread (empty set) ────────────────
+  it('should return 0 when no unread items exist for archiveAllUnread', async () => {
+    // Only add non-unread items
+    await db.readLater.add({ url: 'https://archived.com', title: 'Archived', addedAt: Date.now(), status: 'archived' });
+
+    const count = await readLaterService.archiveAllUnread();
+    expect(count).toBe(0);
+  });
+
+  // ── Test Case 11: Bulk Restore (Undo Recovery) ──────────────────
+  it('should restore a batch of archived items atomically during undo', async () => {
+    const itemsToRestore = [
+      { id: 201, url: 'https://undo1.com', title: 'Undo 1', addedAt: Date.now(), status: 'archived' as const },
+      { id: 202, url: 'https://undo2.com', title: 'Undo 2', addedAt: Date.now(), status: 'archived' as const },
+    ];
+
+    await readLaterService.restoreItems(itemsToRestore);
+
+    const u1 = await readLaterService.getItemById(201);
+    const u2 = await readLaterService.getItemById(202);
+
+    expect(u1).toBeDefined();
+    expect(u1!.title).toBe('Undo 1');
+    expect(u1!.status).toBe('archived');
+    expect(u2).toBeDefined();
+    expect(u2!.title).toBe('Undo 2');
+    expect(u2!.status).toBe('archived');
+  });
 });

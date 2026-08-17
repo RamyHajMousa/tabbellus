@@ -342,6 +342,17 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Audited and confirmed 100% strict TypeScript types: removed obsolete type assertions (`as (Space & ...)`), typed catch blocks as `unknown`, and added ref-managed timer cleanups for pointer events unlock handlers.
     *   Audited all Spaces UI elements for Design System compliance: zero native `title` attributes, universal `TooltipSimple`/`TooltipOverflow` wrapping, and `useUndoDelete` integration.
 
+### Phase 14: Read Later — Search Filtering, Standardized Clipboard Export & Streamlined State Machine
+*   **Outcome:**
+    *   Enhanced `readLaterService.ts` with `archiveAllUnread()` for atomic bulk transitioning of unread items to `'archived'`, and `clearAllArchived()` for bulk deletion of archived items within atomic `db.transaction`.
+    *   Extracted `ReadLaterItem.tsx` with strongly typed `ReadLaterItemProps`, stabilized callbacks via `useCallback`, and custom `arePropsEqual` memo comparator for 60 FPS scroll performance.
+    *   Streamlined Read Later state machine (eliminating intermediate ghost states): clicking an item or opening via context menu automatically transitions the item to `'archived'`.
+    *   Refined `ReadLaterItem` Radix context menu with: "Open in New Tab", "Send to Archive" / "Move to Unread", "Send to Space..." (opens `SpaceSelectorModal` in `'save'` mode), "Copy URL" (via `useClipboard`), and "Delete" (via `useUndoDelete`).
+    *   Upgraded `ReadLaterToolbar.tsx` with a Sleek Developer Minimalist text search input (`Filter links...`), "Copy All URLs" (formatting visible URLs as clean newline-separated `\n` text matching Spaces behavior), "Archive All" (`Archive` icon / "Archive All Unread"), and "Clear All Archived".
+    *   Integrated `SpaceSelectorModal` into `ReadLaterList.tsx` to enable sending Read Later items directly to Spaces.
+    *   Added memoized search filter pipeline in `ReadLaterList.tsx` querying across titles and URLs with context-aware empty states.
+    *   Unit test suite in `readLaterService.test.ts` hardened with 10 tests, maintaining 100% pass rate (54/54 tests passing across 5 files).
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -352,9 +363,9 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `tabService.test.ts` (8 tests)
     *   `sessionUtils.test.ts` (10 tests)
     *   `spaceService.test.ts` (20 tests)
-    *   `readLaterService.test.ts` (5 tests)
+    *   `readLaterService.test.ts` (11 tests)
     *   `dataService.test.ts` (6 tests)
-*   **Execution Command:** `npm test` (49/49 passing).
+*   **Execution Command:** `npm test` (55/55 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -379,6 +390,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 11: Smart Focus-If-Open History Routing & Active Space State Hardening** - Complete.
 - **Phase 12: Space Context Menu Expansion & Non-Destructive Window Appending** - Complete.
 - **Phase 13: Forensic Architectural, Performance & Memoization Audit for Spaces** - Complete.
+- **Phase 14: Read Later — Domain Filtering, Markdown Export, Auto-Read Routing & Space Selector Integration** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
@@ -386,7 +398,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
 
-<!-- Last Updated: 2026-08-17T15:52:00+02:00 -->
+<!-- Last Updated: 2026-08-17T19:20:00+02:00 -->
 
 
 
