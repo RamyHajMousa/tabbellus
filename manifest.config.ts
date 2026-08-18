@@ -25,10 +25,10 @@ export default defineManifest({
     commands: {
         "save-to-read-later": {
             suggested_key: {
-                default: "Alt+Shift+S",
-                mac: "Alt+Shift+S"
+                default: "Alt+R",
+                mac: "MacCtrl+R"
             },
-            description: "Save current tab to TabBellus Read Later"
+            description: "Save to Read Later"
         }
     },
     side_panel: {

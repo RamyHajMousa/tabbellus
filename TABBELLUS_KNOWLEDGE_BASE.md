@@ -368,6 +368,14 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Preserved `arePropsEqual` comparator performance across virtualized renders with zero closure leaks.
     *   Added 13 unit tests in `dateUtils.test.ts`, raising total test coverage to 68/68 passing tests across 6 test suites.
 
+### Phase 17: Read Later — Ghost State Eradication & Native Ingestion Hardening
+*   **Outcome:**
+    *   Implemented `migrateGhostStatesToArchive()` in `readLaterService.ts` to automatically discover and transition legacy `status === 'read'` items to `'archived'`, preventing insertion blocks for re-added URLs.
+    *   Hooked automatic ghost state migration into background service worker startup and installation lifecycles (`chrome.runtime.onInstalled` / `chrome.runtime.onStartup`).
+    *   Configured global keyboard command `save-to-read-later` (`Alt+R` / `MacCtrl+R`) and context menu `tabbellus-read-later` with complete URL validation (`chrome://`, `edge://`, `about:`, `file://`).
+    *   Enhanced visual feedback with 2000ms duration action badge transitions (`#22c55e` success, `#f59e0b` duplicate, `#ef4444` invalid/error).
+    *   Added 2 unit tests in `readLaterService.test.ts`, bringing total test suite to 70/70 passing tests across 6 test suites.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -378,10 +386,10 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `tabService.test.ts` (8 tests)
     *   `sessionUtils.test.ts` (10 tests)
     *   `spaceService.test.ts` (20 tests)
-    *   `readLaterService.test.ts` (11 tests)
+    *   `readLaterService.test.ts` (13 tests)
     *   `dataService.test.ts` (6 tests)
     *   `dateUtils.test.ts` (13 tests)
-*   **Execution Command:** `npm test` (68/68 passing).
+*   **Execution Command:** `npm test` (70/70 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -409,6 +417,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 14: Read Later — Search Filtering, Standardized Clipboard Export & Streamlined State Machine** - Complete.
 - **Phase 15: Read Later — Frictionless Ingestion via Global Hotkeys & Native Context Menu** - Complete.
 - **Phase 16: Read Later — Native Relative Aging Indicators & Staleness Highlighting** - Complete.
+- **Phase 17: Read Later — Ghost State Eradication & Native Ingestion Hardening** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
@@ -416,7 +425,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
 
-<!-- Last Updated: 2026-08-18T13:20:00+02:00 -->
+<!-- Last Updated: 2026-08-18T14:02:00+02:00 -->
 
 
 

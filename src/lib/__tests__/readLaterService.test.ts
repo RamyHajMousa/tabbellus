@@ -231,4 +231,37 @@ describe('ReadLaterService — Dexie Integration', () => {
     expect(u2!.title).toBe('Undo 2');
     expect(u2!.status).toBe('archived');
   });
+
+  // ── Test Case 12: Ghost State Migration (read → archived) ───────
+  it('should migrate all legacy read ghost states to archived atomically', async () => {
+    const now = Date.now();
+    const id1 = await db.readLater.add({ url: 'https://ghost1.com', title: 'Ghost 1', addedAt: now, status: 'read' });
+    const id2 = await db.readLater.add({ url: 'https://ghost2.com', title: 'Ghost 2', addedAt: now, status: 'read' });
+    const id3 = await db.readLater.add({ url: 'https://unread.com', title: 'Unread', addedAt: now, status: 'unread' });
+    const id4 = await db.readLater.add({ url: 'https://archived.com', title: 'Archived', addedAt: now, status: 'archived' });
+
+    const migratedCount = await readLaterService.migrateGhostStatesToArchive();
+    expect(migratedCount).toBe(2);
+
+    // Verify status transitions
+    const g1 = await readLaterService.getItemById(id1 as number);
+    const g2 = await readLaterService.getItemById(id2 as number);
+    const u = await readLaterService.getItemById(id3 as number);
+    const a = await readLaterService.getItemById(id4 as number);
+
+    expect(g1!.status).toBe('archived');
+    expect(g2!.status).toBe('archived');
+    expect(u!.status).toBe('unread');
+    expect(a!.status).toBe('archived');
+
+    // Confirm that adding duplicate URL of migrated item is now handled according to binary state rules
+    await expect(readLaterService.addFromTab({ url: 'https://ghost1.com', title: 'Re-added' })).resolves.toBeDefined();
+  });
+
+  // ── Test Case 13: Ghost State Migration (empty set) ─────────────
+  it('should return 0 when no ghost read states exist', async () => {
+    await db.readLater.add({ url: 'https://active.com', title: 'Active', addedAt: Date.now(), status: 'unread' });
+    const count = await readLaterService.migrateGhostStatesToArchive();
+    expect(count).toBe(0);
+  });
 });

@@ -152,7 +152,30 @@ class ReadLaterService {
     async clearAllRead(): Promise<ReadLaterItem[]> {
         return this.clearAllArchived();
     }
+
+    /**
+     * Migrates legacy/orphaned items with status === 'read' to status === 'archived'.
+     * Resolves ghost states blocking re-addition of URLs in the binary state machine.
+     *
+     * @returns Number of migrated records.
+     */
+    async migrateGhostStatesToArchive(): Promise<number> {
+        const readItems = await db.readLater.where('status').equals('read').toArray();
+        if (readItems.length === 0) return 0;
+        const ids = readItems.map(i => i.id!).filter(id => id !== undefined);
+        await db.transaction('rw', db.readLater, async () => {
+            for (const id of ids) {
+                await db.readLater.update(id, { status: 'archived' });
+            }
+        });
+        return ids.length;
+    }
 }
+
+/**
+ * Helper to execute ghost state migration on app/background startup.
+ */
+export const migrateGhostStatesToArchive = () => readLaterService.migrateGhostStatesToArchive();
 
 /**
  * Thrown when a URL is already in Read Later (non-archived).

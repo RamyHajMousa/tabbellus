@@ -108,6 +108,9 @@ chrome.runtime.onInstalled.addListener(() => {
     db.open().then(() => {
         console.log('DB Connected in Background');
         auditActiveSpacesOnStartup();
+        readLaterService.migrateGhostStatesToArchive().catch(err => {
+            console.error('Background: Ghost state migration failed on install', err);
+        });
     }).catch(err => {
         console.error('DB Connection Failed', err);
     });
@@ -117,6 +120,9 @@ chrome.runtime.onStartup.addListener(() => {
     console.log('TabBellus Startup');
     db.open().then(() => {
         auditActiveSpacesOnStartup();
+        readLaterService.migrateGhostStatesToArchive().catch(err => {
+            console.error('Background: Ghost state migration failed on startup', err);
+        });
     }).catch(err => {
         console.error('DB Connection Failed on Startup', err);
     });
@@ -376,7 +382,7 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 
 // --- Read Later Frictionless Ingestion (Context Menu & Global Hotkey) ---
 
-const READ_LATER_MENU_ID = 'tabbellus-save-read-later';
+const READ_LATER_MENU_ID = 'tabbellus-read-later';
 
 const setupReadLaterContextMenu = () => {
     chrome.contextMenus.removeAll(() => {
@@ -413,7 +419,7 @@ const flashActionBadge = async (text: string, color: string, tabId?: number) => 
                 // Tab or window may have closed
             }
             badgeTimer = null;
-        }, 1500);
+        }, 2000);
     } catch (e) {
         console.warn('Background ReadLater: Failed to update action badge:', e);
     }
@@ -425,6 +431,7 @@ const isInternalUrl = (url?: string): boolean => {
         url.startsWith('chrome://') ||
         url.startsWith('edge://') ||
         url.startsWith('about:') ||
+        url.startsWith('file://') ||
         url.startsWith('chrome-extension://') ||
         url.startsWith('view-source:') ||
         url.startsWith('javascript:')
@@ -435,7 +442,7 @@ const saveUrlToReadLater = async (payload: { url?: string; title?: string; favIc
     const { url, title, favIconUrl, tabId } = payload;
     if (!url || isInternalUrl(url)) {
         console.warn('Background ReadLater: Skipped internal or invalid URL:', url);
-        await flashActionBadge('✕', '#EF4444', tabId);
+        await flashActionBadge('✕', '#ef4444', tabId);
         return;
     }
 
@@ -446,22 +453,22 @@ const saveUrlToReadLater = async (payload: { url?: string; title?: string; favIc
             favIconUrl
         });
         console.log('Background ReadLater: Successfully captured item:', url);
-        await flashActionBadge('✓', '#10B981', tabId);
+        await flashActionBadge('✓', '#22c55e', tabId);
     } catch (err: unknown) {
         const error = err as { name?: string; message?: string };
         if (error?.name === 'DuplicateReadLaterError' || error?.message?.includes('already in Read Later')) {
             console.log('Background ReadLater: Item already in queue:', url);
-            await flashActionBadge('•', '#F59E0B', tabId);
+            await flashActionBadge('!', '#f59e0b', tabId);
         } else {
             console.error('Background ReadLater: Failed to capture item:', err);
-            await flashActionBadge('!', '#EF4444', tabId);
+            await flashActionBadge('✕', '#ef4444', tabId);
         }
     }
 };
 
 // Context Menu Click Listener
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (info.menuItemId === READ_LATER_MENU_ID) {
+    if (info.menuItemId === READ_LATER_MENU_ID || info.menuItemId === 'tabbellus-save-read-later') {
         if (info.linkUrl) {
             // User right-clicked a link on a page
             await saveUrlToReadLater({
