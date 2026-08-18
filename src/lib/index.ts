@@ -8,3 +8,4 @@ export * from './sessionUtils';
 export * from './readLaterService';
 export * from './dataService';
 export * from './bookmarkService';
+export * from './dateUtils';

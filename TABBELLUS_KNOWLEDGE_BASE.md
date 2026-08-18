@@ -344,14 +344,29 @@ The project has completed major refactoring phases to optimize performance, clea
 
 ### Phase 14: Read Later — Search Filtering, Standardized Clipboard Export & Streamlined State Machine
 *   **Outcome:**
-    *   Enhanced `readLaterService.ts` with `archiveAllUnread()` for atomic bulk transitioning of unread items to `'archived'`, and `clearAllArchived()` for bulk deletion of archived items within atomic `db.transaction`.
+    *   Enhanced `readLaterService.ts` with `archiveAllUnread()` for atomic bulk transitioning of unread items to `'archived'`, and `clearAllArchived()` for bulk deletion of archived items within atomic `db.transaction` with full snapshot undo support.
     *   Extracted `ReadLaterItem.tsx` with strongly typed `ReadLaterItemProps`, stabilized callbacks via `useCallback`, and custom `arePropsEqual` memo comparator for 60 FPS scroll performance.
     *   Streamlined Read Later state machine (eliminating intermediate ghost states): clicking an item or opening via context menu automatically transitions the item to `'archived'`.
     *   Refined `ReadLaterItem` Radix context menu with: "Open in New Tab", "Send to Archive" / "Move to Unread", "Send to Space..." (opens `SpaceSelectorModal` in `'save'` mode), "Copy URL" (via `useClipboard`), and "Delete" (via `useUndoDelete`).
-    *   Upgraded `ReadLaterToolbar.tsx` with a Sleek Developer Minimalist text search input (`Filter links...`), "Copy All URLs" (formatting visible URLs as clean newline-separated `\n` text matching Spaces behavior), "Archive All" (`Archive` icon / "Archive All Unread"), and "Clear All Archived".
+    *   Upgraded `ReadLaterToolbar.tsx` with a Sleek Developer Minimalist text search input (`Filter links...`), "Copy All URLs" (formatting visible URLs as clean newline-separated `\n` text matching Spaces behavior), "Archive All" (`Archive` icon / "Archive All Unread"), and "Clear All Archived" with single and bulk Undo recovery.
     *   Integrated `SpaceSelectorModal` into `ReadLaterList.tsx` to enable sending Read Later items directly to Spaces.
     *   Added memoized search filter pipeline in `ReadLaterList.tsx` querying across titles and URLs with context-aware empty states.
-    *   Unit test suite in `readLaterService.test.ts` hardened with 10 tests, maintaining 100% pass rate (54/54 tests passing across 5 files).
+    *   Unit test suite in `readLaterService.test.ts` hardened with 11 tests, maintaining 100% pass rate (55/55 tests passing across 5 files).
+
+### Phase 15: Read Later — Frictionless Ingestion via Global Hotkeys & Native Context Menu
+*   **Outcome:**
+    *   Added `"contextMenus"` to `manifest.config.ts` permissions and registered global keyboard shortcut command `save-to-read-later` mapped to default `Alt+Shift+S`.
+    *   Integrated native context menu item (`tabbellus-save-read-later`, `"Save to TabBellus Read Later"`) on `chrome.runtime.onInstalled` targeting both `"page"` and `"link"` contexts.
+    *   Implemented unified background ingestion worker in `src/background/index.ts` capturing page URLs or link targets via `readLaterService.addFromTab()` with browser internal scheme filtering (`chrome://`, `edge://`, `about:`, `chrome-extension://`).
+    *   Engineered lightweight, non-blocking visual feedback via dynamic action badge updates (`"✓"` green on success, `"•"` amber on duplicate, `"✕"`/`"!"` red on internal/error) with automated 1.5s timer cleanups.
+
+### Phase 16: Read Later — Native Relative Aging Indicators & Staleness Highlighting
+*   **Outcome:**
+    *   Engineered centralized `dateUtils.ts` (`formatRelativeTime`, `isStale`, `normalizeTimestamp`) utilizing browser-native `Intl.RelativeTimeFormat` with zero third-party dependencies.
+    *   Replaced static date strings in `ReadLaterItem.tsx` with dynamic relative aging (e.g., "now", "yesterday", "2 weeks ago", "3 months ago").
+    *   Added visual staleness indicators: links older than 30 days are subtly highlighted with `text-amber-600 dark:text-amber-500` while preserving `text-muted-foreground` for recent items.
+    *   Preserved `arePropsEqual` comparator performance across virtualized renders with zero closure leaks.
+    *   Added 13 unit tests in `dateUtils.test.ts`, raising total test coverage to 68/68 passing tests across 6 test suites.
 
 ---
 
@@ -365,7 +380,8 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `spaceService.test.ts` (20 tests)
     *   `readLaterService.test.ts` (11 tests)
     *   `dataService.test.ts` (6 tests)
-*   **Execution Command:** `npm test` (55/55 passing).
+    *   `dateUtils.test.ts` (13 tests)
+*   **Execution Command:** `npm test` (68/68 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -390,7 +406,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 11: Smart Focus-If-Open History Routing & Active Space State Hardening** - Complete.
 - **Phase 12: Space Context Menu Expansion & Non-Destructive Window Appending** - Complete.
 - **Phase 13: Forensic Architectural, Performance & Memoization Audit for Spaces** - Complete.
-- **Phase 14: Read Later — Domain Filtering, Markdown Export, Auto-Read Routing & Space Selector Integration** - Complete.
+- **Phase 14: Read Later — Search Filtering, Standardized Clipboard Export & Streamlined State Machine** - Complete.
+- **Phase 15: Read Later — Frictionless Ingestion via Global Hotkeys & Native Context Menu** - Complete.
+- **Phase 16: Read Later — Native Relative Aging Indicators & Staleness Highlighting** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
@@ -398,7 +416,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
 
-<!-- Last Updated: 2026-08-17T19:20:00+02:00 -->
+<!-- Last Updated: 2026-08-18T13:20:00+02:00 -->
 
 
 

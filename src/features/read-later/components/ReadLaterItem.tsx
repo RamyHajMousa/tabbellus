@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/context-menu';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
+import { formatRelativeTime, isStale } from '@/lib/dateUtils';
 import type { ReadLaterItem as ReadLaterItemType } from '@/lib/db';
 
 export interface ReadLaterItemProps {
@@ -54,6 +55,9 @@ const ReadLaterItemComponent: React.FC<ReadLaterItemProps> = ({ item, onToggleSt
         }
     })();
 
+    const relativeTime = formatRelativeTime(item.addedAt);
+    const stale = isStale(item.addedAt, 30);
+
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
@@ -87,8 +91,12 @@ const ReadLaterItemComponent: React.FC<ReadLaterItemProps> = ({ item, onToggleSt
                     {/* Title / Info */}
                     <InteractiveRow.Title
                         subTitle={(
-                            <span className="text-xxs text-muted-foreground">
-                                {host} • {new Date(item.addedAt).toLocaleDateString()}
+                            <span className="text-xxs text-muted-foreground flex items-center gap-1">
+                                <span>{host}</span>
+                                <span>•</span>
+                                <span className={stale ? 'text-amber-600 dark:text-amber-500 font-medium' : 'text-muted-foreground'}>
+                                    {relativeTime}
+                                </span>
                             </span>
                         )}
                     >

@@ -16,10 +16,20 @@ export default defineManifest({
         "tabGroups",
         "sessions",
         "alarms",
-        "bookmarks"
+        "bookmarks",
+        "contextMenus"
     ],
     action: {
         default_popup: "src/popup/index.html",
+    },
+    commands: {
+        "save-to-read-later": {
+            suggested_key: {
+                default: "Alt+Shift+S",
+                mac: "Alt+Shift+S"
+            },
+            description: "Save current tab to TabBellus Read Later"
+        }
     },
     side_panel: {
         default_path: "src/sidepanel/index.html"

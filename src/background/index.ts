@@ -1,5 +1,6 @@
 import { db, type Tab } from '@/lib/db';
 import { isFuzzyMatch } from '@/lib/sessionUtils';
+import { readLaterService } from '@/lib/readLaterService';
 
 console.log('TabBellus Service Worker Initialized');
 
@@ -103,6 +104,7 @@ const auditActiveSpacesOnStartup = async () => {
 
 chrome.runtime.onInstalled.addListener(() => {
     console.log('TabBellus Installed');
+    setupReadLaterContextMenu();
     db.open().then(() => {
         console.log('DB Connected in Background');
         auditActiveSpacesOnStartup();
@@ -369,5 +371,135 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
         }
     } catch (e) {
         console.error('Background Sync: Failed to clean up window map', e);
+    }
+});
+
+// --- Read Later Frictionless Ingestion (Context Menu & Global Hotkey) ---
+
+const READ_LATER_MENU_ID = 'tabbellus-save-read-later';
+
+const setupReadLaterContextMenu = () => {
+    chrome.contextMenus.removeAll(() => {
+        chrome.contextMenus.create({
+            id: READ_LATER_MENU_ID,
+            title: 'Save to TabBellus Read Later',
+            contexts: ['page', 'link']
+        }, () => {
+            if (chrome.runtime.lastError) {
+                console.warn('Background ReadLater: Context menu creation notice:', chrome.runtime.lastError.message);
+            } else {
+                console.log('Background ReadLater: Native context menu registered successfully');
+            }
+        });
+    });
+};
+
+let badgeTimer: ReturnType<typeof setTimeout> | null = null;
+
+const flashActionBadge = async (text: string, color: string, tabId?: number) => {
+    try {
+        if (badgeTimer) {
+            clearTimeout(badgeTimer);
+            badgeTimer = null;
+        }
+
+        await chrome.action.setBadgeBackgroundColor({ color, tabId });
+        await chrome.action.setBadgeText({ text, tabId });
+
+        badgeTimer = setTimeout(async () => {
+            try {
+                await chrome.action.setBadgeText({ text: '', tabId });
+            } catch {
+                // Tab or window may have closed
+            }
+            badgeTimer = null;
+        }, 1500);
+    } catch (e) {
+        console.warn('Background ReadLater: Failed to update action badge:', e);
+    }
+};
+
+const isInternalUrl = (url?: string): boolean => {
+    if (!url) return true;
+    return (
+        url.startsWith('chrome://') ||
+        url.startsWith('edge://') ||
+        url.startsWith('about:') ||
+        url.startsWith('chrome-extension://') ||
+        url.startsWith('view-source:') ||
+        url.startsWith('javascript:')
+    );
+};
+
+const saveUrlToReadLater = async (payload: { url?: string; title?: string; favIconUrl?: string; tabId?: number }) => {
+    const { url, title, favIconUrl, tabId } = payload;
+    if (!url || isInternalUrl(url)) {
+        console.warn('Background ReadLater: Skipped internal or invalid URL:', url);
+        await flashActionBadge('✕', '#EF4444', tabId);
+        return;
+    }
+
+    try {
+        await readLaterService.addFromTab({
+            url,
+            title: title || url,
+            favIconUrl
+        });
+        console.log('Background ReadLater: Successfully captured item:', url);
+        await flashActionBadge('✓', '#10B981', tabId);
+    } catch (err: unknown) {
+        const error = err as { name?: string; message?: string };
+        if (error?.name === 'DuplicateReadLaterError' || error?.message?.includes('already in Read Later')) {
+            console.log('Background ReadLater: Item already in queue:', url);
+            await flashActionBadge('•', '#F59E0B', tabId);
+        } else {
+            console.error('Background ReadLater: Failed to capture item:', err);
+            await flashActionBadge('!', '#EF4444', tabId);
+        }
+    }
+};
+
+// Context Menu Click Listener
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === READ_LATER_MENU_ID) {
+        if (info.linkUrl) {
+            // User right-clicked a link on a page
+            await saveUrlToReadLater({
+                url: info.linkUrl,
+                title: info.selectionText || info.linkUrl,
+                favIconUrl: tab?.favIconUrl,
+                tabId: tab?.id
+            });
+        } else {
+            // User right-clicked anywhere on the page
+            const targetUrl = info.pageUrl || tab?.url;
+            const targetTitle = tab?.title || targetUrl;
+            await saveUrlToReadLater({
+                url: targetUrl,
+                title: targetTitle,
+                favIconUrl: tab?.favIconUrl,
+                tabId: tab?.id
+            });
+        }
+    }
+});
+
+// Global Keyboard Shortcut Command Listener
+chrome.commands.onCommand.addListener(async (command) => {
+    console.log('Background command dispatched:', command);
+    if (command === 'save-to-read-later') {
+        try {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (activeTab && activeTab.url) {
+                await saveUrlToReadLater({
+                    url: activeTab.url,
+                    title: activeTab.title,
+                    favIconUrl: activeTab.favIconUrl,
+                    tabId: activeTab.id
+                });
+            }
+        } catch (err) {
+            console.error('Background ReadLater: Error executing hotkey command:', err);
+        }
     }
 });
