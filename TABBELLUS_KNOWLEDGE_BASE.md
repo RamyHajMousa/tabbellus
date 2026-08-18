@@ -391,6 +391,15 @@ The project has completed major refactoring phases to optimize performance, clea
         *   `action-save-read-later`: `"Save Active Tab to Read Later"` — validates the active tab URL against internal browser schemes and ingests it via `readLaterService.addFromTab`, triggering green success badge feedback (`#22c55e`, `'✓'`, 2000ms).
     *   Maintained 100% type safety and zero regressions across the 73-test Vitest suite.
 
+### Phase 20: Forensic Architectural, Performance & Memoization Audit for Read Later
+*   **Outcome:**
+    *   Conducted forensic audit across `src/features/read-later/` and `src/background/index.ts`.
+    *   Verified complete eradication of legacy domain filtering code, `<select>` dropdowns, and ghost states (`status === 'read'`), enforcing binary `'unread'` vs `'archived'` state machine.
+    *   Hardened memoization: audited `ReadLaterItem.tsx` custom `arePropsEqual` comparator verifying strict equality across all primitive properties (`id`, `url`, `title`, `status`, `favicon`, `addedAt`) and callbacks; stabilized all event handlers in `ReadLaterList.tsx` and `ReadLaterItem.tsx` with `useCallback()`.
+    *   Standardized design system and abstraction compliance: confirmed zero native HTML `title` attributes, universal `<TooltipSimple>` wrapping, `<TooltipOverflow>` truncation, and `useToast` feedback on clipboard copies.
+    *   Hardened background action badge timer lifecycle with a keyed `Map` preventing timer collisions or badge leaks across rapid hotkey presses.
+    *   Maintained 100% strict TypeScript typing and 73/73 passing tests.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -436,6 +445,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 17: Read Later — Ghost State Eradication & Native Ingestion Hardening** - Complete.
 - **Phase 18: Read Later — Reusable OS-Aware Shortcuts & Discovery UI Layer** - Complete.
 - **Phase 19: Action Context Menus — Toolbar Quick Actions for Spaces & Read Later** - Complete.
+- **Phase 20: Forensic Architectural, Performance & Memoization Audit for Read Later** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
@@ -443,7 +453,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
 
-<!-- Last Updated: 2026-08-18T15:08:00+02:00 -->
+<!-- Last Updated: 2026-08-18T15:25:00+02:00 -->
 
 
 

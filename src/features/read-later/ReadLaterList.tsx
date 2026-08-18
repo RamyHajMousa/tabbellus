@@ -44,9 +44,9 @@ export const ReadLaterList = () => {
     }, [items, searchQuery]);
 
     // ── Callbacks ─────────────────────────────────────────────────
-    const handleToggleStatus = useCallback(async (id: number, currentStatus: string) => {
-        const newStatus = currentStatus === 'unread' ? 'archived' : 'unread';
-        await readLaterService.updateStatus(id, newStatus as ReadLaterItemType['status']);
+    const handleToggleStatus = useCallback(async (id: number, currentStatus: ReadLaterItemType['status']) => {
+        const newStatus: ReadLaterItemType['status'] = currentStatus === 'unread' ? 'archived' : 'unread';
+        await readLaterService.updateStatus(id, newStatus);
     }, []);
 
     const handleDelete = useCallback(async (id: number) => {

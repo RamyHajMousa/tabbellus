@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import { Trash2, Check, Copy, Archive, FolderPlus, ExternalLink } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
+import { useToast } from '@/components/ui/Toaster';
 import { InteractiveRow } from '@/features/tabs/components/InteractiveRow';
 import {
     ContextMenu,
@@ -24,11 +25,13 @@ export interface ReadLaterItemProps {
 
 const ReadLaterItemComponent: React.FC<ReadLaterItemProps> = ({ item, onToggleStatus, onDelete, onOpen, onSendToSpace }) => {
     const { copy } = useClipboard();
+    const { toast } = useToast();
 
     const handleCopy = useCallback((e?: React.MouseEvent) => {
         e?.stopPropagation();
         copy(item.url);
-    }, [copy, item.url]);
+        toast('Copied URL to clipboard');
+    }, [copy, item.url, toast]);
 
     const handleOpen = useCallback(() => {
         if (item.id) onOpen(item.url, item.id);

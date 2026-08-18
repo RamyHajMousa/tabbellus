@@ -434,26 +434,31 @@ const setupContextMenus = () => {
     });
 };
 
-let badgeTimer: ReturnType<typeof setTimeout> | null = null;
+const badgeTimers = new Map<number | 'global', ReturnType<typeof setTimeout>>();
 
 const flashActionBadge = async (text: string, color: string, tabId?: number) => {
+    const key = tabId ?? 'global';
     try {
-        if (badgeTimer) {
-            clearTimeout(badgeTimer);
-            badgeTimer = null;
+        const existingTimer = badgeTimers.get(key);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+            badgeTimers.delete(key);
         }
 
         await chrome.action.setBadgeBackgroundColor({ color, tabId });
         await chrome.action.setBadgeText({ text, tabId });
 
-        badgeTimer = setTimeout(async () => {
+        const timer = setTimeout(async () => {
             try {
                 await chrome.action.setBadgeText({ text: '', tabId });
             } catch {
                 // Tab or window may have closed
+            } finally {
+                badgeTimers.delete(key);
             }
-            badgeTimer = null;
         }, 2000);
+
+        badgeTimers.set(key, timer);
     } catch (e) {
         console.warn('Background ReadLater: Failed to update action badge:', e);
     }
