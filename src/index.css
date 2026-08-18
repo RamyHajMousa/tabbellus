@@ -32,26 +32,32 @@
   }
 
   .dark {
-    --background: 0 0% 0%; /* Pure Pitch Black Base */
+    --background: 0 0% 0%;
+    /* Pure Pitch Black Base */
     --foreground: 0 0% 98%;
-    --card: 0 0% 3%;      /* Flat Matte Charcoal */
+    --card: 0 0% 3%;
+    /* Flat Matte Charcoal */
     --card-foreground: 0 0% 98%;
-    --popover: 0 0% 5%;   /* Solid High-Contrast Floating Overlay Base */
+    --popover: 0 0% 5%;
+    /* Solid High-Contrast Floating Overlay Base */
     --popover-foreground: 0 0% 98%;
     --primary: 0 0% 98%;
     --primary-foreground: 0 0% 0%;
     --secondary: 0 0% 9%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 9%;     /* Dense Hover Row State */
+    --muted: 0 0% 9%;
+    /* Dense Hover Row State */
     --muted-foreground: 0 0% 63.9%;
     --accent: 0 0% 9%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 15%;   /* Crisp 1px Structural Divider Line */
+    --border: 0 0% 15%;
+    /* Crisp 1px Structural Divider Line */
     --input: 0 0% 15%;
     --ring: 0 0% 83.1%;
-    --radius: 0.5rem; /* Preserve standard rounded geometry */
+    --radius: 0.5rem;
+    /* Preserve standard rounded geometry */
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
@@ -64,6 +70,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -84,15 +91,17 @@
 }
 
 @layer utilities {
+
   /* Grey badge accessibility override to meet contrast thresholds in dark mode */
   .dark .bg-zinc-500 {
     background-color: hsl(240 5% 65%) !important;
   }
+
   .dark .text-zinc-500 {
     color: hsl(240 5% 65%) !important;
   }
+
   .dark .border-zinc-500 {
     border-color: hsl(240 5% 65%) !important;
   }
 }
-

@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/Toaster';
 import { ReadLaterToolbar } from './components/ReadLaterToolbar';
 import { ReadLaterItem } from './components/ReadLaterItem';
 import { SpaceSelectorModal } from '@/features/spaces/components/SpaceSelectorModal';
+import { useAppStore } from '@/store/appStore';
 import type { ReadLaterItem as ReadLaterItemType } from '@/lib/db';
 
 export const ReadLaterList = () => {
@@ -54,8 +55,11 @@ export const ReadLaterList = () => {
     }, [deleteItem]);
 
     const handleOpen = useCallback(async (url: string, id: number) => {
-        await chrome.tabs.create({ url, active: true });
-        await readLaterService.updateStatus(id, 'archived');
+        const { readLaterOpenBehavior, readLaterAutoArchive } = useAppStore.getState().settings;
+        await chrome.tabs.create({ url, active: readLaterOpenBehavior === 'foreground' });
+        if (readLaterAutoArchive) {
+            await readLaterService.updateStatus(id, 'archived');
+        }
     }, []);
 
     const handleSendToSpace = useCallback((item: ReadLaterItemType) => {

@@ -8,6 +8,7 @@ import { type RowTabData } from '../types';
 import { InteractiveRow } from './InteractiveRow';
 import { AnimatedAudioIcon } from './AnimatedAudioIcon';
 import { useTabLockStore } from '../store/tabLockStore';
+import { useAppStore } from '@/store/appStore';
 import { useToast } from '@/components/ui/Toaster';
 import { getReadLaterShortcutText } from '@/lib';
 import {
@@ -48,6 +49,7 @@ export const TabRow = React.memo(
     }, ref) => {
         const { copy } = useClipboard();
         const { toast } = useToast();
+        const showDomain = useAppStore((state) => state.settings.showDomain);
         const isActive = propIsActive ?? data.isActive;
         const canAddToSpace = data.source === 'active';
         const [isSpaceSelectorOpen, setIsSpaceSelectorOpen] = useState(false);
@@ -161,9 +163,11 @@ export const TabRow = React.memo(
                 <InteractiveRow.Title
                     className={isActive ? 'text-foreground' : 'text-foreground/90'}
                     subTitle={
-                        <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
-                            {tryParseHost(data.url)}
-                        </span>
+                        showDomain && data.url ? (
+                            <span className="truncate text-[10px] text-muted-foreground/70 leading-none mt-0.5">
+                                {tryParseHost(data.url)}
+                            </span>
+                        ) : undefined
                     }
                 >
                     <span className="whitespace-nowrap">{data.title || data.url}</span>

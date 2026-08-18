@@ -37,7 +37,7 @@ import { initUsageTracking } from '@/lib/usageTracker';
 const SidePanel = () => {
     const { activeView, theme } = useAppStore((state) => ({
         activeView: state.activeView,
-        theme: state.theme
+        theme: state.theme,
     }));
 
     // Cross-window sync for activeSpaces
@@ -48,6 +48,7 @@ const SidePanel = () => {
         initUsageTracking();
     }, []);
 
+    // Theme synchronization
     React.useEffect(() => {
         const root = window.document.documentElement;
 

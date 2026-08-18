@@ -2,12 +2,32 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 import { spaceService } from '@/lib/spaceService';
 
+export interface AppSettings {
+    theme: 'light' | 'dark' | 'system';
+    badgeMode: 'none' | 'tabs' | 'read-later';
+    showDomain: boolean;
+    readLaterOpenBehavior: 'foreground' | 'background';
+    readLaterAutoArchive: boolean;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+    theme: 'system',
+    badgeMode: 'read-later',
+    showDomain: true,
+    readLaterOpenBehavior: 'foreground',
+    readLaterAutoArchive: true,
+};
+
 // 1. Create a Custom Bridge for Chrome Storage
 const chromeStorageAdapter: StateStorage = {
     getItem: async (name: string): Promise<string | null> => {
         return new Promise((resolve) => {
+            if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+                resolve(null);
+                return;
+            }
             chrome.storage.local.get([name], (result) => {
-                if (chrome.runtime.lastError) {
+                if (chrome.runtime?.lastError) {
                     console.error('Error loading state:', chrome.runtime.lastError);
                     resolve(null);
                 } else {
@@ -18,8 +38,12 @@ const chromeStorageAdapter: StateStorage = {
     },
     setItem: async (name: string, value: string): Promise<void> => {
         return new Promise((resolve) => {
+            if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+                resolve();
+                return;
+            }
             chrome.storage.local.set({ [name]: value }, () => {
-                if (chrome.runtime.lastError) {
+                if (chrome.runtime?.lastError) {
                     console.error('Error saving state:', chrome.runtime.lastError);
                 }
                 resolve();
@@ -28,8 +52,12 @@ const chromeStorageAdapter: StateStorage = {
     },
     removeItem: async (name: string): Promise<void> => {
         return new Promise((resolve) => {
+            if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+                resolve();
+                return;
+            }
             chrome.storage.local.remove(name, () => {
-                if (chrome.runtime.lastError) {
+                if (chrome.runtime?.lastError) {
                     console.error('Error removing state:', chrome.runtime.lastError);
                 }
                 resolve();
@@ -38,29 +66,87 @@ const chromeStorageAdapter: StateStorage = {
     },
 };
 
-interface AppState {
-    theme: 'light' | 'dark' | 'system';
+export interface AppState {
+    settings: AppSettings;
+    // Backward-compatibility direct accessors
+    theme: AppSettings['theme'];
+    showDomain: AppSettings['showDomain'];
+    badgeMode: AppSettings['badgeMode'];
+
     isHydrated: boolean;
     activeView: 'active' | 'spaces' | 'read-later';
     activeSpaces: Record<number, number>; // SpaceID -> WindowID (ephemeral)
-    setTheme: (theme: AppState['theme']) => void;
+    recentSearches: string[];
+
+    // Actions
+    updateSettings: (partial: Partial<AppSettings>) => void;
+    setTheme: (theme: AppSettings['theme']) => void;
+    setShowDomain: (showDomain: AppSettings['showDomain']) => void;
+    setBadgeMode: (badgeMode: AppSettings['badgeMode']) => void;
+    setReadLaterOpenBehavior: (behavior: AppSettings['readLaterOpenBehavior']) => void;
+    setReadLaterAutoArchive: (autoArchive: AppSettings['readLaterAutoArchive']) => void;
     setHydrated: (state: boolean) => void;
     setActiveView: (view: AppState['activeView']) => void;
     registerActiveSpace: (spaceId: number, windowId: number) => void;
     unregisterWindow: (windowId: number) => void;
     syncActiveSpaces: (map: Record<number, number>) => void;
-    recentSearches: string[];
     addRecentSearch: (query: string) => void;
 }
 
 export const useAppStore = create<AppState>()(
     persist(
         (set) => ({
-            theme: 'system',
+            settings: DEFAULT_SETTINGS,
+            theme: DEFAULT_SETTINGS.theme,
+            showDomain: DEFAULT_SETTINGS.showDomain,
+            badgeMode: DEFAULT_SETTINGS.badgeMode,
             isHydrated: false,
             activeView: 'spaces',
             activeSpaces: {},
-            setTheme: (theme) => set({ theme }),
+            recentSearches: [],
+
+            updateSettings: (partial) => set((state) => {
+                const newSettings = { ...state.settings, ...partial };
+                return {
+                    settings: newSettings,
+                    theme: newSettings.theme,
+                    showDomain: newSettings.showDomain,
+                    badgeMode: newSettings.badgeMode,
+                };
+            }),
+            setTheme: (theme) => set((state) => {
+                const newSettings = { ...state.settings, theme };
+                return {
+                    settings: newSettings,
+                    theme,
+                };
+            }),
+            setShowDomain: (showDomain) => set((state) => {
+                const newSettings = { ...state.settings, showDomain };
+                return {
+                    settings: newSettings,
+                    showDomain,
+                };
+            }),
+            setBadgeMode: (badgeMode) => set((state) => {
+                const newSettings = { ...state.settings, badgeMode };
+                return {
+                    settings: newSettings,
+                    badgeMode,
+                };
+            }),
+            setReadLaterOpenBehavior: (readLaterOpenBehavior) => set((state) => {
+                const newSettings = { ...state.settings, readLaterOpenBehavior };
+                return {
+                    settings: newSettings,
+                };
+            }),
+            setReadLaterAutoArchive: (readLaterAutoArchive) => set((state) => {
+                const newSettings = { ...state.settings, readLaterAutoArchive };
+                return {
+                    settings: newSettings,
+                };
+            }),
             setHydrated: (isHydrated) => set({ isHydrated }),
             setActiveView: (view) => set({ activeView: view }),
             registerActiveSpace: (spaceId, windowId) => set((state) => {
@@ -72,7 +158,9 @@ export const useAppStore = create<AppState>()(
                     }
                 });
                 newActiveSpaces[spaceId] = windowId;
-                chrome.storage.session.set({ activeSpaces: newActiveSpaces }); // Broadcast
+                if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+                    chrome.storage.session.set({ activeSpaces: newActiveSpaces }); // Broadcast
+                }
                 return { activeSpaces: newActiveSpaces };
             }),
             unregisterWindow: (windowId) => set((state) => {
@@ -82,11 +170,12 @@ export const useAppStore = create<AppState>()(
                         delete newMap[key];
                     }
                 }
-                chrome.storage.session.set({ activeSpaces: newMap }); // Broadcast
+                if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+                    chrome.storage.session.set({ activeSpaces: newMap }); // Broadcast
+                }
                 return { activeSpaces: newMap };
             }),
             syncActiveSpaces: (map) => set({ activeSpaces: map }),
-            recentSearches: [],
             addRecentSearch: (query) => set((state) => {
                 const trimmed = query.trim();
                 if (!trimmed) return state;
@@ -100,10 +189,31 @@ export const useAppStore = create<AppState>()(
             storage: createJSONStorage(() => chromeStorageAdapter),
             // 3. Exclude ephemeral state from persistence
             partialize: (state) => ({
-                theme: state.theme,
+                settings: state.settings,
+                theme: state.settings.theme,
+                showDomain: state.settings.showDomain,
+                badgeMode: state.settings.badgeMode,
                 activeView: state.activeView,
                 recentSearches: state.recentSearches,
             }),
+            merge: (persistedState: unknown, currentState: AppState) => {
+                const persisted = (persistedState as Partial<AppState> & { settings?: Partial<AppSettings> }) || {};
+                const mergedSettings: AppSettings = {
+                    theme: persisted.settings?.theme ?? (persisted.theme as AppSettings['theme']) ?? DEFAULT_SETTINGS.theme,
+                    showDomain: persisted.settings?.showDomain ?? (persisted as any).showDomain ?? DEFAULT_SETTINGS.showDomain,
+                    badgeMode: persisted.settings?.badgeMode ?? (persisted.badgeMode as AppSettings['badgeMode']) ?? DEFAULT_SETTINGS.badgeMode,
+                    readLaterOpenBehavior: persisted.settings?.readLaterOpenBehavior ?? DEFAULT_SETTINGS.readLaterOpenBehavior,
+                    readLaterAutoArchive: persisted.settings?.readLaterAutoArchive ?? DEFAULT_SETTINGS.readLaterAutoArchive,
+                };
+                return {
+                    ...currentState,
+                    ...persisted,
+                    settings: mergedSettings,
+                    theme: mergedSettings.theme,
+                    showDomain: mergedSettings.showDomain,
+                    badgeMode: mergedSettings.badgeMode,
+                };
+            },
             onRehydrateStorage: () => (state) => {
                 state?.setHydrated(true);
             }

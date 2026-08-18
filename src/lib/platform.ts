@@ -126,3 +126,12 @@ export const openSupportHub = async () => {
         chrome.tabs.create({ url: EXTERNAL_LINKS.SUPPORT, active: true }).catch(() => {});
     }
 };
+
+/**
+ * Opens the browser's keyboard shortcuts configuration page in a new tab.
+ */
+export const openShortcutsSettings = () => {
+    const url = isEdge() ? "edge://extensions/shortcuts" : "chrome://extensions/shortcuts";
+    chrome.tabs.create({ url, active: true }).catch(() => {});
+};
+

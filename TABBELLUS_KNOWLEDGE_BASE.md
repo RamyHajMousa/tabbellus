@@ -28,12 +28,12 @@ tabbellus/
 │   │   ├── history/            # Chrome session retrieval, space fingerprinting, and window restoration
 │   │   ├── read-later/         # Inbox queue for deferred reading lists + ReadLaterToolbar
 │   │   ├── search/             # Command-K OmniSearch (cmdk search over spaces, tabs, read-later)
-│   │   ├── settings/           # UI settings, appearance tab, legal privacy policy, and backup imports/exports
+│   │   ├── settings/           # Modular settings dialog (AppearanceTab, BehaviorTab, DataTab, SupportTab)
 │   │   ├── spaces/             # Workspace listing, 4-tier sorting, Radix empty space dialog + SpacesToolbar
 │   │   └── tabs/               # Tab lists, Drag & Drop trees, Group headers, render strategies + ActiveToolbar
 │   ├── hooks/                  # Global hooks (useClipboard, useUndoDelete, useIsTruncated, useWindowId, etc.)
 │   ├── lib/                    # Core service layer (db, spaceService, tabService, bookmarkService, platform, dataService, sessionUtils)
-│   ├── store/                  # Zustand stores (appStore.ts for persistence, uiStore.ts for layout views)
+│   ├── store/                  # Zustand stores (appStore.ts for AppSettings & persistence, uiStore.ts for layout views)
 │   └── sidepanel/              # Sidebar chrome container (GlobalHeader, ViewSwitcher, ActiveSpaceAnchor)
 ```
 
@@ -400,6 +400,20 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Hardened background action badge timer lifecycle with a keyed `Map` preventing timer collisions or badge leaks across rapid hotkey presses.
     *   Maintained 100% strict TypeScript typing and 73/73 passing tests.
 
+### Phase 21: Settings Architecture Modularization & AppSettings State Management
+*   **Outcome:**
+    *   Established strongly-typed `AppSettings` interface (`theme: 'light' | 'dark' | 'system'`, `showDomain: boolean`, `badgeMode: 'none' | 'tabs' | 'read-later'`, `readLaterOpenBehavior: 'foreground' | 'background'`, `readLaterAutoArchive: boolean`) with `DEFAULT_SETTINGS` in `src/store/appStore.ts`.
+    *   Provided full backward compatibility with direct store accessors (`theme`, `showDomain`, `badgeMode`) and resilient storage migration fallback handling in Zustand `persist` middleware.
+    *   Modularized `SettingsDialog.tsx` into a high-density orchestrator wrapping Radix Tabs (`@radix-ui/react-tabs`) and 4 dedicated subcomponents in `src/features/settings/components/`:
+        *   `AppearanceTab.tsx`: Theme selector grid, Tab URL Display segmented control (`Show URLs` vs `Hide URLs`), toolbar icon badge mode picker, and sidebar position launcher.
+        *   `BehaviorTab.tsx`: Read Later link opening segmented control (`Foreground` vs `Background`), Auto-Archive on Open switch (`src/components/ui/switch.tsx`), and Global Keyboard Shortcuts manager with `openShortcutsSettings()` browser launcher.
+        *   `DataTab.tsx`: Local Storage Health telemetry dashboard (`useStorageTelemetry`), JSON backup export/import, one-click sanitized diagnostic markdown report generator, and protected danger zone data wipe.
+        *   `SupportTab.tsx`: Mission statement, dynamic usage promo banner, review and tip links, and privacy policy.
+    *   Pivoted density paradigm to **Tab URL Display Toggle**: preserved standard comfortable row dimensions (`h-9` and `h-7`), conditionally rendering secondary domain/URL subtitles in `TabRow.tsx` based on `showDomain` boolean to maximize vertical readability with vertical centering intact.
+    *   Built accessible, high-contrast `<Switch>` primitive in `src/components/ui/switch.tsx` with crisp 1px borders and distinct unchecked tracks for light mode.
+    *   Wired `ReadLaterList.tsx` link opening logic to reactively consume `readLaterOpenBehavior` (for `chrome.tabs.create({ active })`) and `readLaterAutoArchive` (for conditional archive transitions).
+    *   Created comprehensive unit test suites in `src/store/__tests__/appStore.test.ts` and `src/features/settings/hooks/__tests__/useStorageTelemetry.test.ts`, raising total test coverage to 87/87 passing tests across 9 suites.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -414,7 +428,9 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `dataService.test.ts` (6 tests)
     *   `dateUtils.test.ts` (13 tests)
     *   `platform.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (73/73 passing).
+    *   `appStore.test.ts` (9 tests)
+    *   `useStorageTelemetry.test.ts` (5 tests)
+*   **Execution Command:** `npm test` (87/87 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -446,14 +462,15 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 18: Read Later — Reusable OS-Aware Shortcuts & Discovery UI Layer** - Complete.
 - **Phase 19: Action Context Menus — Toolbar Quick Actions for Spaces & Read Later** - Complete.
 - **Phase 20: Forensic Architectural, Performance & Memoization Audit for Read Later** - Complete.
+- **Phase 21: Settings Architecture Modularization & AppSettings State Management** - Complete.
 
 ### Next Specific Technical Objective
-- **Option A: Multi-Device Sync**
-  - Design a local-first sync protocol syncing space changes across multiple client browser installations.
-  - Implement cryptographic payload signatures and export tokens for peer pairing.
-  - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
+- **Phase 21.2: Settings Behavior Tab Implementation**
+  - Implement configurable auto-discard idle tab intervals.
+  - Implement duplicate tab detection toggles on new tab creation.
+  - Implement single-click vs double-click space restore behavior.
 
-<!-- Last Updated: 2026-08-18T15:25:00+02:00 -->
+<!-- Last Updated: 2026-08-18T17:52:00+02:00 -->
 
 
 
