@@ -1,6 +1,7 @@
 import { db, type Tab } from '@/lib/db';
 import { isFuzzyMatch } from '@/lib/sessionUtils';
 import { readLaterService } from '@/lib/readLaterService';
+import { getReadLaterShortcutText } from '@/lib/platform';
 
 console.log('TabBellus Service Worker Initialized');
 
@@ -386,9 +387,11 @@ const READ_LATER_MENU_ID = 'tabbellus-read-later';
 
 const setupReadLaterContextMenu = () => {
     chrome.contextMenus.removeAll(() => {
+        const shortcut = getReadLaterShortcutText();
+        const title = shortcut ? `Save to TabBellus Read Later (${shortcut})` : 'Save to TabBellus Read Later';
         chrome.contextMenus.create({
             id: READ_LATER_MENU_ID,
-            title: 'Save to TabBellus Read Later',
+            title,
             contexts: ['page', 'link']
         }, () => {
             if (chrome.runtime.lastError) {

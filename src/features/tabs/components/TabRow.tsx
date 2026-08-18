@@ -9,12 +9,14 @@ import { InteractiveRow } from './InteractiveRow';
 import { AnimatedAudioIcon } from './AnimatedAudioIcon';
 import { useTabLockStore } from '../store/tabLockStore';
 import { useToast } from '@/components/ui/Toaster';
+import { getReadLaterShortcutText } from '@/lib';
 import {
     ContextMenu,
     ContextMenuTrigger,
     ContextMenuContent,
     ContextMenuItem,
     ContextMenuSeparator,
+    ContextMenuShortcut,
 } from '@/components/ui/context-menu';
 
 interface TabRowProps {
@@ -188,7 +190,7 @@ export const TabRow = React.memo(
                     )}
 
                     {onReadLater && (
-                        <TooltipSimple content="Read Later" side="top">
+                        <TooltipSimple content={`Read Later (${getReadLaterShortcutText()})`} side="top">
                             <InteractiveRow.Action
                                 icon={Clock}
                                 onClick={onReadLater}
@@ -317,7 +319,8 @@ export const TabRow = React.memo(
                     {onReadLater && (
                         <ContextMenuItem onClick={onReadLater}>
                             <Clock className="w-4 h-4 mr-2 text-muted-foreground" />
-                            Read Later
+                            <span>Read Later</span>
+                            <ContextMenuShortcut>{getReadLaterShortcutText()}</ContextMenuShortcut>
                         </ContextMenuItem>
                     )}
 

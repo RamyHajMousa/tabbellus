@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, CheckCircle2 } from 'lucide-react';
-import { readLaterService } from '@/lib';
+import { readLaterService, getReadLaterShortcutText } from '@/lib';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useUndoDelete } from '@/hooks/useUndoDelete';
 import { useToast } from '@/components/ui/Toaster';
@@ -161,12 +161,17 @@ export const ReadLaterList = () => {
                         ) : (
                             <CheckCircle2 className="w-8 h-8 text-muted-foreground/20 mb-3" />
                         )}
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-sm font-medium text-muted-foreground">
                             {showArchived
                                 ? (searchQuery ? `No archived items matching "${searchQuery}"` : "No archived items yet")
                                 : (searchQuery ? `No unread items matching "${searchQuery}"` : "You're all caught up")
                             }
                         </p>
+                        {!showArchived && !searchQuery && (
+                            <p className="text-xs text-muted-foreground/70 mt-1.5 max-w-[240px] leading-relaxed">
+                                Press <kbd className="px-1.5 py-0.5 text-xxs font-semibold text-foreground bg-muted border border-border rounded shadow-xs">{getReadLaterShortcutText()}</kbd> on any webpage to instantly save it here.
+                            </p>
+                        )}
                     </div>
                 )}
             </div>

@@ -11,14 +11,43 @@ import { EXTERNAL_LINKS } from '@/config/links';
  * Edge uses "Edg/" in its user agent string.
  */
 export const isEdge = (): boolean => {
-    return navigator.userAgent.indexOf("Edg/") > -1;
+    if (typeof navigator === 'undefined') return false;
+    return (navigator.userAgent || '').indexOf("Edg/") > -1;
+};
+
+/**
+ * Checks if the current operating environment is macOS.
+ */
+export const isMac = (): boolean => {
+    if (typeof navigator === 'undefined') return false;
+    const userAgent = navigator.userAgent || '';
+    const platform = (navigator as unknown as { userAgentData?: { platform?: string }; platform?: string }).platform || '';
+    return userAgent.includes('Mac') || platform.includes('Mac');
+};
+
+/**
+ * Returns the OS-appropriate shortcut string.
+ *
+ * @param macKeys Formatted key sequence for macOS (e.g. '⌥ R' or '⌘ K')
+ * @param winKeys Formatted key sequence for Windows/Linux (e.g. 'Alt+R' or 'Ctrl+K')
+ */
+export const formatKeyBinding = (macKeys: string, winKeys: string): string => {
+    return isMac() ? macKeys : winKeys;
+};
+
+/**
+ * Returns the centralized OS-aware shortcut text for saving to Read Later.
+ */
+export const getReadLaterShortcutText = (): string => {
+    return formatKeyBinding('⌥ R', 'Alt+R');
 };
 
 /**
  * Gets the current Operating System.
  */
 export const getOS = (): string => {
-    const userAgent = window.navigator.userAgent;
+    if (typeof navigator === 'undefined') return "Unknown";
+    const userAgent = navigator.userAgent || '';
     if (userAgent.indexOf("Win") !== -1) return "Windows";
     if (userAgent.indexOf("Mac") !== -1) return "MacOS";
     if (userAgent.indexOf("Linux") !== -1) return "Linux";
