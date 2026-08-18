@@ -384,6 +384,13 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Integrated dynamic keybinding titles into native context menu creation in background service worker (`Save to TabBellus Read Later (Alt+R)`).
     *   Added unit tests in `platform.test.ts`, raising total test coverage to 73/73 passing tests across 7 test suites.
 
+### Phase 19: Action Context Menus — Toolbar Quick Actions for Spaces & Read Later
+*   **Outcome:**
+    *   Expanded browser toolbar action icon functionality with native `action` context menus registered in `src/background/index.ts`:
+        *   `action-capture-window`: `"Capture Window as New Space"` — captures the active window's valid tabs via `spaceService.captureCurrentWindow` with a timestamped fallback name and flashes a blue action badge (`#3b82f6`, `'✓'`, 2000ms).
+        *   `action-save-read-later`: `"Save Active Tab to Read Later"` — validates the active tab URL against internal browser schemes and ingests it via `readLaterService.addFromTab`, triggering green success badge feedback (`#22c55e`, `'✓'`, 2000ms).
+    *   Maintained 100% type safety and zero regressions across the 73-test Vitest suite.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -428,6 +435,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 16: Read Later — Native Relative Aging Indicators & Staleness Highlighting** - Complete.
 - **Phase 17: Read Later — Ghost State Eradication & Native Ingestion Hardening** - Complete.
 - **Phase 18: Read Later — Reusable OS-Aware Shortcuts & Discovery UI Layer** - Complete.
+- **Phase 19: Action Context Menus — Toolbar Quick Actions for Spaces & Read Later** - Complete.
 
 ### Next Specific Technical Objective
 - **Option A: Multi-Device Sync**
@@ -435,7 +443,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement cryptographic payload signatures and export tokens for peer pairing.
   - Handle edge-case conflicts using timestamp reconciliations (LWW - Last Write Wins) in IndexedDB.
 
-<!-- Last Updated: 2026-08-18T14:44:00+02:00 -->
+<!-- Last Updated: 2026-08-18T15:08:00+02:00 -->
 
 
 

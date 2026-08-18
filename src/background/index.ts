@@ -1,5 +1,6 @@
 import { db, type Tab } from '@/lib/db';
 import { isFuzzyMatch } from '@/lib/sessionUtils';
+import { spaceService } from '@/lib/spaceService';
 import { readLaterService } from '@/lib/readLaterService';
 import { getReadLaterShortcutText } from '@/lib/platform';
 
@@ -105,7 +106,7 @@ const auditActiveSpacesOnStartup = async () => {
 
 chrome.runtime.onInstalled.addListener(() => {
     console.log('TabBellus Installed');
-    setupReadLaterContextMenu();
+    setupContextMenus();
     db.open().then(() => {
         console.log('DB Connected in Background');
         auditActiveSpacesOnStartup();
@@ -381,23 +382,53 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     }
 });
 
-// --- Read Later Frictionless Ingestion (Context Menu & Global Hotkey) ---
+// --- Context Menus & Action Ingestion (Context Menu & Global Hotkey) ---
 
 const READ_LATER_MENU_ID = 'tabbellus-read-later';
+const ACTION_CAPTURE_WINDOW_ID = 'action-capture-window';
+const ACTION_SAVE_READ_LATER_ID = 'action-save-read-later';
 
-const setupReadLaterContextMenu = () => {
+const setupContextMenus = () => {
     chrome.contextMenus.removeAll(() => {
         const shortcut = getReadLaterShortcutText();
         const title = shortcut ? `Save to TabBellus Read Later (${shortcut})` : 'Save to TabBellus Read Later';
+
+        // 1. Page/Link Context Menu for Read Later
         chrome.contextMenus.create({
             id: READ_LATER_MENU_ID,
             title,
             contexts: ['page', 'link']
         }, () => {
             if (chrome.runtime.lastError) {
-                console.warn('Background ReadLater: Context menu creation notice:', chrome.runtime.lastError.message);
+                console.warn('Background: Context menu creation notice (page/link):', chrome.runtime.lastError.message);
             } else {
-                console.log('Background ReadLater: Native context menu registered successfully');
+                console.log('Background: Read Later page/link context menu registered successfully');
+            }
+        });
+
+        // 2. Action Toolbar Context Menu: Capture Window as New Space
+        chrome.contextMenus.create({
+            id: ACTION_CAPTURE_WINDOW_ID,
+            title: 'Capture Window as New Space',
+            contexts: ['action']
+        }, () => {
+            if (chrome.runtime.lastError) {
+                console.warn('Background: Context menu creation notice (action-capture-window):', chrome.runtime.lastError.message);
+            } else {
+                console.log('Background: Action capture-window context menu registered successfully');
+            }
+        });
+
+        // 3. Action Toolbar Context Menu: Save Active Tab to Read Later
+        chrome.contextMenus.create({
+            id: ACTION_SAVE_READ_LATER_ID,
+            title: 'Save Active Tab to Read Later',
+            contexts: ['action']
+        }, () => {
+            if (chrome.runtime.lastError) {
+                console.warn('Background: Context menu creation notice (action-save-read-later):', chrome.runtime.lastError.message);
+            } else {
+                console.log('Background: Action save-read-later context menu registered successfully');
             }
         });
     });
@@ -490,6 +521,30 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 favIconUrl: tab?.favIconUrl,
                 tabId: tab?.id
             });
+        }
+    } else if (info.menuItemId === ACTION_SAVE_READ_LATER_ID) {
+        try {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            const targetTab = activeTab || tab;
+            await saveUrlToReadLater({
+                url: targetTab?.url,
+                title: targetTab?.title,
+                favIconUrl: targetTab?.favIconUrl,
+                tabId: targetTab?.id
+            });
+        } catch (err) {
+            console.error('Background ActionMenu: Failed to save active tab to read later:', err);
+            await flashActionBadge('✕', '#ef4444', tab?.id);
+        }
+    } else if (info.menuItemId === ACTION_CAPTURE_WINDOW_ID) {
+        try {
+            const fallbackName = `Captured Window (${new Date().toLocaleTimeString()})`;
+            await spaceService.captureCurrentWindow(fallbackName);
+            console.log('Background ActionMenu: Successfully captured window as new space');
+            await flashActionBadge('✓', '#3b82f6', tab?.id);
+        } catch (err) {
+            console.error('Background ActionMenu: Failed to capture window as space:', err);
+            await flashActionBadge('✕', '#ef4444', tab?.id);
         }
     }
 });
