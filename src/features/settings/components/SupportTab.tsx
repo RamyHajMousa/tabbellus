@@ -13,6 +13,10 @@ export const SupportTab: React.FC<SupportTabProps> = ({
     isEligibleForPromo,
     onDismissPromo,
 }) => {
+    const extensionVersion = typeof chrome !== 'undefined' && chrome.runtime?.getManifest
+        ? chrome.runtime.getManifest().version
+        : '1.2.2';
+
     return (
         <div className="space-y-4">
             {/* Mission Statement */}
@@ -114,6 +118,13 @@ export const SupportTab: React.FC<SupportTabProps> = ({
                     <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
                     <span className="text-sm font-medium text-foreground">Privacy Policy</span>
                 </a>
+            </div>
+
+            {/* Version Footer */}
+            <div className="pt-2 text-center">
+                <span className="text-xs font-mono text-muted-foreground/60">
+                    TabBellus v{extensionVersion}
+                </span>
             </div>
         </div>
     );

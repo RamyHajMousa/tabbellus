@@ -430,7 +430,8 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `platform.test.ts` (3 tests)
     *   `appStore.test.ts` (9 tests)
     *   `useStorageTelemetry.test.ts` (5 tests)
-*   **Execution Command:** `npm test` (87/87 passing).
+    *   `badge.test.ts` (3 tests)
+*   **Execution Command:** `npm test` (90/90 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -463,14 +464,16 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 19: Action Context Menus — Toolbar Quick Actions for Spaces & Read Later** - Complete.
 - **Phase 20: Forensic Architectural, Performance & Memoization Audit for Read Later** - Complete.
 - **Phase 21: Settings Architecture Modularization & AppSettings State Management** - Complete.
+- **Phase 21.4: Dynamic Badging Driven by Settings Store & Switch Primitive Contrast Hotfix** - Complete.
 
 ### Next Specific Technical Objective
-- **Phase 21.2: Settings Behavior Tab Implementation**
+- **Phase 21.5: Settings Behavior Tab Automation & Memory Management**
   - Implement configurable auto-discard idle tab intervals.
   - Implement duplicate tab detection toggles on new tab creation.
   - Implement single-click vs double-click space restore behavior.
 
-<!-- Last Updated: 2026-08-18T17:52:00+02:00 -->
+<!-- Last Updated: 2026-08-19T14:33:00+02:00 -->
+
 
 
 

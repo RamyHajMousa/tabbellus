@@ -3,6 +3,7 @@ import { isFuzzyMatch } from '@/lib/sessionUtils';
 import { spaceService } from '@/lib/spaceService';
 import { readLaterService } from '@/lib/readLaterService';
 import { getReadLaterShortcutText } from '@/lib/platform';
+import { updateGlobalBadge } from './badgeService';
 
 console.log('TabBellus Service Worker Initialized');
 
@@ -107,9 +108,11 @@ const auditActiveSpacesOnStartup = async () => {
 chrome.runtime.onInstalled.addListener(() => {
     console.log('TabBellus Installed');
     setupContextMenus();
+    chrome.alarms.create('badge-refresh', { periodInMinutes: 1 });
     db.open().then(() => {
         console.log('DB Connected in Background');
         auditActiveSpacesOnStartup();
+        updateGlobalBadge();
         readLaterService.migrateGhostStatesToArchive().catch(err => {
             console.error('Background: Ghost state migration failed on install', err);
         });
@@ -120,8 +123,10 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
     console.log('TabBellus Startup');
+    chrome.alarms.create('badge-refresh', { periodInMinutes: 1 });
     db.open().then(() => {
         auditActiveSpacesOnStartup();
+        updateGlobalBadge();
         readLaterService.migrateGhostStatesToArchive().catch(err => {
             console.error('Background: Ghost state migration failed on startup', err);
         });
@@ -201,9 +206,13 @@ const performSync = async (windowId: number) => {
     }
 };
 
-// Global alarms listener to handle flushed synchronization
+// Global alarms listener to handle flushed synchronization and badge refreshes
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     console.log("Background alarm triggered:", alarm.name);
+    if (alarm.name === 'badge-refresh') {
+        await updateGlobalBadge();
+        return;
+    }
     if (alarm.name.startsWith('sync-flush-')) {
         const windowIdStr = alarm.name.replace('sync-flush-', '');
         const windowId = parseInt(windowIdStr, 10);
@@ -223,10 +232,18 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
 });
 
+// React instantly to settings changes from the UI
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes['tabbellus-settings']) {
+        updateGlobalBadge();
+    }
+});
+
 // Listeners for Tab Changes
 chrome.tabs.onCreated.addListener((tab) => {
     console.log("Background intercepted tab mutation event for window:", tab.windowId);
     if (tab.windowId) triggerSync(tab.windowId);
+    updateGlobalBadge();
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
@@ -241,6 +258,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     if (removeInfo.windowId && !removeInfo.isWindowClosing) {
         triggerSync(removeInfo.windowId);
     }
+    updateGlobalBadge();
     // Clean up tab lock state for removed tab
     try {
         const res = await chrome.storage.session.get('lockedTabIds');
@@ -450,7 +468,12 @@ const flashActionBadge = async (text: string, color: string, tabId?: number) => 
 
         const timer = setTimeout(async () => {
             try {
-                await chrome.action.setBadgeText({ text: '', tabId });
+                if (tabId) {
+                    await chrome.action.setBadgeText({ text: '', tabId });
+                } else {
+                    badgeTimers.delete(key);
+                    await updateGlobalBadge();
+                }
             } catch {
                 // Tab or window may have closed
             } finally {
