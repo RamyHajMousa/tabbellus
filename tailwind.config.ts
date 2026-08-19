@@ -59,7 +59,12 @@ const config = {
     				'3': 'hsl(var(--chart-3))',
     				'4': 'hsl(var(--chart-4))',
     				'5': 'hsl(var(--chart-5))'
-    			}
+    			},
+    			// Interactive primitive tokens — Switch, Checkbox, Slider, Input surfaces
+    			'toggle-track':     'hsl(var(--toggle-track) / <alpha-value>)',
+    			'toggle-thumb':     'hsl(var(--toggle-thumb) / <alpha-value>)',
+    			'component-bg':     'hsl(var(--component-bg) / <alpha-value>)',
+    			'component-border': 'hsl(var(--component-border) / <alpha-value>)',
     		},
     		borderRadius: {
     			lg: 'var(--radius)',

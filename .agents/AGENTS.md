@@ -31,6 +31,7 @@
 - **Storage Policy:** Local-first ONLY. Use IndexedDB (Dexie.js) for domain data and `chrome.storage.local/session` for UI state. NO external databases.
 - **Security:** Sanitize all inputs. The extension must remain safe for users with "Enhanced Safe Browsing" enabled.
 - **KISS/MVS (Minimum Viable Solution):** Use native Browser APIs first. We rely on `@hello-pangea/dnd` for dragging, `cmdk` for search, and `shadcn/ui` for components. Do NOT install heavy third-party libraries without explicit permission.
+- **Component Ownership & Primitive Pragmatism:** shadcn/ui files in src/components/ui/ are owned source code, not external templates. Interactive controls (<Switch>, <Checkbox>, <Slider>) must define explicit, high-contrast states (≥ 3.0:1 WCAG AA) and must never borrow subtle layout/divider tokens (--border, --input, --background) that cause contrast collapse on OLED pure black or pure white cards.
 
 ## 4. Interaction Style
 - Keep responses concise, direct, and stripped of fluff.

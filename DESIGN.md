@@ -31,6 +31,12 @@ We utilize a clean, high-contrast, flat monochromatic HSL color palette optimize
     *   *Cyan:* `hsl(188 86% 53%)`
     *   *Orange:* `hsl(24 95% 53%)`
 
+### Interactive Control Affordance Standard (Component Ownership)
+Interactive control surfaces (switch tracks, checkbox boxes, slider rails) are strictly decoupled from structural layout tokens (`--input`, `--border`, `--background`) to prevent contrast collapse on pitch-black OLED dark cards or pure white light themes. Radix/shadcn UI primitives in `src/components/ui/` own explicit high-contrast utility classes directly in JSX:
+*   **Unchecked Tracks:** `bg-zinc-300` (Light) / `dark:bg-zinc-700` (Dark) ensuring WCAG AA `≥ 3.0:1` contrast against card surfaces (`--card` / `bg-card`).
+*   **Tactile Thumbs:** `bg-white` (Light) / `dark:bg-zinc-100` (Dark unchecked) / `dark:bg-black` (Dark checked against white primary fill) with `shadow-sm` and a subtle 1px ring (`ring-1 ring-black/10 dark:ring-white/10`) ensuring clear physical depth and affordance.
+*   **Active Fills:** `bg-primary` (`hsl(0 0% 9%)` light, `hsl(0 0% 98%)` dark) for maximum visual contrast on active state transitions.
+
 ### Typography
 *   **Font Family:** `Inter, Outfit, sans-serif`
 *   **Sizing:** 

@@ -68,6 +68,14 @@ TabBellus adheres to a **Sleek Developer Minimalist** design standard, optimizin
 *   **Rounded Geometry:** Standardized around a fixed `--radius: 0.5rem` design token (`rounded-md`, `rounded-lg`).
 *   **Transition Boundaries:** Interactivity transitions are strictly limited to HSL colors or opacity (`transition-colors`, `transition-opacity`) to avoid reflows triggered by changing dimensions.
 
+### 2.4 UI Primitive Component Ownership Rule
+Headless Radix/shadcn UI primitives residing in `src/components/ui/` (such as `<Switch>`, `<Checkbox>`, `<Slider>`) are considered owned project source code rather than generic third-party templates. 
+*   **Decoupled Interactive Affordances:** Interactive controls must never borrow subtle layout or structural divider tokens (`--border`, `--input`, `--background`, `--muted`) that cause contrast collapse on pitch-black OLED dark cards (`--card: 0 0% 3%`) or pure white light backgrounds.
+*   **Direct JSX Palette Ownership:** Interactive primitives own explicit, high-contrast Tailwind color utility classes directly in JSX:
+    *   *Unchecked Tracks / Rails:* `bg-zinc-300` (Light) / `dark:bg-zinc-700` (Dark), guaranteeing `≥ 3.0:1` WCAG AA contrast against card surfaces.
+    *   *Tactile Thumbs:* `bg-white` (Light) / `dark:bg-zinc-100` (Dark unchecked) / `dark:bg-black` (Dark checked against white primary fill) with `shadow-sm` and a subtle 1px ring (`ring-1 ring-black/10 dark:ring-white/10`).
+    *   *Active Fills:* `bg-primary` (`hsl(0 0% 9%)` light, `hsl(0 0% 98%)` dark) for maximum state distinction.
+
 ---
 
 ## 3. Core Styling Configuration
@@ -464,7 +472,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 19: Action Context Menus — Toolbar Quick Actions for Spaces & Read Later** - Complete.
 - **Phase 20: Forensic Architectural, Performance & Memoization Audit for Read Later** - Complete.
 - **Phase 21: Settings Architecture Modularization & AppSettings State Management** - Complete.
-- **Phase 21.4: Dynamic Badging Driven by Settings Store & Switch Primitive Contrast Hotfix** - Complete.
+- **Phase 21.4: Dynamic Badging Driven by Settings Store & Switch Primitive Contrast Refactor (Component Ownership Model)** - Complete.
 
 ### Next Specific Technical Objective
 - **Phase 21.5: Settings Behavior Tab Automation & Memory Management**
@@ -472,7 +480,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement duplicate tab detection toggles on new tab creation.
   - Implement single-click vs double-click space restore behavior.
 
-<!-- Last Updated: 2026-08-19T14:33:00+02:00 -->
+<!-- Last Updated: 2026-08-19T18:32:00+02:00 -->
 
 
 
