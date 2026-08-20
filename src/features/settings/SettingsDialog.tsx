@@ -23,7 +23,8 @@ import {
 } from './components';
 
 export const SettingsDialog: React.FC = () => {
-    const { isSettingsOpen, setSettingsOpen } = useUIStore();
+    const isSettingsOpen = useUIStore((state) => state.isSettingsOpen);
+    const setSettingsOpen = useUIStore((state) => state.setSettingsOpen);
     const { toast } = useToast();
     const [activeTab, setActiveTab] = useState<string>('appearance');
     const [showSupportBadge, setShowSupportBadge] = useState(false);

@@ -17,21 +17,16 @@ import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Switch } from '@/components/ui/switch';
 
 export const BehaviorTab: React.FC = () => {
-    const {
-        settings,
-        setReadLaterOpenBehavior,
-        setReadLaterAutoArchive,
-        setAutoDiscardInterval,
-        setSpaceRestoreTrigger,
-        setDuplicateTabBehavior,
-    } = useAppStore((state) => ({
-        settings: state.settings,
-        setReadLaterOpenBehavior: state.setReadLaterOpenBehavior,
-        setReadLaterAutoArchive: state.setReadLaterAutoArchive,
-        setAutoDiscardInterval: state.setAutoDiscardInterval,
-        setSpaceRestoreTrigger: state.setSpaceRestoreTrigger,
-        setDuplicateTabBehavior: state.setDuplicateTabBehavior,
-    }));
+    const autoDiscardInterval = useAppStore((state) => state.settings.autoDiscardInterval);
+    const duplicateTabBehavior = useAppStore((state) => state.settings.duplicateTabBehavior);
+    const spaceRestoreTrigger = useAppStore((state) => state.settings.spaceRestoreTrigger);
+    const readLaterOpenBehavior = useAppStore((state) => state.settings.readLaterOpenBehavior);
+    const readLaterAutoArchive = useAppStore((state) => state.settings.readLaterAutoArchive);
+    const setAutoDiscardInterval = useAppStore((state) => state.setAutoDiscardInterval);
+    const setDuplicateTabBehavior = useAppStore((state) => state.setDuplicateTabBehavior);
+    const setSpaceRestoreTrigger = useAppStore((state) => state.setSpaceRestoreTrigger);
+    const setReadLaterOpenBehavior = useAppStore((state) => state.setReadLaterOpenBehavior);
+    const setReadLaterAutoArchive = useAppStore((state) => state.setReadLaterAutoArchive);
 
     const discardIntervalOptions: {
         value: AppSettings['autoDiscardInterval'];
@@ -127,7 +122,7 @@ export const BehaviorTab: React.FC = () => {
                             <span className="text-xs font-medium text-foreground">Auto-Discard Idle Tabs</span>
                         </div>
                         <span className="text-xxs font-medium text-muted-foreground">
-                            {settings.autoDiscardInterval === 0 ? 'Disabled' : `Every ${settings.autoDiscardInterval}m`}
+                            {autoDiscardInterval === 0 ? 'Disabled' : `Every ${autoDiscardInterval}m`}
                         </span>
                     </div>
                     <p className="text-xxs text-muted-foreground leading-normal">
@@ -135,7 +130,7 @@ export const BehaviorTab: React.FC = () => {
                     </p>
                     <div className="grid grid-cols-5 gap-1.5 pt-1">
                         {discardIntervalOptions.map(({ value, label, description }) => {
-                            const isSelected = settings.autoDiscardInterval === value;
+                            const isSelected = autoDiscardInterval === value;
                             return (
                                 <TooltipSimple key={value} content={description} side="top">
                                     <button
@@ -160,7 +155,7 @@ export const BehaviorTab: React.FC = () => {
                     <span className="text-xs font-medium text-foreground">Duplicate Tab Handling</span>
                     <div className="grid grid-cols-2 gap-2">
                         {duplicateTabOptions.map(({ value, label, icon: Icon, description }) => {
-                            const isSelected = settings.duplicateTabBehavior === value;
+                            const isSelected = duplicateTabBehavior === value;
                             return (
                                 <TooltipSimple key={value} content={description} side="top">
                                     <button
@@ -198,7 +193,7 @@ export const BehaviorTab: React.FC = () => {
                     <span className="text-xs font-medium text-foreground">Space Restore Trigger</span>
                     <div className="grid grid-cols-2 gap-2">
                         {spaceRestoreOptions.map(({ value, label, icon: Icon, description }) => {
-                            const isSelected = settings.spaceRestoreTrigger === value;
+                            const isSelected = spaceRestoreTrigger === value;
                             return (
                                 <TooltipSimple key={value} content={description} side="top">
                                     <button
@@ -236,7 +231,7 @@ export const BehaviorTab: React.FC = () => {
                     <span className="text-xs font-medium text-foreground">Open Links In</span>
                     <div className="grid grid-cols-2 gap-2">
                         {openBehaviorOptions.map(({ value, label, icon: Icon, description }) => {
-                            const isSelected = settings.readLaterOpenBehavior === value;
+                            const isSelected = readLaterOpenBehavior === value;
                             return (
                                 <TooltipSimple key={value} content={description} side="top">
                                     <button
@@ -269,10 +264,10 @@ export const BehaviorTab: React.FC = () => {
                                 Automatically move unread links to your archive queue once opened.
                             </p>
                         </div>
-                        <TooltipSimple content={settings.readLaterAutoArchive ? "Disable auto-archiving" : "Enable auto-archiving"} side="top">
+                        <TooltipSimple content={readLaterAutoArchive ? "Disable auto-archiving" : "Enable auto-archiving"} side="top">
                             <span className="inline-flex">
                                 <Switch
-                                    checked={settings.readLaterAutoArchive}
+                                    checked={readLaterAutoArchive}
                                     onCheckedChange={setReadLaterAutoArchive}
                                     aria-label="Auto-Archive on Open"
                                 />

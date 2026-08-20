@@ -109,15 +109,16 @@ export const SupportTab: React.FC<SupportTabProps> = ({
             {/* Legal Section */}
             <div className="mt-6 space-y-2 pt-4 border-t border-border">
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Legal</h4>
-                <a
-                    href="https://errorfirst.com/tabbellus-privacy-policy/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted transition-colors"
-                >
-                    <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-medium text-foreground">Privacy Policy</span>
-                </a>
+                <TooltipSimple content="View privacy policy and local-first data protection guarantees" side="top">
+                    <button
+                        type="button"
+                        onClick={() => handleExternalLink(EXTERNAL_LINKS.PRIVACY_POLICY)}
+                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted transition-colors text-left"
+                    >
+                        <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm font-medium text-foreground">Privacy Policy</span>
+                    </button>
+                </TooltipSimple>
             </div>
 
             {/* Version Footer */}

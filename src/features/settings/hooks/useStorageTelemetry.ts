@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { db } from '@/lib/db';
 
 export interface StorageCounts {
@@ -33,8 +33,17 @@ export function useStorageTelemetry(): StorageTelemetryResult {
     const [counts, setCounts] = useState<StorageCounts>({ spaces: 0, tabs: 0, readLater: 0 });
     const [usageFormatted, setUsageFormatted] = useState<string>('Calculating...');
     const [isLoading, setIsLoading] = useState<boolean>(true);
+    const isMountedRef = useRef<boolean>(true);
+
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     const refresh = useCallback(async () => {
+        if (!isMountedRef.current) return;
         setIsLoading(true);
         try {
             const [spacesCount, tabsCount, readLaterCount] = await Promise.all([
@@ -43,11 +52,7 @@ export function useStorageTelemetry(): StorageTelemetryResult {
                 db.readLater.count().catch(() => 0),
             ]);
 
-            setCounts({
-                spaces: spacesCount,
-                tabs: tabsCount,
-                readLater: readLaterCount,
-            });
+            if (!isMountedRef.current) return;
 
             let bytesUsed = 0;
             if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
@@ -59,13 +64,24 @@ export function useStorageTelemetry(): StorageTelemetryResult {
                 }
             }
 
+            if (!isMountedRef.current) return;
+
+            setCounts({
+                spaces: spacesCount,
+                tabs: tabsCount,
+                readLater: readLaterCount,
+            });
             setUsageFormatted(formatBytes(bytesUsed));
         } catch (err) {
             console.warn('Failed to calculate storage telemetry:', err);
-            setCounts({ spaces: 0, tabs: 0, readLater: 0 });
-            setUsageFormatted('< 1 KB');
+            if (isMountedRef.current) {
+                setCounts({ spaces: 0, tabs: 0, readLater: 0 });
+                setUsageFormatted('< 1 KB');
+            }
         } finally {
-            setIsLoading(false);
+            if (isMountedRef.current) {
+                setIsLoading(false);
+            }
         }
     }, []);
 

@@ -434,8 +434,15 @@ The project has completed major refactoring phases to optimize performance, clea
     *   **Background Alarm Wiring:** Wired `tab-discard-sweep` 5-minute recurring alarm in `background/index.ts`, dynamically scheduled or cleared on startup, install, and `chrome.storage.onChanged` for `tabbellus-settings`.
     *   **Behavior Tab Settings Controls:** Rendered high-density, accessible controls in `BehaviorTab.tsx`: Auto-Discard Idle Tabs (5-segment selector: `Off`, `15m`, `30m`, `1h`, `2h`), Duplicate Tab Handling (`Focus Open Tab` vs `Open New Tab`), and Space Restore Trigger (`Single-Click` vs `Double-Click`).
     *   **SpaceItem Interaction Handling:** Wired `SpaceItem.tsx` header click logic to respect `spaceRestoreTrigger` (double-click mode: single click toggles accordion expansion, double click restores window; action tray button and context menu item always restore immediately).
-    *   **TabService Duplicate Handling:** Enhanced `tabService.focusOrCreate(url, behavior)` to support `duplicateTabBehavior: 'allow'` (directly creates new tab without focusing existing).
-    *   **Testing Infrastructure:** Created `src/lib/__tests__/discardService.test.ts` (16 tests), expanded `appStore.test.ts` (12 tests) and `tabService.test.ts` (9 tests), raising total test suite to 110/110 passing tests across 11 files.
+    *   **TabService Duplicate Handling:** Enhanced `tabService.focusOrCreate(url, behavior)` to dynamically read `duplicateTabBehavior` from `useAppStore` with lazy module loading to prevent circular import cycles.
+    *   **Testing Infrastructure:** Created `src/lib/__tests__/discardService.test.ts` (16 tests), expanded `appStore.test.ts` (12 tests) and `tabService.test.ts` (10 tests), raising total test suite to 111/111 passing tests across 11 files.
+
+### Phase 21.6: Forensic Architectural, Performance & Best-Practices Audit for Settings Subsystem
+*   **Outcome:**
+    *   **Atomic Zustand Selectors:** Replaced coarse multi-property object selectors with atomic single-field selectors across `SettingsDialog.tsx`, `AppearanceTab.tsx`, and `BehaviorTab.tsx`, eradicating cross-tab re-render cascades during settings changes.
+    *   **Telemetry Hook Lifecycle & Async Cleanup:** Hardened `useStorageTelemetry.ts` with `isMountedRef` lifecycle safety, ensuring in-flight Dexie queries and `navigator.storage.estimate()` calls safely discard state updates if `SettingsDialog` unmounts.
+    *   **Data Safety & Danger Zone Resilience:** Implemented `clearTimerRef` lifecycle tracking and unmount cleanup on `DataTab.tsx` 3-second database wipe safety guard; wrapped backup JSON imports in typed error boundaries with descriptive toast notifications.
+    *   **Component Ownership & External Links:** Standardized all external link navigations in `SupportTab.tsx` through `handleExternalLink()` and `openSupportHub()` with `TooltipSimple` wrappers and zero native HTML `title` attributes.
 
 ---
 
@@ -445,7 +452,7 @@ The project has completed major refactoring phases to optimize performance, clea
 *   **Configuration (`vitest.config.ts`):** Standard Node environment with in-memory IndexedDB bindings (`fake-indexeddb/auto`).
 *   **Core Suites:**
     *   `discardService.test.ts` (16 tests)
-    *   `tabService.test.ts` (9 tests)
+    *   `tabService.test.ts` (10 tests)
     *   `sessionUtils.test.ts` (10 tests)
     *   `spaceService.test.ts` (20 tests)
     *   `readLaterService.test.ts` (13 tests)
@@ -455,7 +462,7 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `appStore.test.ts` (12 tests)
     *   `useStorageTelemetry.test.ts` (5 tests)
     *   `badge.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (110/110 passing).
+*   **Execution Command:** `npm test` (111/111 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -490,8 +497,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 21: Settings Architecture Modularization & AppSettings State Management** - Complete.
 - **Phase 21.4: Dynamic Badging Driven by Settings Store & Switch Primitive Contrast Refactor (Component Ownership Model)** - Complete.
 - **Phase 21.5: Settings Behavior Tab Automation & Tab Memory Reclamation** - Complete.
+- **Phase 21.6: Forensic Architectural, Performance & Best-Practices Audit for Settings Subsystem** - Complete.
 
-<!-- Last Updated: 2026-08-20T13:42:00+02:00 -->
+<!-- Last Updated: 2026-08-20T14:42:00+02:00 -->
 
 
 

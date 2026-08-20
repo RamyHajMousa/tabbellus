@@ -5,12 +5,12 @@ import { isEdge, openAppearanceSettings } from '@/lib/platform';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 
 export const AppearanceTab: React.FC = () => {
-    const { settings, setTheme, setShowDomain, setBadgeMode } = useAppStore((state) => ({
-        settings: state.settings,
-        setTheme: state.setTheme,
-        setShowDomain: state.setShowDomain,
-        setBadgeMode: state.setBadgeMode,
-    }));
+    const theme = useAppStore((state) => state.settings.theme);
+    const showDomain = useAppStore((state) => state.settings.showDomain);
+    const badgeMode = useAppStore((state) => state.settings.badgeMode);
+    const setTheme = useAppStore((state) => state.setTheme);
+    const setShowDomain = useAppStore((state) => state.setShowDomain);
+    const setBadgeMode = useAppStore((state) => state.setBadgeMode);
 
     const themeOptions = [
         { value: 'light', label: 'Light', icon: Sun, tooltip: 'Always use light theme' },
@@ -38,7 +38,7 @@ export const AppearanceTab: React.FC = () => {
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                     {themeOptions.map(({ value, label, icon: Icon, tooltip }) => {
-                        const isSelected = settings.theme === value;
+                        const isSelected = theme === value;
                         return (
                             <TooltipSimple key={value} content={tooltip} side="top">
                                 <button
@@ -72,7 +72,7 @@ export const AppearanceTab: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                     {urlDisplayOptions.map(({ value, label, icon: Icon, description }) => {
-                        const isSelected = settings.showDomain === value;
+                        const isSelected = showDomain === value;
                         return (
                             <TooltipSimple key={label} content={description} side="top">
                                 <button
@@ -106,7 +106,7 @@ export const AppearanceTab: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                     {badgeModeOptions.map(({ value, label, icon: Icon, description }) => {
-                        const isSelected = settings.badgeMode === value;
+                        const isSelected = badgeMode === value;
                         return (
                             <TooltipSimple key={value} content={description} side="top">
                                 <button

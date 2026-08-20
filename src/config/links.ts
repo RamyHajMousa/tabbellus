@@ -9,5 +9,6 @@ export const EXTERNAL_LINKS = {
     REVIEWS: `https://chromewebstore.google.com/detail/tabbellus/${EXTENSION_ID}/reviews`,
     DONATE: "https://ko-fi.com/tabbellus",
     FEEDBACK: "https://github.com/RamyHajMousa/tabbellus/issues",
-    SUPPORT: "https://errorfirst.com/tabbellus-support" // Smart Hub
+    SUPPORT: "https://errorfirst.com/tabbellus-support", // Smart Hub
+    PRIVACY_POLICY: "https://errorfirst.com/tabbellus-privacy-policy/"
 } as const;

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Download, Upload, Trash2, AlertTriangle, Database, FileText, Check, RefreshCw } from 'lucide-react';
 import { dataService } from '@/lib/dataService';
 import { useToast } from '@/components/ui/Toaster';
@@ -17,8 +17,19 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
     const { copy, hasCopied } = useClipboard();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isClearing, setIsClearing] = useState(false);
+    const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const { counts, usageFormatted, isLoading, refresh } = useStorageTelemetry();
+
+    // Clean up danger zone safety timer on unmount
+    useEffect(() => {
+        return () => {
+            if (clearTimerRef.current) {
+                clearTimeout(clearTimerRef.current);
+                clearTimerRef.current = null;
+            }
+        };
+    }, []);
 
     const handleExport = async () => {
         try {
@@ -42,14 +53,15 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
             toast(`Imported ${result.spacesCount} spaces, ${result.tabsCount} tabs, ${result.readLaterCount} read-later items`);
             await refresh();
             onImportSuccess?.();
-        } catch (err) {
-            toast('Invalid backup file');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Invalid backup file';
+            toast('Failed to import backup', { description: message });
             console.error('Import error:', err);
-        }
-
-        // Reset input value to allow selecting same file again
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
+        } finally {
+            // Reset input value to allow selecting same file again
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         }
     };
 
@@ -57,8 +69,19 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
         if (!isClearing) {
             setIsClearing(true);
             toast('Click again within 3s to confirm full wipe');
-            setTimeout(() => setIsClearing(false), 3000);
+            if (clearTimerRef.current) {
+                clearTimeout(clearTimerRef.current);
+            }
+            clearTimerRef.current = setTimeout(() => {
+                setIsClearing(false);
+                clearTimerRef.current = null;
+            }, 3000);
             return;
+        }
+
+        if (clearTimerRef.current) {
+            clearTimeout(clearTimerRef.current);
+            clearTimerRef.current = null;
         }
 
         try {
@@ -68,8 +91,9 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
             onClearSuccess?.();
         } catch {
             toast('Failed to clear data');
+        } finally {
+            setIsClearing(false);
         }
-        setIsClearing(false);
     };
 
     const handleCopyDiagnostic = () => {
