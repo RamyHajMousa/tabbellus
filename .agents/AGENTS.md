@@ -9,6 +9,7 @@
 - **Skill Audit:** Before formulating any technical solution, generating code, or planning refactoring steps, you MUST ALWAYS cross-reference the mission constraints against your available domain libraries in `.agents/skills`.
 - **Justification Ring:** In your thoughts or initial response line, explicitly call out which specific specialized skills are active for the current prompt and why they match the task (e.g., "Activating `mv3-messaging` and `dexie-query-optimizer` to ensure zero state leakage").
 - **Constraint Matching:** If a task can be solved using an existing internal skill or standard primitive blueprint (like `<InteractiveRow>`), you are forbidden from rewriting it from scratch.
+- **Skill Template Deference:** When generating or refactoring UI primitives, `shadcn` and `minimalist-ui` skills must strictly defer to the TabBellus Component Ownership Rule rather than default upstream templates.
 
 ### 1.2 The "Trust, But Verify" Code Protocol (Mandatory)
 - **Never Blindly Trust Architect Snippets:** If a prompt provides pseudo-code or variable names (e.g., suggesting `tab.pinned` or `space.active`), you MUST cross-reference those exact properties against `.context.md` or the local `types.ts` file before writing the implementation (e.g., discovering it is actually `isPinned`).
@@ -31,7 +32,7 @@
 - **Storage Policy:** Local-first ONLY. Use IndexedDB (Dexie.js) for domain data and `chrome.storage.local/session` for UI state. NO external databases.
 - **Security:** Sanitize all inputs. The extension must remain safe for users with "Enhanced Safe Browsing" enabled.
 - **KISS/MVS (Minimum Viable Solution):** Use native Browser APIs first. We rely on `@hello-pangea/dnd` for dragging, `cmdk` for search, and `shadcn/ui` for components. Do NOT install heavy third-party libraries without explicit permission.
-- **Component Ownership & Primitive Pragmatism:** shadcn/ui files in src/components/ui/ are owned source code, not external templates. Interactive controls (<Switch>, <Checkbox>, <Slider>) must define explicit, high-contrast states (≥ 3.0:1 WCAG AA) and must never borrow subtle layout/divider tokens (--border, --input, --background) that cause contrast collapse on OLED pure black or pure white cards.
+- **Component Ownership & Primitive Decoupling:** Primitives in `src/components/ui/` are owned source code, not external templates. Interactive surfaces (`<Switch>`, `<Checkbox>`, `<Slider>`, `<RadioGroup>`, menu items) must define explicit, high-contrast states (≥ 3.0:1 WCAG AA) and must NEVER use subtle layout/divider tokens (`--border`, `--input`, `--background`, `--muted`) that cause contrast collapse on OLED dark (`hsl(0 0% 0%)`) or pure white backgrounds. Radix accessibility and state selectors (`data-[state]`, `data-[disabled]`, `focus-visible:*`) must be fully preserved.
 
 ## 4. Interaction Style
 - Keep responses concise, direct, and stripped of fluff.

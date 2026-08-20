@@ -69,12 +69,14 @@ TabBellus adheres to a **Sleek Developer Minimalist** design standard, optimizin
 *   **Transition Boundaries:** Interactivity transitions are strictly limited to HSL colors or opacity (`transition-colors`, `transition-opacity`) to avoid reflows triggered by changing dimensions.
 
 ### 2.4 UI Primitive Component Ownership Rule
-Headless Radix/shadcn UI primitives residing in `src/components/ui/` (such as `<Switch>`, `<Checkbox>`, `<Slider>`) are considered owned project source code rather than generic third-party templates. 
+Headless Radix/shadcn UI primitives residing in `src/components/ui/` (such as `<Switch>`, `<Checkbox>`, `<Slider>`, `<RadioGroup>`, menu items) are considered owned project source code rather than generic third-party templates. 
 *   **Decoupled Interactive Affordances:** Interactive controls must never borrow subtle layout or structural divider tokens (`--border`, `--input`, `--background`, `--muted`) that cause contrast collapse on pitch-black OLED dark cards (`--card: 0 0% 3%`) or pure white light backgrounds.
-*   **Direct JSX Palette Ownership:** Interactive primitives own explicit, high-contrast Tailwind color utility classes directly in JSX:
+*   **Structural vs. Interactive Separation:** Structural tokens (`--background`, `--card`, `--popover`, `--border`) are reserved for layout containers. Interactive primitives own explicit, high-contrast Tailwind color utility classes directly in JSX:
     *   *Unchecked Tracks / Rails:* `bg-zinc-300` (Light) / `dark:bg-zinc-700` (Dark), guaranteeing `≥ 3.0:1` WCAG AA contrast against card surfaces.
-    *   *Tactile Thumbs:* `bg-white` (Light) / `dark:bg-zinc-100` (Dark unchecked) / `dark:bg-black` (Dark checked against white primary fill) with `shadow-sm` and a subtle 1px ring (`ring-1 ring-black/10 dark:ring-white/10`).
+    *   *Tactile Thumbs / Indicators:* `bg-white` (Light) / `dark:bg-zinc-100` (Dark unchecked) / `dark:bg-black` (Dark checked against white primary fill) with `shadow-sm` and a subtle 1px ring (`ring-1 ring-black/10 dark:ring-white/10`).
     *   *Active Fills:* `bg-primary` (`hsl(0 0% 9%)` light, `hsl(0 0% 98%)` dark) for maximum state distinction.
+    *   *Focus Rings:* `focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background`.
+*   **Radix State Selectors:** All Radix accessibility attributes and state pseudo-classes (`data-[state]`, `data-[disabled]`, `focus-visible:*`) must be fully preserved.
 
 ---
 
@@ -258,7 +260,8 @@ TabBellus code evolution requires strict alignment with the rules stored in `.ag
 
 ### 4.1 Supreme Override Rules
 *   **Identity & Scope:** Forensic Staff Engineer & System Architect. Every assumption must be verified ("Trust, but Verify", "Measure twice, cut once").
-*   **Rule Precedence:** `.agents/AGENTS.md` project rules override any conflicting instructions in generic agent skills.
+*   **Rule Precedence:** `.agents/AGENTS.md` project rules override any conflicting instructions in generic agent skills. External skills (such as `shadcn` and `minimalist-ui`) must strictly defer to the TabBellus Component Ownership Rule rather than default upstream templates.
+*   **Component Ownership & Token Decoupling:** Primitives in `src/components/ui/` are owned source code. Interactive controls (`<Switch>`, `<Checkbox>`, `<Slider>`, `<RadioGroup>`, menu items) must define explicit, high-contrast states (≥ 3.0:1 WCAG AA) and must NEVER use subtle layout tokens (`--input`, `--border`, `--background`, `--muted`) that cause contrast collapse on OLED dark (`hsl(0 0% 0%)`) or pure white backgrounds. Radix accessibility and state selectors (`data-[state]`, `data-[disabled]`, `focus-visible:*`) must be fully preserved.
 *   **Storage Policy:** **Local-first ONLY**. Use IndexedDB (Dexie.js) for domain models and `chrome.storage.local/session` for UI state caching. No third-party clouds or external databases.
 *   **Dependency Strategy:** KISS/MVS. Rely on native browser APIs where possible. Use `@hello-pangea/dnd` for reordering, `cmdk` for OmniSearch, and `shadcn/ui` for controls. Heavy dependencies require explicit architectural reviews.
 *   **Context Maintenance:** Must update `.context.md` (and its timestamp) immediately whenever database schemas change, Zustand state changes, files are created/deleted, or core service logic is refactored.
@@ -480,7 +483,7 @@ The project has completed major refactoring phases to optimize performance, clea
   - Implement duplicate tab detection toggles on new tab creation.
   - Implement single-click vs double-click space restore behavior.
 
-<!-- Last Updated: 2026-08-19T18:32:00+02:00 -->
+<!-- Last Updated: 2026-08-20T11:55:00+02:00 -->
 
 
 

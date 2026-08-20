@@ -31,11 +31,16 @@ We utilize a clean, high-contrast, flat monochromatic HSL color palette optimize
     *   *Cyan:* `hsl(188 86% 53%)`
     *   *Orange:* `hsl(24 95% 53%)`
 
-### Interactive Control Affordance Standard (Component Ownership)
-Interactive control surfaces (switch tracks, checkbox boxes, slider rails) are strictly decoupled from structural layout tokens (`--input`, `--border`, `--background`) to prevent contrast collapse on pitch-black OLED dark cards or pure white light themes. Radix/shadcn UI primitives in `src/components/ui/` own explicit high-contrast utility classes directly in JSX:
-*   **Unchecked Tracks:** `bg-zinc-300` (Light) / `dark:bg-zinc-700` (Dark) ensuring WCAG AA `≥ 3.0:1` contrast against card surfaces (`--card` / `bg-card`).
-*   **Tactile Thumbs:** `bg-white` (Light) / `dark:bg-zinc-100` (Dark unchecked) / `dark:bg-black` (Dark checked against white primary fill) with `shadow-sm` and a subtle 1px ring (`ring-1 ring-black/10 dark:ring-white/10`) ensuring clear physical depth and affordance.
-*   **Active Fills:** `bg-primary` (`hsl(0 0% 9%)` light, `hsl(0 0% 98%)` dark) for maximum visual contrast on active state transitions.
+### Structural vs. Interactive Token Separation Matrix
+Interactive control surfaces (switch tracks, checkbox boxes, slider rails, radio groups, menu controls) are strictly decoupled from structural layout tokens (`--input`, `--border`, `--background`, `--muted`) to prevent contrast collapse on pitch-black OLED dark cards (`--card: 0 0% 3%`) or pure white light themes (`--background: 0 0% 100%`). Radix/shadcn UI primitives in `src/components/ui/` own explicit high-contrast utility classes directly in JSX:
+
+*   **Structural CSS Variables (Layouts & Containers):**
+    *   `--background`, `--card`, `--popover`, `--border` are reserved strictly for layout containers, cards, dialogs, popovers, and 1px structural dividing lines.
+*   **Authoritative Interactive Palette (Control Affordances):**
+    *   **Unchecked Tracks/Rails:** `bg-zinc-300` (Light) / `dark:bg-zinc-700` (Dark) ensuring WCAG AA `≥ 3.0:1` contrast against card surfaces (`--card` / `bg-card`).
+    *   **Tactile Thumbs/Indicators:** `bg-white` (Light) / `dark:bg-zinc-100` (Dark unchecked) / `dark:bg-black` (Dark checked against white primary fill) with `shadow-sm ring-1 ring-black/10 dark:ring-white/10` ensuring clear physical depth and affordance.
+    *   **Active Fills:** `bg-primary` (`hsl(0 0% 9%)` light, `hsl(0 0% 98%)` dark) for maximum visual contrast on active state transitions.
+    *   **Focus Rings:** `focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background` preserving accessible keyboard navigation.
 
 ### Typography
 *   **Font Family:** `Inter, Outfit, sans-serif`
