@@ -223,19 +223,22 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
                     <button
                         type="button"
                         onClick={handleCopyDiagnostic}
-                        className="w-full flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary hover:bg-muted/50 transition-colors"
+                        className="w-full flex items-center justify-between gap-4 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted/50 transition-colors text-left group"
                     >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0 pr-2">
                             <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
-                            <div className="text-left">
+                            <div className="text-left min-w-0">
                                 <p className="text-sm font-medium text-foreground">Copy Diagnostic Summary</p>
-                                <p className="text-xs text-muted-foreground">Sanitized report for GitHub issues or support</p>
+                                <p className="text-xs text-muted-foreground leading-normal">Sanitized report for GitHub issues or support</p>
                             </div>
                         </div>
                         {hasCopied ? (
-                            <Check className="w-4 h-4 text-primary shrink-0" />
+                            <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded bg-primary/10 border border-primary/20 text-primary shrink-0">
+                                <Check className="w-3.5 h-3.5" />
+                                Copied
+                            </span>
                         ) : (
-                            <span className="text-xs font-medium px-2.5 py-1 rounded bg-muted border border-border text-foreground">
+                            <span className="text-xs font-medium px-2.5 py-1 rounded bg-muted border border-border text-foreground shrink-0 group-hover:bg-background transition-colors">
                                 Copy
                             </span>
                         )}
