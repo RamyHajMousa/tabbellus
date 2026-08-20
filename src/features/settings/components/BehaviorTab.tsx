@@ -83,11 +83,13 @@ export const BehaviorTab: React.FC = () => {
                             </p>
                         </div>
                         <TooltipSimple content={settings.readLaterAutoArchive ? "Disable auto-archiving" : "Enable auto-archiving"} side="top">
-                            <Switch
-                                checked={settings.readLaterAutoArchive}
-                                onCheckedChange={setReadLaterAutoArchive}
-                                aria-label="Auto-Archive on Open"
-                            />
+                            <span className="inline-flex">
+                                <Switch
+                                    checked={settings.readLaterAutoArchive}
+                                    onCheckedChange={setReadLaterAutoArchive}
+                                    aria-label="Auto-Archive on Open"
+                                />
+                            </span>
                         </TooltipSimple>
                     </div>
                 </div>
