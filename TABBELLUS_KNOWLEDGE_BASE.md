@@ -418,7 +418,7 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Modularized `SettingsDialog.tsx` into a high-density orchestrator wrapping Radix Tabs (`@radix-ui/react-tabs`) and 4 dedicated subcomponents in `src/features/settings/components/`:
         *   `AppearanceTab.tsx`: Theme selector grid, Tab URL Display segmented control (`Show URLs` vs `Hide URLs`), toolbar icon badge mode picker, and sidebar position launcher.
         *   `BehaviorTab.tsx`: Read Later link opening segmented control (`Foreground` vs `Background`), Auto-Archive on Open switch (`src/components/ui/switch.tsx`), and Global Keyboard Shortcuts manager with `openShortcutsSettings()` browser launcher.
-        *   `DataTab.tsx`: Local Storage Health telemetry dashboard (`useStorageTelemetry`), JSON backup export/import, one-click sanitized diagnostic markdown report generator, and protected danger zone data wipe.
+        *   `DataTab.tsx`: Local Storage Health telemetry dashboard (`useStorageTelemetry`), JSON backup export/import, one-click sanitized diagnostic markdown report generator (Environment, Storage metrics, App configuration, and Raw User Agent telemetry), and protected danger zone data wipe.
         *   `SupportTab.tsx`: Mission statement, dynamic usage promo banner, review and tip links, and privacy policy.
     *   Pivoted density paradigm to **Tab URL Display Toggle**: preserved standard comfortable row dimensions (`h-9` and `h-7`), conditionally rendering secondary domain/URL subtitles in `TabRow.tsx` based on `showDomain` boolean to maximize vertical readability with vertical centering intact.
     *   Built accessible, high-contrast `<Switch>` primitive in `src/components/ui/switch.tsx` with crisp 1px borders and distinct unchecked tracks for light mode.
@@ -499,7 +499,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 21.5: Settings Behavior Tab Automation & Tab Memory Reclamation** - Complete.
 - **Phase 21.6: Forensic Architectural, Performance & Best-Practices Audit for Settings Subsystem** - Complete.
 
-<!-- Last Updated: 2026-08-20T14:42:00+02:00 -->
+<!-- Last Updated: 2026-08-20T18:20:00+02:00 -->
 
 
 

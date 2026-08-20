@@ -5,7 +5,8 @@ import { useToast } from '@/components/ui/Toaster';
 import { useClipboard } from '@/hooks/useClipboard';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useStorageTelemetry } from '../hooks/useStorageTelemetry';
-import { getOS, getBrowserVersion } from '@/lib/platform';
+import { getOS, getBrowserVersion, isEdge } from '@/lib/platform';
+import { useAppStore } from '@/store/appStore';
 
 interface DataTabProps {
     onImportSuccess?: () => void;
@@ -101,17 +102,48 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
             ? chrome.runtime.getManifest().version
             : '1.2.2';
 
+        const browserName = isEdge() ? 'Edge' : 'Chrome';
+        const browserVersion = getBrowserVersion();
+        const browserFormatted = browserVersion !== 'Unknown' ? `${browserName} ${browserVersion}` : browserName;
+
+        const settings = useAppStore.getState().settings;
+
+        const formatAutoDiscard = (interval: number): string => {
+            switch (interval) {
+                case 15: return '15m';
+                case 30: return '30m';
+                case 60: return '1h';
+                case 120: return '2h';
+                default: return 'Off';
+            }
+        };
+
         const report = [
             `### TabBellus Diagnostic Report`,
+            ``,
+            `#### Environment`,
             `- **Extension Version**: ${version}`,
             `- **Operating System**: ${getOS()}`,
-            `- **Browser Environment**: ${getBrowserVersion()}`,
+            `- **Browser**: ${browserFormatted}`,
+            ``,
+            `#### Database & Storage Metrics`,
             `- **Spaces Count**: ${counts.spaces}`,
             `- **Saved Tabs Count**: ${counts.tabs}`,
             `- **Read Later Count**: ${counts.readLater}`,
-            `- **Estimated Storage Usage**: ${usageFormatted}`,
+            `- **Estimated Storage Size**: ${usageFormatted}`,
+            ``,
+            `#### Active App Configuration`,
+            `- **Theme**: ${settings.theme}`,
+            `- **URL Subtitles**: ${settings.showDomain ? 'shown' : 'hidden'}`,
+            `- **Extension Badge Mode**: ${settings.badgeMode}`,
+            `- **Auto-Discard Idle Tabs**: ${formatAutoDiscard(settings.autoDiscardInterval)}`,
+            `- **Space Restore Trigger**: ${settings.spaceRestoreTrigger === 'single' ? 'Single-Click' : 'Double-Click'}`,
+            `- **Duplicate Tab Handling**: ${settings.duplicateTabBehavior === 'focus-existing' ? 'Focus Open Tab' : 'Open New Tab'}`,
+            `- **Read Later Ingestion**: Opening: ${settings.readLaterOpenBehavior === 'foreground' ? 'Foreground' : 'Background'} | Auto-Archive: ${settings.readLaterAutoArchive ? 'Enabled' : 'Disabled'}`,
+            ``,
+            `#### Raw Diagnostics`,
             `- **User Agent**: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown'}`,
-            `- **Timestamp**: ${new Date().toISOString()}`,
+            `- **Timestamp (UTC)**: ${new Date().toISOString()}`,
         ].join('\n');
 
         copy(report);
