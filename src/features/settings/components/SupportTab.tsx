@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Star, Coffee, LifeBuoy, ShieldCheck } from 'lucide-react';
+import { Heart, Star, Coffee, LifeBuoy, ShieldCheck, ExternalLink } from 'lucide-react';
 import { EXTERNAL_LINKS } from '@/config/links';
 import { handleExternalLink, openSupportHub } from '@/lib/platform';
 import { TooltipSimple } from '@/components/ui/Tooltip';
@@ -18,114 +18,149 @@ export const SupportTab: React.FC<SupportTabProps> = ({
         : '1.2.2';
 
     return (
-        <div className="space-y-4">
-            {/* Mission Statement */}
-            <div className="space-y-3 text-sm text-muted-foreground leading-relaxed px-1">
-                <p>
-                    TabBellus is a local-first tool built for your privacy. No ads, no trackers, and your data never leaves your machine.
-                </p>
-                <p>
-                    If you find value in a cleaner workflow, consider supporting my work. Your tips help keep the project independent and ad-free.
-                </p>
-                <p className="font-medium text-foreground">
-                    Thank you for being part of the journey! — Ramy
-                </p>
-            </div>
-
-            {/* Promo Banner */}
-            {isEligibleForPromo && (
-                <div className="p-4 rounded-lg bg-card border border-border">
-                    <div className="flex items-start gap-3">
-                        <Heart className="w-5 h-5 text-primary mt-0.5 shrink-0" />
-                        <div>
-                            <h4 className="text-sm font-semibold text-foreground">Loving TabBellus?</h4>
-                            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                                Your active usage helps us grow! If TabBellus has improved your workflow, please consider supporting development.
-                            </p>
-                            <div className="flex gap-2 mt-3">
-                                <button
-                                    type="button"
-                                    onClick={() => handleExternalLink(EXTERNAL_LINKS.REVIEWS)}
-                                    className="px-3 py-1.5 bg-primary text-primary-foreground hover:opacity-90 text-xs font-medium rounded-md transition-colors"
-                                >
-                                    Rate 5 Stars
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleExternalLink(EXTERNAL_LINKS.DONATE)}
-                                    className="px-3 py-1.5 bg-background border border-border text-foreground hover:bg-muted text-xs font-medium rounded-md transition-colors"
-                                >
-                                    Buy Coffee
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={onDismissPromo}
-                                    className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                >
-                                    Dismiss
-                                </button>
+        <div className="space-y-3.5">
+            {/* Community & Contribution Section (Two-State Transition Model) */}
+            {isEligibleForPromo ? (
+                <div className="p-3 rounded-lg bg-card border border-border space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                            <Heart className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                            <div className="min-w-0">
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                                    Loving TabBellus?
+                                </h4>
+                                <p className="text-xs text-muted-foreground mt-0.5 leading-normal">
+                                    Your support keeps development independent, local-first, and ad-free.
+                                </p>
                             </div>
                         </div>
+                        <TooltipSimple content="Dismiss promotion banner" side="top">
+                            <button
+                                type="button"
+                                onClick={onDismissPromo}
+                                className="text-xxs text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded shrink-0"
+                                aria-label="Dismiss promotion banner"
+                            >
+                                Dismiss
+                            </button>
+                        </TooltipSimple>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-0.5">
+                        <button
+                            type="button"
+                            onClick={() => handleExternalLink(EXTERNAL_LINKS.REVIEWS)}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 text-xs font-medium rounded-md transition-colors shadow-xs"
+                        >
+                            <Star className="w-3.5 h-3.5 fill-current shrink-0" />
+                            <span>Rate 5 Stars</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleExternalLink(EXTERNAL_LINKS.DONATE)}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-muted border border-border text-foreground hover:bg-muted/80 text-xs font-medium rounded-md transition-colors"
+                        >
+                            <Coffee className="w-3.5 h-3.5 text-amber-600 dark:text-amber-500 shrink-0" />
+                            <span>Buy Coffee</span>
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Support & Community
+                    </label>
+                    <div className="space-y-1.5">
+                        <TooltipSimple content="Leave a review on the Chrome Web Store" side="top">
+                            <button
+                                type="button"
+                                onClick={() => handleExternalLink(EXTERNAL_LINKS.REVIEWS)}
+                                className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border bg-card hover:border-primary/60 hover:bg-muted/50 transition-colors text-left"
+                            >
+                                <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                    <Star className="w-4 h-4 text-orange-400 shrink-0" />
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-medium text-foreground">Rate TabBellus</p>
+                                        <p className="text-xxs text-muted-foreground">Leave a review on the Chrome Web Store</p>
+                                    </div>
+                                </div>
+                                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                            </button>
+                        </TooltipSimple>
+
+                        <TooltipSimple content="Support development with a tip on Ko-fi" side="top">
+                            <button
+                                type="button"
+                                onClick={() => handleExternalLink(EXTERNAL_LINKS.DONATE)}
+                                className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border bg-card hover:border-primary/60 hover:bg-muted/50 transition-colors text-left"
+                            >
+                                <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                    <Coffee className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0" />
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-medium text-foreground">Buy me a coffee</p>
+                                        <p className="text-xxs text-muted-foreground">Support independent, local-first development</p>
+                                    </div>
+                                </div>
+                                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                            </button>
+                        </TooltipSimple>
                     </div>
                 </div>
             )}
 
-            {/* Support Actions */}
-            <div className="space-y-1.5">
-                <TooltipSimple content="Leave a review on the Chrome Web Store" side="top">
-                    <button
-                        type="button"
-                        onClick={() => handleExternalLink(EXTERNAL_LINKS.REVIEWS)}
-                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted transition-colors"
-                    >
-                        <Star className="w-4 h-4 text-orange-400 shrink-0" />
-                        <span className="text-sm font-medium text-foreground">Rate TabBellus</span>
-                    </button>
-                </TooltipSimple>
-
-                <TooltipSimple content="Support independent development with a tip on Ko-fi" side="top">
-                    <button
-                        type="button"
-                        onClick={() => handleExternalLink(EXTERNAL_LINKS.DONATE)}
-                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted transition-colors"
-                    >
-                        <Coffee className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span className="text-sm font-medium text-foreground">Buy me a coffee</span>
-                    </button>
-                </TooltipSimple>
-
-                <TooltipSimple content="Submit a bug report, request a feature, or contact support" side="top">
-                    <button
-                        type="button"
-                        onClick={openSupportHub}
-                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted transition-colors"
-                    >
-                        <LifeBuoy className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm font-medium text-foreground">Help & Feedback</span>
-                    </button>
-                </TooltipSimple>
+            {/* Resources & Troubleshooting Section */}
+            <div className="space-y-2 pt-1 border-t border-border">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Resources & Help
+                </label>
+                <div className="space-y-1.5">
+                    <TooltipSimple content="Submit a bug report, request a feature, or contact support with diagnostic telemetry" side="top">
+                        <button
+                            type="button"
+                            onClick={openSupportHub}
+                            className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border bg-card hover:border-primary/60 hover:bg-muted/50 transition-colors text-left"
+                        >
+                            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                <LifeBuoy className="w-4 h-4 text-muted-foreground shrink-0" />
+                                <div className="min-w-0">
+                                    <p className="text-xs font-medium text-foreground">Help & Feedback</p>
+                                    <p className="text-xxs text-muted-foreground">Submit diagnostic reports or feature ideas</p>
+                                </div>
+                            </div>
+                            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                        </button>
+                    </TooltipSimple>
+                </div>
             </div>
 
-            {/* Legal Section */}
-            <div className="mt-6 space-y-2 pt-4 border-t border-border">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Legal</h4>
+            {/* About & Legal Section */}
+            <div className="space-y-2 pt-1 border-t border-border">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    About & Legal
+                </label>
                 <TooltipSimple content="View privacy policy and local-first data protection guarantees" side="top">
                     <button
                         type="button"
                         onClick={() => handleExternalLink(EXTERNAL_LINKS.PRIVACY_POLICY)}
-                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted transition-colors text-left"
+                        className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border bg-card hover:border-primary/60 hover:bg-muted/50 transition-colors text-left"
                     >
-                        <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm font-medium text-foreground">Privacy Policy</span>
+                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                            <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
+                            <div className="min-w-0">
+                                <p className="text-xs font-medium text-foreground">Privacy Policy</p>
+                                <p className="text-xxs text-muted-foreground">Zero trackers, local-first offline guarantee</p>
+                            </div>
+                        </div>
+                        <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
                     </button>
                 </TooltipSimple>
             </div>
 
-            {/* Version Footer */}
-            <div className="pt-2 text-center">
-                <span className="text-xs font-mono text-muted-foreground/60">
-                    TabBellus v{extensionVersion}
-                </span>
+            {/* Version & Identity Footer */}
+            <div className="pt-1 text-center">
+                <p className="text-xxs font-mono text-muted-foreground/70">
+                    TabBellus v{extensionVersion} • Local-First & Privacy-Focused
+                </p>
             </div>
         </div>
     );
