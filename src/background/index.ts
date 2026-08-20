@@ -4,8 +4,44 @@ import { spaceService } from '@/lib/spaceService';
 import { readLaterService } from '@/lib/readLaterService';
 import { getReadLaterShortcutText } from '@/lib/platform';
 import { updateGlobalBadge } from './badgeService';
+import { runDiscardSweep } from './discardService';
 
 console.log('TabBellus Service Worker Initialized');
+
+const TAB_DISCARD_ALARM_NAME = 'tab-discard-sweep';
+
+/**
+ * Dynamically synchronizes the recurring tab-discard-sweep alarm
+ * based on the user's autoDiscardInterval setting.
+ */
+export const syncDiscardAlarm = async (intervalMinutes?: number): Promise<void> => {
+    try {
+        let interval = intervalMinutes;
+        if (interval === undefined) {
+            const res = await chrome.storage.local.get('tabbellus-settings');
+            if (res && res['tabbellus-settings']) {
+                const parsed = typeof res['tabbellus-settings'] === 'string'
+                    ? JSON.parse(res['tabbellus-settings'])
+                    : res['tabbellus-settings'];
+                interval = parsed?.state?.settings?.autoDiscardInterval
+                    ?? parsed?.settings?.autoDiscardInterval
+                    ?? 0;
+            } else {
+                interval = 0;
+            }
+        }
+
+        if (interval && interval > 0) {
+            await chrome.alarms.create(TAB_DISCARD_ALARM_NAME, { periodInMinutes: 5 });
+            console.log(`Background Discard: Registered ${TAB_DISCARD_ALARM_NAME} alarm every 5 minutes (threshold: ${interval}m)`);
+        } else {
+            await chrome.alarms.clear(TAB_DISCARD_ALARM_NAME);
+            console.log(`Background Discard: Cleared ${TAB_DISCARD_ALARM_NAME} alarm (disabled)`);
+        }
+    } catch (err) {
+        console.warn('Background Discard: Error syncing discard alarm:', err);
+    }
+};
 
 // Audit all open Chrome windows and match them against saved spaces to reconstruct tracking mappings
 const auditActiveSpacesOnStartup = async () => {
@@ -109,6 +145,7 @@ chrome.runtime.onInstalled.addListener(() => {
     console.log('TabBellus Installed');
     setupContextMenus();
     chrome.alarms.create('badge-refresh', { periodInMinutes: 1 });
+    syncDiscardAlarm();
     db.open().then(() => {
         console.log('DB Connected in Background');
         auditActiveSpacesOnStartup();
@@ -124,6 +161,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
     console.log('TabBellus Startup');
     chrome.alarms.create('badge-refresh', { periodInMinutes: 1 });
+    syncDiscardAlarm();
     db.open().then(() => {
         auditActiveSpacesOnStartup();
         updateGlobalBadge();
@@ -206,11 +244,15 @@ const performSync = async (windowId: number) => {
     }
 };
 
-// Global alarms listener to handle flushed synchronization and badge refreshes
+// Global alarms listener to handle flushed synchronization, badge refreshes, and tab memory discard sweeps
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     console.log("Background alarm triggered:", alarm.name);
     if (alarm.name === 'badge-refresh') {
         await updateGlobalBadge();
+        return;
+    }
+    if (alarm.name === TAB_DISCARD_ALARM_NAME) {
+        await runDiscardSweep();
         return;
     }
     if (alarm.name.startsWith('sync-flush-')) {
@@ -236,6 +278,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && changes['tabbellus-settings']) {
         updateGlobalBadge();
+        try {
+            const newRaw = changes['tabbellus-settings'].newValue;
+            const parsed = typeof newRaw === 'string' ? JSON.parse(newRaw) : newRaw;
+            const interval = parsed?.state?.settings?.autoDiscardInterval
+                ?? parsed?.settings?.autoDiscardInterval
+                ?? 0;
+            syncDiscardAlarm(interval);
+        } catch (e) {
+            console.warn('Background: Failed to update discard alarm on settings change:', e);
+        }
     }
 });
 

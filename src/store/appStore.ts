@@ -8,6 +8,9 @@ export interface AppSettings {
     showDomain: boolean;
     readLaterOpenBehavior: 'foreground' | 'background';
     readLaterAutoArchive: boolean;
+    autoDiscardInterval: 0 | 15 | 30 | 60 | 120;
+    spaceRestoreTrigger: 'single' | 'double';
+    duplicateTabBehavior: 'allow' | 'focus-existing';
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -16,6 +19,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showDomain: true,
     readLaterOpenBehavior: 'foreground',
     readLaterAutoArchive: true,
+    autoDiscardInterval: 0,
+    spaceRestoreTrigger: 'single',
+    duplicateTabBehavior: 'focus-existing',
 };
 
 // 1. Create a Custom Bridge for Chrome Storage
@@ -85,6 +91,9 @@ export interface AppState {
     setBadgeMode: (badgeMode: AppSettings['badgeMode']) => void;
     setReadLaterOpenBehavior: (behavior: AppSettings['readLaterOpenBehavior']) => void;
     setReadLaterAutoArchive: (autoArchive: AppSettings['readLaterAutoArchive']) => void;
+    setAutoDiscardInterval: (interval: AppSettings['autoDiscardInterval']) => void;
+    setSpaceRestoreTrigger: (trigger: AppSettings['spaceRestoreTrigger']) => void;
+    setDuplicateTabBehavior: (behavior: AppSettings['duplicateTabBehavior']) => void;
     setHydrated: (state: boolean) => void;
     setActiveView: (view: AppState['activeView']) => void;
     registerActiveSpace: (spaceId: number, windowId: number) => void;
@@ -147,6 +156,24 @@ export const useAppStore = create<AppState>()(
                     settings: newSettings,
                 };
             }),
+            setAutoDiscardInterval: (autoDiscardInterval) => set((state) => {
+                const newSettings = { ...state.settings, autoDiscardInterval };
+                return {
+                    settings: newSettings,
+                };
+            }),
+            setSpaceRestoreTrigger: (spaceRestoreTrigger) => set((state) => {
+                const newSettings = { ...state.settings, spaceRestoreTrigger };
+                return {
+                    settings: newSettings,
+                };
+            }),
+            setDuplicateTabBehavior: (duplicateTabBehavior) => set((state) => {
+                const newSettings = { ...state.settings, duplicateTabBehavior };
+                return {
+                    settings: newSettings,
+                };
+            }),
             setHydrated: (isHydrated) => set({ isHydrated }),
             setActiveView: (view) => set({ activeView: view }),
             registerActiveSpace: (spaceId, windowId) => set((state) => {
@@ -204,6 +231,9 @@ export const useAppStore = create<AppState>()(
                     badgeMode: persisted.settings?.badgeMode ?? (persisted.badgeMode as AppSettings['badgeMode']) ?? DEFAULT_SETTINGS.badgeMode,
                     readLaterOpenBehavior: persisted.settings?.readLaterOpenBehavior ?? DEFAULT_SETTINGS.readLaterOpenBehavior,
                     readLaterAutoArchive: persisted.settings?.readLaterAutoArchive ?? DEFAULT_SETTINGS.readLaterAutoArchive,
+                    autoDiscardInterval: persisted.settings?.autoDiscardInterval ?? DEFAULT_SETTINGS.autoDiscardInterval,
+                    spaceRestoreTrigger: persisted.settings?.spaceRestoreTrigger ?? DEFAULT_SETTINGS.spaceRestoreTrigger,
+                    duplicateTabBehavior: persisted.settings?.duplicateTabBehavior ?? DEFAULT_SETTINGS.duplicateTabBehavior,
                 };
                 return {
                     ...currentState,

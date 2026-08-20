@@ -1,16 +1,89 @@
 import React from 'react';
-import { ExternalLink, Layers, Keyboard, BookmarkCheck } from 'lucide-react';
+import {
+    ExternalLink,
+    Layers,
+    Keyboard,
+    BookmarkCheck,
+    Cpu,
+    MousePointer,
+    MousePointerClick,
+    CopyPlus,
+    Focus,
+    Clock,
+} from 'lucide-react';
 import { useAppStore, type AppSettings } from '@/store/appStore';
 import { openShortcutsSettings, getReadLaterShortcutText } from '@/lib/platform';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Switch } from '@/components/ui/switch';
 
 export const BehaviorTab: React.FC = () => {
-    const { settings, setReadLaterOpenBehavior, setReadLaterAutoArchive } = useAppStore((state) => ({
+    const {
+        settings,
+        setReadLaterOpenBehavior,
+        setReadLaterAutoArchive,
+        setAutoDiscardInterval,
+        setSpaceRestoreTrigger,
+        setDuplicateTabBehavior,
+    } = useAppStore((state) => ({
         settings: state.settings,
         setReadLaterOpenBehavior: state.setReadLaterOpenBehavior,
         setReadLaterAutoArchive: state.setReadLaterAutoArchive,
+        setAutoDiscardInterval: state.setAutoDiscardInterval,
+        setSpaceRestoreTrigger: state.setSpaceRestoreTrigger,
+        setDuplicateTabBehavior: state.setDuplicateTabBehavior,
     }));
+
+    const discardIntervalOptions: {
+        value: AppSettings['autoDiscardInterval'];
+        label: string;
+        description: string;
+    }[] = [
+        { value: 0, label: 'Off', description: 'Never automatically suspend idle tabs' },
+        { value: 15, label: '15m', description: 'Suspend tabs idle for 15 minutes or longer' },
+        { value: 30, label: '30m', description: 'Suspend tabs idle for 30 minutes or longer' },
+        { value: 60, label: '1h', description: 'Suspend tabs idle for 1 hour or longer' },
+        { value: 120, label: '2h', description: 'Suspend tabs idle for 2 hours or longer' },
+    ];
+
+    const spaceRestoreOptions: {
+        value: AppSettings['spaceRestoreTrigger'];
+        label: string;
+        icon: React.ComponentType<{ className?: string }>;
+        description: string;
+    }[] = [
+        {
+            value: 'single',
+            label: 'Single-Click',
+            icon: MousePointer,
+            description: 'Single clicking a space row restores or focuses the workspace window immediately',
+        },
+        {
+            value: 'double',
+            label: 'Double-Click',
+            icon: MousePointerClick,
+            description: 'Single click toggles tab expansion; double click restores or focuses the workspace window',
+        },
+    ];
+
+    const duplicateTabOptions: {
+        value: AppSettings['duplicateTabBehavior'];
+        label: string;
+        icon: React.ComponentType<{ className?: string }>;
+        description: string;
+    }[] = [
+        {
+            value: 'focus-existing',
+            label: 'Focus Open Tab',
+            icon: Focus,
+            description: 'Switch to the existing tab if the URL is already open',
+        },
+        {
+            value: 'allow',
+            label: 'Open New Tab',
+            icon: CopyPlus,
+            description: 'Always open a new tab even if the same URL is already open',
+        },
+    ];
 
     const openBehaviorOptions: {
         value: AppSettings['readLaterOpenBehavior'];
@@ -34,8 +107,121 @@ export const BehaviorTab: React.FC = () => {
 
     return (
         <div className="space-y-5">
-            {/* Read Later Workflow Section */}
+            {/* Tab Automation & Memory Reclamation */}
             <div className="space-y-4">
+                <div>
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <Cpu className="w-3.5 h-3.5" />
+                        Tab Automation & Memory
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        Automate background tab suspension and duplicate handling to optimize RAM usage.
+                    </p>
+                </div>
+
+                {/* Auto-Discard Idle Tabs (Segmented Control) */}
+                <div className="p-3 rounded-lg border border-border bg-card space-y-2">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <span className="text-xs font-medium text-foreground">Auto-Discard Idle Tabs</span>
+                        </div>
+                        <span className="text-xxs font-medium text-muted-foreground">
+                            {settings.autoDiscardInterval === 0 ? 'Disabled' : `Every ${settings.autoDiscardInterval}m`}
+                        </span>
+                    </div>
+                    <p className="text-xxs text-muted-foreground leading-normal">
+                        Reclaim system memory by suspending background tabs after inactivity. Tabs reload instantly when focused.
+                    </p>
+                    <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        {discardIntervalOptions.map(({ value, label, description }) => {
+                            const isSelected = settings.autoDiscardInterval === value;
+                            return (
+                                <TooltipSimple key={value} content={description} side="top">
+                                    <button
+                                        type="button"
+                                        onClick={() => setAutoDiscardInterval(value)}
+                                        className={`flex items-center justify-center py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                                            isSelected
+                                                ? 'border-primary bg-accent text-primary font-semibold shadow-2xs'
+                                                : 'border-border hover:border-primary/60 text-muted-foreground hover:text-foreground'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                </TooltipSimple>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Duplicate Tab Handling */}
+                <div className="space-y-2">
+                    <span className="text-xs font-medium text-foreground">Duplicate Tab Handling</span>
+                    <div className="grid grid-cols-2 gap-2">
+                        {duplicateTabOptions.map(({ value, label, icon: Icon, description }) => {
+                            const isSelected = settings.duplicateTabBehavior === value;
+                            return (
+                                <TooltipSimple key={value} content={description} side="top">
+                                    <button
+                                        type="button"
+                                        onClick={() => setDuplicateTabBehavior(value)}
+                                        className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border transition-colors ${
+                                            isSelected
+                                                ? 'border-primary bg-accent text-primary font-semibold'
+                                                : 'border-border hover:border-primary/60 text-muted-foreground hover:text-foreground'
+                                        }`}
+                                    >
+                                        <Icon className="w-4 h-4 shrink-0" />
+                                        <span className="text-xs font-medium">{label}</span>
+                                    </button>
+                                </TooltipSimple>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            {/* Workspace & Spaces Section */}
+            <div className="space-y-4 pt-3 border-t border-border">
+                <div>
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Workspace Interaction
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        Configure row click triggers to prevent accidental window restorations.
+                    </p>
+                </div>
+
+                {/* Space Restore Trigger */}
+                <div className="space-y-2">
+                    <span className="text-xs font-medium text-foreground">Space Restore Trigger</span>
+                    <div className="grid grid-cols-2 gap-2">
+                        {spaceRestoreOptions.map(({ value, label, icon: Icon, description }) => {
+                            const isSelected = settings.spaceRestoreTrigger === value;
+                            return (
+                                <TooltipSimple key={value} content={description} side="top">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSpaceRestoreTrigger(value)}
+                                        className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border transition-colors ${
+                                            isSelected
+                                                ? 'border-primary bg-accent text-primary font-semibold'
+                                                : 'border-border hover:border-primary/60 text-muted-foreground hover:text-foreground'
+                                        }`}
+                                    >
+                                        <Icon className="w-4 h-4 shrink-0" />
+                                        <span className="text-xs font-medium">{label}</span>
+                                    </button>
+                                </TooltipSimple>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            {/* Read Later Workflow Section */}
+            <div className="space-y-4 pt-3 border-t border-border">
                 <div>
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Read Later Workflow
@@ -56,10 +242,11 @@ export const BehaviorTab: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setReadLaterOpenBehavior(value)}
-                                        className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border transition-colors ${isSelected
-                                            ? 'border-primary bg-accent text-primary'
-                                            : 'border-border hover:border-primary/60 text-muted-foreground hover:text-foreground'
-                                            }`}
+                                        className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border transition-colors ${
+                                            isSelected
+                                                ? 'border-primary bg-accent text-primary font-semibold'
+                                                : 'border-border hover:border-primary/60 text-muted-foreground hover:text-foreground'
+                                        }`}
                                     >
                                         <Icon className="w-4 h-4 shrink-0" />
                                         <span className="text-xs font-medium">{label}</span>
@@ -71,7 +258,7 @@ export const BehaviorTab: React.FC = () => {
                 </div>
 
                 {/* Auto-Archive on Open (Toggle Control) */}
-                <div className="pt-2">
+                <div className="pt-1">
                     <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-card">
                         <div className="space-y-0.5 pr-3">
                             <div className="flex items-center gap-2">
@@ -134,3 +321,4 @@ export const BehaviorTab: React.FC = () => {
         </div>
     );
 };
+

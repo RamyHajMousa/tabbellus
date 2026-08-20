@@ -427,22 +427,35 @@ The project has completed major refactoring phases to optimize performance, clea
 
 ---
 
+### Phase 21.5: Settings Behavior Tab Automation & Tab Memory Reclamation
+*   **Outcome:**
+    *   **AppSettings Schema Expansion:** Extended `AppSettings` in `useAppStore` with `autoDiscardInterval` (`0 | 15 | 30 | 60 | 120`), `spaceRestoreTrigger` (`'single' | 'double'`), and `duplicateTabBehavior` (`'allow' | 'focus-existing'`) with atomic setters and backward-compatible persistence merge logic.
+    *   **Tab Memory Reclamation Discard Engine:** Built stateless `discardService.ts` evaluating tabs against a strict 7-point eligibility predicate (`!active`, `!pinned`, `!audible`, `!discarded`, `!locked`, non-internal scheme, elapsed delta check `Date.now() - (lastAccessed ?? 0) >= intervalMs`).
+    *   **Background Alarm Wiring:** Wired `tab-discard-sweep` 5-minute recurring alarm in `background/index.ts`, dynamically scheduled or cleared on startup, install, and `chrome.storage.onChanged` for `tabbellus-settings`.
+    *   **Behavior Tab Settings Controls:** Rendered high-density, accessible controls in `BehaviorTab.tsx`: Auto-Discard Idle Tabs (5-segment selector: `Off`, `15m`, `30m`, `1h`, `2h`), Duplicate Tab Handling (`Focus Open Tab` vs `Open New Tab`), and Space Restore Trigger (`Single-Click` vs `Double-Click`).
+    *   **SpaceItem Interaction Handling:** Wired `SpaceItem.tsx` header click logic to respect `spaceRestoreTrigger` (double-click mode: single click toggles accordion expansion, double click restores window; action tray button and context menu item always restore immediately).
+    *   **TabService Duplicate Handling:** Enhanced `tabService.focusOrCreate(url, behavior)` to support `duplicateTabBehavior: 'allow'` (directly creates new tab without focusing existing).
+    *   **Testing Infrastructure:** Created `src/lib/__tests__/discardService.test.ts` (16 tests), expanded `appStore.test.ts` (12 tests) and `tabService.test.ts` (9 tests), raising total test suite to 110/110 passing tests across 11 files.
+
+---
+
 ## 6. Testing & Quality Assurance Infrastructure
 
 ### 6.1 Unit & Integration Testing (Vitest)
 *   **Configuration (`vitest.config.ts`):** Standard Node environment with in-memory IndexedDB bindings (`fake-indexeddb/auto`).
 *   **Core Suites:**
-    *   `tabService.test.ts` (8 tests)
+    *   `discardService.test.ts` (16 tests)
+    *   `tabService.test.ts` (9 tests)
     *   `sessionUtils.test.ts` (10 tests)
     *   `spaceService.test.ts` (20 tests)
     *   `readLaterService.test.ts` (13 tests)
     *   `dataService.test.ts` (6 tests)
     *   `dateUtils.test.ts` (13 tests)
     *   `platform.test.ts` (3 tests)
-    *   `appStore.test.ts` (9 tests)
+    *   `appStore.test.ts` (12 tests)
     *   `useStorageTelemetry.test.ts` (5 tests)
     *   `badge.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (90/90 passing).
+*   **Execution Command:** `npm test` (110/110 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -476,14 +489,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 20: Forensic Architectural, Performance & Memoization Audit for Read Later** - Complete.
 - **Phase 21: Settings Architecture Modularization & AppSettings State Management** - Complete.
 - **Phase 21.4: Dynamic Badging Driven by Settings Store & Switch Primitive Contrast Refactor (Component Ownership Model)** - Complete.
+- **Phase 21.5: Settings Behavior Tab Automation & Tab Memory Reclamation** - Complete.
 
-### Next Specific Technical Objective
-- **Phase 21.5: Settings Behavior Tab Automation & Memory Management**
-  - Implement configurable auto-discard idle tab intervals.
-  - Implement duplicate tab detection toggles on new tab creation.
-  - Implement single-click vs double-click space restore behavior.
-
-<!-- Last Updated: 2026-08-20T11:55:00+02:00 -->
+<!-- Last Updated: 2026-08-20T13:42:00+02:00 -->
 
 
 

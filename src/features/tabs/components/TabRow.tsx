@@ -10,7 +10,7 @@ import { AnimatedAudioIcon } from './AnimatedAudioIcon';
 import { useTabLockStore } from '../store/tabLockStore';
 import { useAppStore } from '@/store/appStore';
 import { useToast } from '@/components/ui/Toaster';
-import { getReadLaterShortcutText } from '@/lib';
+import { getReadLaterShortcutText, tabService } from '@/lib';
 import {
     ContextMenu,
     ContextMenuTrigger,
@@ -115,7 +115,7 @@ export const TabRow = React.memo(
                     e.stopPropagation();
                     if (data.source === 'saved') {
                         if (data.url) {
-                            chrome.tabs.create({ url: data.url, active: true }).catch(() => { });
+                            tabService.focusOrCreate(data.url).catch(() => { });
                         }
                     } else if (data.chromeTabId !== undefined) {
                         chrome.tabs.update(data.chromeTabId, { active: true }).catch(() => { });

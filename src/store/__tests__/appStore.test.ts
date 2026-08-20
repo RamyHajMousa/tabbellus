@@ -22,6 +22,9 @@ describe('useAppStore Settings Slice', () => {
             showDomain: true,
             readLaterOpenBehavior: 'foreground',
             readLaterAutoArchive: true,
+            autoDiscardInterval: 0,
+            spaceRestoreTrigger: 'single',
+            duplicateTabBehavior: 'focus-existing',
         });
         expect(state.theme).toBe('system');
         expect(state.showDomain).toBe(true);
@@ -64,6 +67,24 @@ describe('useAppStore Settings Slice', () => {
         expect(state.settings.readLaterAutoArchive).toBe(false);
     });
 
+    it('should update autoDiscardInterval via setAutoDiscardInterval', () => {
+        useAppStore.getState().setAutoDiscardInterval(30);
+        const state = useAppStore.getState();
+        expect(state.settings.autoDiscardInterval).toBe(30);
+    });
+
+    it('should update spaceRestoreTrigger via setSpaceRestoreTrigger', () => {
+        useAppStore.getState().setSpaceRestoreTrigger('double');
+        const state = useAppStore.getState();
+        expect(state.settings.spaceRestoreTrigger).toBe('double');
+    });
+
+    it('should update duplicateTabBehavior via setDuplicateTabBehavior', () => {
+        useAppStore.getState().setDuplicateTabBehavior('allow');
+        const state = useAppStore.getState();
+        expect(state.settings.duplicateTabBehavior).toBe('allow');
+    });
+
     it('should update partial settings atomically via updateSettings', () => {
         useAppStore.getState().updateSettings({
             theme: 'light',
@@ -71,6 +92,9 @@ describe('useAppStore Settings Slice', () => {
             badgeMode: 'none',
             readLaterOpenBehavior: 'background',
             readLaterAutoArchive: false,
+            autoDiscardInterval: 60,
+            spaceRestoreTrigger: 'double',
+            duplicateTabBehavior: 'allow',
         });
         const state = useAppStore.getState();
         expect(state.settings).toEqual({
@@ -79,13 +103,16 @@ describe('useAppStore Settings Slice', () => {
             badgeMode: 'none',
             readLaterOpenBehavior: 'background',
             readLaterAutoArchive: false,
+            autoDiscardInterval: 60,
+            spaceRestoreTrigger: 'double',
+            duplicateTabBehavior: 'allow',
         });
         expect(state.theme).toBe('light');
         expect(state.showDomain).toBe(false);
         expect(state.badgeMode).toBe('none');
     });
 
-    it('should handle persist merge fallback for legacy storage payload lacking settings object', () => {
+    it('should handle persist merge fallback for legacy storage payload lacking settings object and new properties', () => {
         const persistOptions = (useAppStore as any).persist.getOptions();
         const mergeFn = persistOptions.merge;
 
@@ -105,6 +132,9 @@ describe('useAppStore Settings Slice', () => {
             showDomain: true,
             readLaterOpenBehavior: 'foreground',
             readLaterAutoArchive: true,
+            autoDiscardInterval: 0,
+            spaceRestoreTrigger: 'single',
+            duplicateTabBehavior: 'focus-existing',
         });
         expect(merged.theme).toBe('dark');
         expect(merged.showDomain).toBe(true);
@@ -124,6 +154,9 @@ describe('useAppStore Settings Slice', () => {
                 badgeMode: 'tabs',
                 readLaterOpenBehavior: 'background',
                 readLaterAutoArchive: false,
+                autoDiscardInterval: 120,
+                spaceRestoreTrigger: 'double',
+                duplicateTabBehavior: 'allow',
             },
             activeView: 'spaces',
             recentSearches: [],
@@ -138,6 +171,9 @@ describe('useAppStore Settings Slice', () => {
             badgeMode: 'tabs',
             readLaterOpenBehavior: 'background',
             readLaterAutoArchive: false,
+            autoDiscardInterval: 120,
+            spaceRestoreTrigger: 'double',
+            duplicateTabBehavior: 'allow',
         });
         expect(merged.theme).toBe('light');
         expect(merged.showDomain).toBe(false);

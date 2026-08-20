@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { tabService } from '../tabService';
+import { useAppStore, DEFAULT_SETTINGS } from '@/store/appStore';
 
 describe('TabService - normalizeUrl', () => {
     it('should strip common tracking parameters', () => {
@@ -164,6 +165,59 @@ describe('TabService - focusOrCreate', () => {
             action: 'created',
             tabId: 25,
             windowId: 100,
+        });
+    });
+
+    it('should create a new tab when duplicateTabBehavior is allow even if matching tab exists', async () => {
+        const mockTabs = [
+            { id: 10, windowId: 100, url: 'https://example.com/dashboard' }
+        ];
+
+        vi.mocked(chrome.tabs.query).mockResolvedValue(mockTabs as any);
+        vi.mocked(chrome.tabs.create).mockResolvedValue({ id: 99, windowId: 100 } as any);
+
+        const result = await tabService.focusOrCreate('https://example.com/dashboard', 'allow');
+
+        expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'https://example.com/dashboard' });
+        expect(chrome.windows.update).not.toHaveBeenCalled();
+        expect(chrome.tabs.update).not.toHaveBeenCalled();
+        expect(result).toEqual({
+            action: 'created',
+            tabId: 99,
+            windowId: 100,
+        });
+    });
+
+    it('should dynamically read duplicateTabBehavior from useAppStore when no behavior argument is provided', async () => {
+        const mockTabs = [
+            { id: 10, windowId: 100, url: 'https://example.com/dashboard' }
+        ];
+
+        vi.mocked(chrome.tabs.query).mockResolvedValue(mockTabs as any);
+        vi.mocked(chrome.tabs.create).mockResolvedValue({ id: 88, windowId: 100 } as any);
+
+        // Configure store with 'allow'
+        useAppStore.setState({
+            settings: {
+                ...DEFAULT_SETTINGS,
+                duplicateTabBehavior: 'allow',
+            },
+        });
+
+        const result = await tabService.focusOrCreate('https://example.com/dashboard');
+
+        expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'https://example.com/dashboard' });
+        expect(chrome.windows.update).not.toHaveBeenCalled();
+        expect(chrome.tabs.update).not.toHaveBeenCalled();
+        expect(result).toEqual({
+            action: 'created',
+            tabId: 88,
+            windowId: 100,
+        });
+
+        // Reset store to default
+        useAppStore.setState({
+            settings: { ...DEFAULT_SETTINGS },
         });
     });
 

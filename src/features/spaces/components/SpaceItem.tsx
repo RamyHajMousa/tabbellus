@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChevronDown, ChevronRight, Trash2, ExternalLink, Calendar, Layers, Pin, Pencil, Download, Copy, FolderOutput, CopyPlus, Clock, Link, FolderPlus } from 'lucide-react';
-import { type Space, type Tab, spaceService, readLaterService, dataService, getGroupColorClasses } from '@/lib';
+import { type Space, type Tab, spaceService, readLaterService, dataService, getGroupColorClasses, tabService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { useClipboard } from '@/hooks/useClipboard';
 import { TabRow, savedTabToRowData } from '@/features/tabs';
@@ -42,8 +42,9 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
     const { toast } = useToast();
     const { copy } = useClipboard();
 
-    // Subscribe to activeSpaces for this space
+    // Subscribe to activeSpaces and settings for this space
     const activeWindowId = space.id ? useAppStore((state) => state.activeSpaces[space.id!]) : undefined;
+    const spaceRestoreTrigger = useAppStore((state) => state.settings.spaceRestoreTrigger);
     const unregisterWindow = useAppStore((state) => state.unregisterWindow);
     const isActive = !!activeWindowId;
 
@@ -77,6 +78,20 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
             await spaceService.restoreSpace(space.id);
         }
     }, [space.id, isActive, activeWindowId, unregisterWindow]);
+
+    const handleHeaderClick = React.useCallback(() => {
+        if (spaceRestoreTrigger === 'double') {
+            setIsOpen((prev) => !prev);
+        } else {
+            handleClick();
+        }
+    }, [spaceRestoreTrigger, handleClick]);
+
+    const handleHeaderDoubleClick = React.useCallback(() => {
+        if (spaceRestoreTrigger === 'double') {
+            handleClick();
+        }
+    }, [spaceRestoreTrigger, handleClick]);
 
     const handleAppendToCurrentWindow = React.useCallback(async (e?: React.MouseEvent<HTMLElement>) => {
         if (e) {
@@ -205,7 +220,7 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
 
     const handleOpenTab = React.useCallback((url?: string) => {
         if (url) {
-            chrome.tabs.create({ url, active: true }).catch(() => {});
+            tabService.focusOrCreate(url).catch(() => {});
         }
     }, []);
 
@@ -232,7 +247,8 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
         <InteractiveRow
             size="md"
             className="group/space h-auto py-2 items-center"
-            onClick={handleClick}
+            onClick={handleHeaderClick}
+            onDoubleClick={handleHeaderDoubleClick}
         >
             {/* Expand/Collapse Toggle, Color Badge, Pin & Active Dot */}
             <InteractiveRow.Leading>

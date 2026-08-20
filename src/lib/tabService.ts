@@ -42,13 +42,39 @@ class TabService {
 
     /**
      * Focuses an existing tab with the matching URL, or creates a new one.
+     * Respects duplicateTabBehavior ('allow' | 'focus-existing').
+     * If behavior is not provided, defaults to the user's active AppSettings preference.
      * @param url The URL to navigate to.
+     * @param behavior Optional duplicate behavior override ('allow' | 'focus-existing').
      * @returns Typed result containing the action ('focused' | 'created'), tabId, and windowId.
      */
-    async focusOrCreate(url: string): Promise<FocusOrCreateResult | undefined> {
+    async focusOrCreate(url: string, behavior?: 'allow' | 'focus-existing'): Promise<FocusOrCreateResult | undefined> {
         if (!url) return undefined;
 
+        let effectiveBehavior = behavior;
+        if (!effectiveBehavior) {
+            try {
+                // Lazy dynamic import eliminates circular module initialization cycles with @/lib barrel
+                const { useAppStore } = await import('@/store/appStore');
+                effectiveBehavior = useAppStore.getState().settings.duplicateTabBehavior;
+            } catch {
+                effectiveBehavior = 'focus-existing';
+            }
+        }
+
         try {
+            if (effectiveBehavior === 'allow') {
+                const newTab = await chrome.tabs.create({ url }).catch(() => null);
+                if (newTab && newTab.id && newTab.windowId) {
+                    return {
+                        action: 'created',
+                        tabId: newTab.id,
+                        windowId: newTab.windowId
+                    };
+                }
+                return undefined;
+            }
+
             // 1. Find all tabs
             const allTabs = await chrome.tabs.query({});
             const target = this.normalizeUrl(url);
