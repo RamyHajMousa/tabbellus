@@ -33,7 +33,7 @@ const TabsContent = React.forwardRef<
 >(({ className = '', ...props }, ref) => (
     <TabsPrimitive.Content
         ref={ref}
-        className={`py-4 overflow-y-auto flex-1 pr-1 outline-none ring-0 ${className}`}
+        className={`py-4 overflow-y-auto overflow-x-hidden flex-1 pr-3 sm:pr-4 outline-none ring-0 ${className}`}
         {...props}
     />
 ));
