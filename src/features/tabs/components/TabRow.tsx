@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Clock, Trash2, Copy, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon } from 'lucide-react';
+import { X, Clock, Trash2, Copy, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon, Loader2 } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { SpaceSelectorModal } from '@/features/spaces/components/SpaceSelectorModal';
 import { TooltipSimple } from '@/components/ui/Tooltip';
@@ -128,7 +128,11 @@ export const TabRow = React.memo(
                     {isLocked && (
                         <Lock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                     )}
-                    <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />
+                    {data.status === 'loading' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground flex-shrink-0" />
+                    ) : (
+                        <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />
+                    )}
 
                     {/* Suspension Indicator */}
                     {data.discarded && (
@@ -361,6 +365,7 @@ export const TabRow = React.memo(
         prevProps.data.discarded === nextProps.data.discarded &&
         prevProps.data.audible === nextProps.data.audible &&
         prevProps.data.mutedInfo?.muted === nextProps.data.mutedInfo?.muted &&
+        prevProps.data.status === nextProps.data.status &&
         prevProps.isDuplicate === nextProps.isDuplicate &&
         prevProps.disableContextMenu === nextProps.disableContextMenu
     );

@@ -17,7 +17,8 @@ export default defineManifest({
         "sessions",
         "alarms",
         "bookmarks",
-        "contextMenus"
+        "contextMenus",
+        "favicon"
     ],
     action: {
         default_popup: "src/popup/index.html",

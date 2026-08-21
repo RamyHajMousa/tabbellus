@@ -518,8 +518,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 21.5: Settings Behavior Tab Automation & Tab Memory Reclamation** - Complete.
 - **Phase 21.6: Forensic Architectural, Performance & Best-Practices Audit for Settings Subsystem** - Complete.
 - **Phase 22: OmniSearch 2.0 & Executable Command Palette** - Complete.
+- **Phase 23: Active Session Visual Polish — Tab Loading Spinner & Chromium _favicon Cache Cascade** - Complete.
 
-<!-- Last Updated: 2026-08-21T10:50:00+02:00 -->
+<!-- Last Updated: 2026-08-21T12:25:00+02:00 -->
 
 
 

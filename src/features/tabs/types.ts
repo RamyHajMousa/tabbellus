@@ -45,6 +45,7 @@ export interface RowTabData {
   mutedInfo?: chrome.tabs.MutedInfo; // Chrome tab muted state (context menu toggle)
   discarded?: boolean; // Chrome tab suspended/discarded state
   audible?: boolean; // Chrome tab audible state
+  status?: 'loading' | 'complete'; // Tab loading status
 }
 
 export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | null): RowTabData {
@@ -60,6 +61,7 @@ export function chromeTabToRowData(tab: chrome.tabs.Tab, activeTabId?: number | 
     mutedInfo: tab.mutedInfo,
     discarded: tab.discarded || false,
     audible: tab.audible || false,
+    status: tab.status as 'loading' | 'complete' | undefined,
   };
 }
 
