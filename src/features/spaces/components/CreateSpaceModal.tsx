@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { type Space, spaceService } from '@/lib';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { spaceService } from '@/lib';
 import { useToast } from '@/components/ui/Toaster';
 import { ColorPickerGrid } from './ColorPickerGrid';
 import {
@@ -11,29 +11,28 @@ import {
     DialogFooter,
 } from '@/components/ui/Dialog';
 
-interface EditSpaceDialogProps {
+export interface CreateSpaceModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    space: Space;
+    onCreated?: (spaceId: number) => void;
 }
 
-export const EditSpaceDialog: React.FC<EditSpaceDialogProps> = ({
+export const CreateSpaceModal: React.FC<CreateSpaceModalProps> = ({
     open,
     onOpenChange,
-    space,
+    onCreated,
 }) => {
-    const [name, setName] = useState(space.name);
-    const [color, setColor] = useState<string | undefined>(space.color);
+    const [name, setName] = useState('');
+    const [color, setColor] = useState<string | undefined>(undefined);
     const { toast } = useToast();
-
-    const pointerTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pointerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (open) {
-            setName(space.name);
-            setColor(space.color);
+            setName('');
+            setColor(undefined);
         }
-    }, [open, space.name, space.color]);
+    }, [open]);
 
     useEffect(() => {
         return () => {
@@ -41,7 +40,7 @@ export const EditSpaceDialog: React.FC<EditSpaceDialogProps> = ({
         };
     }, []);
 
-    const handleClose = React.useCallback(() => {
+    const handleClose = useCallback(() => {
         onOpenChange(false);
         if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
         pointerTimerRef.current = setTimeout(() => {
@@ -49,19 +48,24 @@ export const EditSpaceDialog: React.FC<EditSpaceDialogProps> = ({
         }, 100);
     }, [onOpenChange]);
 
-    const handleSubmit = React.useCallback(async (e: React.FormEvent) => {
+    const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         const trimmedName = name.trim();
-        if (!trimmedName || !space.id) return;
+        if (!trimmedName) return;
 
         try {
-            await spaceService.updateSpaceDetails(space.id, trimmedName, color);
+            const spaceId = await spaceService.createEmptySpace(trimmedName, color);
             handleClose();
-            toast(`Space "${trimmedName}" updated`);
-        } catch {
-            toast('Failed to update space', { description: 'An error occurred while updating space details.' });
+            toast(`Space "${trimmedName}" created`);
+            if (onCreated) {
+                onCreated(spaceId);
+            }
+        } catch (error) {
+            console.error('Failed to create space:', error);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            toast('Failed to create space', { description: message });
         }
-    }, [name, space.id, color, handleClose, toast]);
+    }, [name, color, handleClose, onCreated, toast]);
 
     return (
         <Dialog open={open} onOpenChange={(val) => {
@@ -73,9 +77,9 @@ export const EditSpaceDialog: React.FC<EditSpaceDialogProps> = ({
         }}>
             <DialogContent className="sm:max-w-md p-5 select-none">
                 <DialogHeader className="mb-2">
-                    <DialogTitle className="text-sm font-semibold">Edit Space</DialogTitle>
+                    <DialogTitle className="text-sm font-semibold">Create New Space</DialogTitle>
                     <DialogDescription className="text-xs">
-                        Customize the name and color badge for this space.
+                        Create a new empty workspace and optionally tag it with a color.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -117,7 +121,7 @@ export const EditSpaceDialog: React.FC<EditSpaceDialogProps> = ({
                             disabled={!name.trim()}
                             className="h-7 px-3 text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 rounded-md transition-colors"
                         >
-                            Save Details
+                            Create Space
                         </button>
                     </DialogFooter>
                 </form>

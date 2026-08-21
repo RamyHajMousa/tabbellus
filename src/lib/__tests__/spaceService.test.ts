@@ -36,6 +36,40 @@ describe('SpaceService — Dexie Integration', () => {
     expect(space!.deletedAt).toBeUndefined();
   });
 
+  // ── Create Empty Space ─────────────────────────────────────────
+
+  it('should create an empty space without color and read it back', async () => {
+    const id = await spaceService.createEmptySpace('  Brand New Space  ');
+    const space = await spaceService.getSpaceById(id);
+
+    expect(space).toBeDefined();
+    expect(space!.name).toBe('Brand New Space');
+    expect(space!.color).toBeUndefined();
+    expect(space!.createdAt).toBeGreaterThan(0);
+  });
+
+  it('should create an empty space with a designated color tag', async () => {
+    const id = await spaceService.createEmptySpace('Design Work', 'cyan');
+    const space = await spaceService.getSpaceById(id);
+
+    expect(space).toBeDefined();
+    expect(space!.name).toBe('Design Work');
+    expect(space!.color).toBe('cyan');
+  });
+
+  it('should treat "none" color tag as undefined in createEmptySpace', async () => {
+    const id = await spaceService.createEmptySpace('No Color Space', 'none');
+    const space = await spaceService.getSpaceById(id);
+
+    expect(space).toBeDefined();
+    expect(space!.name).toBe('No Color Space');
+    expect(space!.color).toBeUndefined();
+  });
+
+  it('should reject creating empty space with blank name', async () => {
+    await expect(spaceService.createEmptySpace('   ')).rejects.toThrow('Space name cannot be empty.');
+  });
+
   // ── Tabs: Add + Ordered Retrieval ──────────────────────────────
 
   it('should add tabs to a space and retrieve them in order', async () => {

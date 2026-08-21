@@ -183,20 +183,23 @@ class SpaceService {
     /**
      * Creates an empty space with no initial tabs.
      * @param spaceName The user-provided name for the space.
+     * @param color Optional Chrome color tag.
      * @returns The newly created space ID.
      */
-    async createEmptySpace(spaceName: string): Promise<number> {
+    async createEmptySpace(spaceName: string, color?: string): Promise<number> {
         if (!spaceName.trim()) {
             throw new Error('Space name cannot be empty.');
         }
 
         try {
+            const sanitizedColor = color && color !== 'none' ? color : undefined;
             const spaceId = await db.spaces.add({
                 name: spaceName.trim(),
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                color: sanitizedColor,
             });
 
-            console.log(`Empty space "${spaceName}" created successfully with ID: ${spaceId}`);
+            console.log(`Empty space "${spaceName}" created successfully with ID: ${spaceId}${sanitizedColor ? ` and color: ${sanitizedColor}` : ''}`);
             return spaceId as number;
         } catch (error) {
             console.error('SpaceService: Failed to create empty space', error);
