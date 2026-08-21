@@ -55,12 +55,18 @@ export type SearchResultItem =
     | ReadLaterSearchResult
     | BookmarkSearchResult;
 
-export type CommandCategory = 'Spaces' | 'Tabs' | 'Read Later' | 'System' | 'Preferences';
+export type CommandCategory =
+    | 'Spaces & Workspaces'
+    | 'Tab Management & Memory'
+    | 'Audio & Tab Control'
+    | 'Read Later & Ingestion'
+    | 'Navigation & System';
 
 export interface CommandContext {
     toast: (message: string, options?: { description?: string; onUndo?: () => void; duration?: number }) => void;
     setSearchOpen: (open: boolean) => void;
     setSettingsOpen: (open: boolean) => void;
+    setHistoryOpen?: (open: boolean) => void;
     setActiveView: (view: 'active' | 'spaces' | 'read-later') => void;
     copy: (text: string) => Promise<boolean>;
 }

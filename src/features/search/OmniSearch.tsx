@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { Search, Terminal, History, ChevronRight } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { Search, Terminal, History, ChevronRight, X } from 'lucide-react';
 import {
     CommandDialog,
     CommandInput,
@@ -8,6 +8,7 @@ import {
     CommandGroup,
     CommandItem,
 } from '@/components/ui/Command';
+import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
 import { spaceService, tabService } from '@/lib';
@@ -35,6 +36,7 @@ export const OmniSearch: React.FC = () => {
     const addRecentSearch = useAppStore((state) => state.addRecentSearch);
 
     const [rawValue, setRawValue] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
 
     const { mode, query } = useMemo(() => partitionSearchQuery(rawValue), [rawValue]);
 
@@ -152,6 +154,13 @@ export const OmniSearch: React.FC = () => {
         } else {
             setRawValue('> ');
         }
+        requestAnimationFrame(() => {
+            if (inputRef.current) {
+                inputRef.current.focus();
+                const len = inputRef.current.value.length;
+                inputRef.current.setSelectionRange(len, len);
+            }
+        });
     }, [mode]);
 
     return (
@@ -166,6 +175,7 @@ export const OmniSearch: React.FC = () => {
             </DialogDescription>
 
             <CommandInput
+                ref={inputRef}
                 placeholder={
                     mode === 'command'
                         ? 'Type a command or action (e.g. discard, theme, backup)...'
@@ -181,30 +191,40 @@ export const OmniSearch: React.FC = () => {
                         <Search className="h-4 w-4 shrink-0 opacity-50" />
                     )
                 }
-                modeBadge={
-                    mode === 'command' ? (
-                        <button
-                            type="button"
-                            onClick={toggleMode}
-                            className="text-xxs font-mono bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
-                            title="Click to exit command mode"
-                        >
-                            <span>&gt; Commands</span>
-                        </button>
-                    ) : null
-                }
                 rightElement={
-                    mode === 'search' ? (
-                        <button
-                            type="button"
-                            onClick={toggleMode}
-                            className="text-xxs font-mono text-muted-foreground/70 hover:text-foreground bg-muted/50 hover:bg-muted border border-border/50 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
-                            title="Switch to Command Mode"
-                        >
-                            <span>&gt; Commands</span>
-                            <ChevronRight className="h-3 w-3" />
-                        </button>
-                    ) : null
+                    <div className="flex-shrink-0 flex items-center gap-1.5">
+                        {mode === 'command' ? (
+                            <button
+                                type="button"
+                                onClick={toggleMode}
+                                className="text-xxs font-mono bg-primary text-primary-foreground font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                                aria-label="Click to exit command mode"
+                            >
+                                <span>&gt; Commands</span>
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={toggleMode}
+                                className="text-xxs font-mono text-muted-foreground hover:text-foreground bg-muted/60 hover:bg-muted border border-border/50 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                                aria-label="Switch to Command Mode"
+                            >
+                                <span>&gt; Commands</span>
+                                <ChevronRight className="h-3 w-3" />
+                            </button>
+                        )}
+
+                        <TooltipSimple content="Close (Esc)" side="bottom">
+                            <button
+                                type="button"
+                                onClick={() => setSearchOpen(false)}
+                                className="h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                                aria-label="Close search"
+                            >
+                                <X className="h-3.5 w-3.5" />
+                            </button>
+                        </TooltipSimple>
+                    </div>
                 }
             />
 

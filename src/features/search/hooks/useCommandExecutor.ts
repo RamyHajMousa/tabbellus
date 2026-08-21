@@ -10,6 +10,7 @@ export function useCommandExecutor() {
     const { copy } = useClipboard();
     const setSearchOpen = useUIStore((state) => state.setSearchOpen);
     const setSettingsOpen = useUIStore((state) => state.setSettingsOpen);
+    const setHistoryOpen = useUIStore((state) => state.setHistoryOpen);
     const setActiveView = useAppStore((state) => state.setActiveView);
 
     const executeCommand = useCallback(
@@ -21,6 +22,7 @@ export function useCommandExecutor() {
                 toast,
                 setSearchOpen,
                 setSettingsOpen,
+                setHistoryOpen,
                 setActiveView,
                 copy,
             };
@@ -34,7 +36,7 @@ export function useCommandExecutor() {
                 });
             }
         },
-        [toast, setSearchOpen, setSettingsOpen, setActiveView, copy]
+        [toast, setSearchOpen, setSettingsOpen, setHistoryOpen, setActiveView, copy]
     );
 
     return { executeCommand };

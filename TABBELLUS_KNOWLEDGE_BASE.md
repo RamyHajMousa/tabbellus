@@ -448,11 +448,18 @@ The project has completed major refactoring phases to optimize performance, clea
 *   **Outcome:**
     *   **Dual-Mode Search & Execution Engine:** Upgraded `OmniSearch.tsx` to support seamless mode switching:
         *   *Search Mode (default):* Tokenized fuzzy search across 5 entity types: Open Tabs, Saved Spaces, Space Tabs, Read Later items, and Bookmarks with keyboard navigation and recent searches.
-        *   *Command Mode (`>` prefix or Mode Pill):* Pure command palette querying an action registry for workspace and browser automation.
-    *   **Declarative Command Registry:** Built pure registry `commandRegistry.ts` covering 13 commands across Spaces, Tabs & Memory, Read Later, System, and Preferences (e.g. Discard Idle Tabs Now, Close Duplicate Tabs, Close Unpinned Tabs, Capture Current Window, Export All Spaces, Archive All Unread, Clear All Archived with Undo, Theme toggle, Subtitle toggle, Settings and Support Hub launchers).
+        *   *Command Mode (`>` prefix or Mode Pill):* Pure command palette querying a declarative action registry for workspace and browser automation.
+    *   **Declarative Command Registry:** Built pure registry `commandRegistry.ts` covering 27 commands partitioned into 5 clean categories:
+        1. *Spaces & Workspaces (5):* Create Empty Space, Capture Current Window as Space, Unlink Space from Current Window, Export All Spaces to JSON, Switch View: Saved Spaces.
+        2. *Tab Management & Memory (9):* Discard Idle Tabs Now, Close Duplicate Tabs, Group Tabs by Domain, Ungroup All Tabs in Window, Sort Window Tabs by Domain, Sort Window Tabs Alphabetically, Open New Tab, Open New Window, Switch View: Active Session.
+        3. *Audio & Tab Control (4):* Mute All Audible Tabs, Unmute All Tabs, Reload All Tabs in Window, Close Unpinned Tabs.
+        4. *Read Later & Ingestion (4):* Save Active Tab to Read Later, Archive All Unread Items, Clear All Archived Items, Copy All Read Later URLs.
+        5. *Navigation & System (5):* Switch View: Read Later, Toggle Light/Dark Theme, Toggle URL Subtitles, Open Settings, Configure Keyboard Shortcuts.
+    *   **De-collided Flexbox Header & Dedicated Hit Targets:** Refactored search header into a unified flex container with `flex-shrink-0` mode icon, `flex-1 min-w-0` yielding `<Command.Input>`, and dedicated `flex-shrink-0 flex items-center gap-1.5` container holding the mode pill and non-colliding `X` close button (`h-6 w-6` target, `TooltipSimple`).
+    *   **Category De-duplication & Shortcut Badges:** Category section headers handle grouping; individual `CommandItemRow` instances omit redundant category pills and render trailing `<kbd>` shortcut badges when shortcuts exist.
+    *   **Long Label Truncation with Floating Tooltips:** Integrated `useIsTruncated` and `<TooltipOverflow isTruncated={isTruncated} text={...}>` across both `CommandItemRow` and `SearchItemRow` subcomponents for zero label clipping on narrow sidepanel widths (360px–400px).
     *   **Data Aggregation & Safe Dispatching:** Built race-safe data aggregator hook `useOmniSearchData.ts` with unmount lifecycle guards, and `useCommandExecutor.ts` injecting `CommandContext` with automated dialog dismissals and toast telemetry.
-    *   **High-Contrast Minimalist UI:** Built `SearchItemRow.tsx`, `CommandItemRow.tsx`, and `SearchSectionHeader.tsx` adhering to Sleek Developer Minimalist tokens (`bg-popover`, `border-border`, dense `h-9` rows, `SmartFallbackIcon`, and mode pill affordance).
-    *   **Testing Infrastructure:** Created `commandRegistry.test.ts` (10 tests) and `useOmniSearchData.test.ts` (8 tests), raising total test coverage to 129/129 passing tests across 13 test suites.
+    *   **Testing Infrastructure:** Maintained 100% test coverage with `commandRegistry.test.ts` (11 tests) and `useOmniSearchData.test.ts` (8 tests) across all 130 passing tests in the workspace.
 
 ---
 
@@ -471,10 +478,10 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `platform.test.ts` (3 tests)
     *   `appStore.test.ts` (12 tests)
     *   `useStorageTelemetry.test.ts` (5 tests)
-    *   `commandRegistry.test.ts` (10 tests)
+    *   `commandRegistry.test.ts` (11 tests)
     *   `useOmniSearchData.test.ts` (8 tests)
     *   `badge.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (129/129 passing).
+*   **Execution Command:** `npm test` (130/130 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -512,7 +519,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 21.6: Forensic Architectural, Performance & Best-Practices Audit for Settings Subsystem** - Complete.
 - **Phase 22: OmniSearch 2.0 & Executable Command Palette** - Complete.
 
-<!-- Last Updated: 2026-08-21T09:55:00+02:00 -->
+<!-- Last Updated: 2026-08-21T10:32:00+02:00 -->
 
 
 

@@ -23,11 +23,12 @@ describe('Command Registry & Filter Engine', () => {
             theme: 'light',
             showDomain: true,
             badgeMode: 'read-later',
+            activeView: 'spaces',
         });
     });
 
-    it('should have all registered commands with valid unique metadata', () => {
-        expect(COMMAND_REGISTRY.length).toBeGreaterThanOrEqual(13);
+    it('should have all 27 registered commands with valid unique metadata', () => {
+        expect(COMMAND_REGISTRY.length).toBe(27);
 
         const seenIds = new Set<string>();
 
@@ -45,17 +46,23 @@ describe('Command Registry & Filter Engine', () => {
         }
     });
 
-    it('should contain all required categories', () => {
-        const categoriesInRegistry = new Set(COMMAND_REGISTRY.map((c) => c.category));
-        for (const cat of COMMAND_CATEGORIES) {
-            expect(categoriesInRegistry.has(cat)).toBe(true);
+    it('should partition commands precisely across the 5 categories', () => {
+        const counts: Record<string, number> = {};
+        for (const cmd of COMMAND_REGISTRY) {
+            counts[cmd.category] = (counts[cmd.category] || 0) + 1;
         }
+
+        expect(counts['Spaces & Workspaces']).toBe(5);
+        expect(counts['Tab Management & Memory']).toBe(9);
+        expect(counts['Audio & Tab Control']).toBe(4);
+        expect(counts['Read Later & Ingestion']).toBe(4);
+        expect(counts['Navigation & System']).toBe(5);
     });
 
     describe('filterCommands', () => {
-        it('should return all commands when query is empty or whitespace', () => {
-            expect(filterCommands('')).toEqual(COMMAND_REGISTRY);
-            expect(filterCommands('   ')).toEqual(COMMAND_REGISTRY);
+        it('should return all 27 commands when query is empty or whitespace', () => {
+            expect(filterCommands('')).toHaveLength(27);
+            expect(filterCommands('   ')).toHaveLength(27);
         });
 
         it('should filter commands by title (case-insensitive)', () => {
@@ -67,14 +74,17 @@ describe('Command Registry & Filter Engine', () => {
             const memoryResults = filterCommands('ram');
             expect(memoryResults.some((c) => c.id === 'discard-idle-tabs')).toBe(true);
 
+            const audioResults = filterCommands('silence');
+            expect(audioResults.some((c) => c.id === 'mute-audible-tabs')).toBe(true);
+
             const backupResults = filterCommands('backup');
             expect(backupResults.some((c) => c.id === 'export-all-spaces')).toBe(true);
         });
 
         it('should filter commands by category name', () => {
-            const spacesResults = filterCommands('Spaces');
-            expect(spacesResults.length).toBeGreaterThanOrEqual(3);
-            expect(spacesResults.every((c) => c.category === 'Spaces' || c.keywords.includes('spaces'))).toBe(true);
+            const audioCategoryResults = filterCommands('Audio');
+            expect(audioCategoryResults.length).toBeGreaterThanOrEqual(4);
+            expect(audioCategoryResults.some((c) => c.id === 'mute-audible-tabs')).toBe(true);
         });
 
         it('should return empty array for non-matching queries', () => {
@@ -118,6 +128,23 @@ describe('Command Registry & Filter Engine', () => {
 
             expect(useAppStore.getState().settings.showDomain).toBe(false);
             expect(mockContext.toast).toHaveBeenCalledWith('URL subtitles hidden');
+        });
+
+        it('should execute view switcher commands', async () => {
+            const switchActiveCmd = COMMAND_REGISTRY.find((c) => c.id === 'switch-view-active');
+            expect(switchActiveCmd).toBeDefined();
+
+            const mockContext: CommandContext = {
+                toast: vi.fn(),
+                setSearchOpen: vi.fn(),
+                setSettingsOpen: vi.fn(),
+                setActiveView: vi.fn(),
+                copy: vi.fn().mockResolvedValue(true),
+            };
+
+            await switchActiveCmd!.run(mockContext);
+            expect(mockContext.setActiveView).toHaveBeenCalledWith('active');
+            expect(mockContext.toast).toHaveBeenCalledWith('Switched to Active Session view');
         });
 
         it('should execute open-settings command', async () => {
