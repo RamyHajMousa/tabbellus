@@ -459,7 +459,7 @@ The project has completed major refactoring phases to optimize performance, clea
     *   **Category De-duplication & Shortcut Badges:** Category section headers handle grouping; individual `CommandItemRow` instances omit redundant category pills and render trailing `<kbd>` shortcut badges when shortcuts exist.
     *   **Long Label Truncation with Floating Tooltips:** Integrated `useIsTruncated` and `<TooltipOverflow isTruncated={isTruncated} text={...}>` across both `CommandItemRow` and `SearchItemRow` subcomponents for zero label clipping on narrow sidepanel widths (360px–400px).
     *   **Data Aggregation & Safe Dispatching:** Built race-safe data aggregator hook `useOmniSearchData.ts` with unmount lifecycle guards, and `useCommandExecutor.ts` injecting `CommandContext` with automated dialog dismissals and toast telemetry.
-    *   **Testing Infrastructure:** Maintained 100% test coverage with `commandRegistry.test.ts` (11 tests) and `useOmniSearchData.test.ts` (8 tests) across all 130 passing tests in the workspace.
+    *   **Testing Infrastructure:** Maintained 100% test coverage with `commandRegistry.test.ts` (34 tests covering automated execution for all 27 commands) and `useOmniSearchData.test.ts` (8 tests) across all 153 passing tests in the workspace.
 
 ---
 
@@ -478,10 +478,10 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `platform.test.ts` (3 tests)
     *   `appStore.test.ts` (12 tests)
     *   `useStorageTelemetry.test.ts` (5 tests)
-    *   `commandRegistry.test.ts` (11 tests)
+    *   `commandRegistry.test.ts` (34 tests)
     *   `useOmniSearchData.test.ts` (8 tests)
     *   `badge.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (130/130 passing).
+*   **Execution Command:** `npm test` (153/153 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -519,7 +519,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 21.6: Forensic Architectural, Performance & Best-Practices Audit for Settings Subsystem** - Complete.
 - **Phase 22: OmniSearch 2.0 & Executable Command Palette** - Complete.
 
-<!-- Last Updated: 2026-08-21T10:32:00+02:00 -->
+<!-- Last Updated: 2026-08-21T10:50:00+02:00 -->
 
 
 
