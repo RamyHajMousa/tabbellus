@@ -444,6 +444,16 @@ The project has completed major refactoring phases to optimize performance, clea
     *   **Data Safety & Danger Zone Resilience:** Implemented `clearTimerRef` lifecycle tracking and unmount cleanup on `DataTab.tsx` 3-second database wipe safety guard; wrapped backup JSON imports in typed error boundaries with descriptive toast notifications.
     *   **Component Ownership & External Links:** Standardized all external link navigations in `SupportTab.tsx` through `handleExternalLink()` and `openSupportHub()` with `TooltipSimple` wrappers and zero native HTML `title` attributes.
 
+### Phase 22: OmniSearch 2.0 & Executable Command Palette
+*   **Outcome:**
+    *   **Dual-Mode Search & Execution Engine:** Upgraded `OmniSearch.tsx` to support seamless mode switching:
+        *   *Search Mode (default):* Tokenized fuzzy search across 5 entity types: Open Tabs, Saved Spaces, Space Tabs, Read Later items, and Bookmarks with keyboard navigation and recent searches.
+        *   *Command Mode (`>` prefix or Mode Pill):* Pure command palette querying an action registry for workspace and browser automation.
+    *   **Declarative Command Registry:** Built pure registry `commandRegistry.ts` covering 13 commands across Spaces, Tabs & Memory, Read Later, System, and Preferences (e.g. Discard Idle Tabs Now, Close Duplicate Tabs, Close Unpinned Tabs, Capture Current Window, Export All Spaces, Archive All Unread, Clear All Archived with Undo, Theme toggle, Subtitle toggle, Settings and Support Hub launchers).
+    *   **Data Aggregation & Safe Dispatching:** Built race-safe data aggregator hook `useOmniSearchData.ts` with unmount lifecycle guards, and `useCommandExecutor.ts` injecting `CommandContext` with automated dialog dismissals and toast telemetry.
+    *   **High-Contrast Minimalist UI:** Built `SearchItemRow.tsx`, `CommandItemRow.tsx`, and `SearchSectionHeader.tsx` adhering to Sleek Developer Minimalist tokens (`bg-popover`, `border-border`, dense `h-9` rows, `SmartFallbackIcon`, and mode pill affordance).
+    *   **Testing Infrastructure:** Created `commandRegistry.test.ts` (10 tests) and `useOmniSearchData.test.ts` (8 tests), raising total test coverage to 129/129 passing tests across 13 test suites.
+
 ---
 
 ## 6. Testing & Quality Assurance Infrastructure
@@ -461,8 +471,10 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `platform.test.ts` (3 tests)
     *   `appStore.test.ts` (12 tests)
     *   `useStorageTelemetry.test.ts` (5 tests)
+    *   `commandRegistry.test.ts` (10 tests)
+    *   `useOmniSearchData.test.ts` (8 tests)
     *   `badge.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (111/111 passing).
+*   **Execution Command:** `npm test` (129/129 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -498,8 +510,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 21.4: Dynamic Badging Driven by Settings Store & Switch Primitive Contrast Refactor (Component Ownership Model)** - Complete.
 - **Phase 21.5: Settings Behavior Tab Automation & Tab Memory Reclamation** - Complete.
 - **Phase 21.6: Forensic Architectural, Performance & Best-Practices Audit for Settings Subsystem** - Complete.
+- **Phase 22: OmniSearch 2.0 & Executable Command Palette** - Complete.
 
-<!-- Last Updated: 2026-08-20T18:40:00+02:00 -->
+<!-- Last Updated: 2026-08-21T09:55:00+02:00 -->
 
 
 

@@ -20,13 +20,25 @@ const Command = React.forwardRef<
 ))
 Command.displayName = CommandPrimitive.displayName
 
-interface CommandDialogProps extends DialogProps { }
+interface CommandDialogProps extends DialogProps {
+    shouldFilter?: boolean;
+    filter?: (value: string, search: string) => number;
+    commandProps?: React.ComponentPropsWithoutRef<typeof CommandPrimitive>;
+}
 
-const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
+const CommandDialog = ({ children, shouldFilter, filter, commandProps, ...props }: CommandDialogProps) => {
     return (
         <Dialog {...props}>
             <DialogContent className="overflow-hidden p-0">
-                <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
+                <Command
+                    shouldFilter={shouldFilter}
+                    filter={filter}
+                    {...commandProps}
+                    className={cn(
+                        "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5",
+                        commandProps?.className
+                    )}
+                >
                     {children}
                 </Command>
             </DialogContent>
@@ -34,12 +46,19 @@ const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
     )
 }
 
+export interface CommandInputProps extends React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input> {
+    icon?: React.ReactNode;
+    modeBadge?: React.ReactNode;
+    rightElement?: React.ReactNode;
+}
+
 const CommandInput = React.forwardRef<
     React.ElementRef<typeof CommandPrimitive.Input>,
-    React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
->(({ className, ...props }, ref) => (
-    <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
-        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+    CommandInputProps
+>(({ className, icon, modeBadge, rightElement, ...props }, ref) => (
+    <div className="flex items-center border-b px-3 gap-2" cmdk-input-wrapper="">
+        {icon !== undefined ? icon : <Search className="h-4 w-4 shrink-0 opacity-50" />}
+        {modeBadge}
         <CommandPrimitive.Input
             ref={ref}
             className={cn(
@@ -48,6 +67,7 @@ const CommandInput = React.forwardRef<
             )}
             {...props}
         />
+        {rightElement}
     </div>
 ))
 

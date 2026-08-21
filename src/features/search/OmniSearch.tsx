@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { LayoutTemplate, Package, BookOpen, History } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Search, Terminal, History, ChevronRight } from 'lucide-react';
 import {
     CommandDialog,
     CommandInput,
@@ -10,35 +10,76 @@ import {
 } from '@/components/ui/Command';
 import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
-import { spaceService, tabService, readLaterService } from '@/lib';
-import type { Space, ReadLaterItem, SavedTabResult } from '@/lib/db';
+import { spaceService, tabService } from '@/lib';
 import { DialogTitle, DialogDescription } from '@/components/ui/Dialog';
-import { SmartFallbackIcon } from '@/components/ui/SmartFallbackIcon';
+import { partitionSearchQuery } from './utils/searchUtils';
+import { useOmniSearchData } from './hooks/useOmniSearchData';
+import { useCommandExecutor } from './hooks/useCommandExecutor';
+import { COMMAND_REGISTRY, COMMAND_CATEGORIES, filterCommands } from './registry/commandRegistry';
+import { SearchItemRow } from './components/SearchItemRow';
+import { CommandItemRow } from './components/CommandItemRow';
+import { SearchSectionHeader } from './components/SearchSectionHeader';
+import type {
+    TabSearchResult,
+    SpaceSearchResult,
+    SavedTabSearchResult,
+    ReadLaterSearchResult,
+    BookmarkSearchResult,
+    CommandAction,
+} from './types';
 
-
-
-export const OmniSearch = () => {
+export const OmniSearch: React.FC = () => {
     const { isSearchOpen, setSearchOpen } = useUIStore();
     const activeSpaces = useAppStore((state) => state.activeSpaces);
     const recentSearches = useAppStore((state) => state.recentSearches);
     const addRecentSearch = useAppStore((state) => state.addRecentSearch);
 
-    const [search, setSearch] = useState('');
-    const [activeTabs, setActiveTabs] = useState<chrome.tabs.Tab[]>([]);
-    const [spaces, setSpaces] = useState<Space[]>([]);
-    const [readLater, setReadLater] = useState<ReadLaterItem[]>([]);
-    const [savedTabs, setSavedTabs] = useState<SavedTabResult[]>([]);
+    const [rawValue, setRawValue] = useState('');
 
+    const { mode, query } = useMemo(() => partitionSearchQuery(rawValue), [rawValue]);
+
+    const {
+        filteredActiveTabs,
+        filteredSpaces,
+        filteredSavedTabs,
+        filteredReadLater,
+        filteredBookmarks,
+        totalResultsCount,
+    } = useOmniSearchData(isSearchOpen && mode === 'search', query);
+
+    const { executeCommand } = useCommandExecutor();
+
+    // Filter commands in command mode
+    const filteredCommands = useMemo(() => {
+        if (mode !== 'command') return [];
+        return filterCommands(query, COMMAND_REGISTRY);
+    }, [mode, query]);
+
+    // Group commands by category
+    const groupedCommands = useMemo(() => {
+        if (mode !== 'command') return new Map<string, CommandAction[]>();
+
+        const map = new Map<string, CommandAction[]>();
+        for (const cat of COMMAND_CATEGORIES) {
+            const matches = filteredCommands.filter((c) => c.category === cat);
+            if (matches.length > 0) {
+                map.set(cat, matches);
+            }
+        }
+        return map;
+    }, [mode, filteredCommands]);
+
+    // Clear input on dialog close
     useEffect(() => {
         if (!isSearchOpen) {
-            setSearch('');
+            setRawValue('');
         }
     }, [isSearchOpen]);
 
     // Keyboard shortcut: Ctrl+K / Cmd+K
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
                 setSearchOpen(!isSearchOpen);
             }
@@ -48,158 +89,236 @@ export const OmniSearch = () => {
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [isSearchOpen, setSearchOpen]);
 
-    // Fetch data when dialog opens
-    useEffect(() => {
-        if (!isSearchOpen) return;
+    // Handle Backspace when in command mode to easily escape back to search
+    const handleInputKeyDown = useCallback(
+        (e: React.KeyboardEvent<HTMLInputElement>) => {
+            if (e.key === 'Backspace' && (rawValue === '>' || rawValue === '')) {
+                setRawValue('');
+            }
+        },
+        [rawValue]
+    );
 
-        // Fetch all tabs
-        chrome.tabs.query({}).then(setActiveTabs).catch(() => setActiveTabs([]));
+    // Entity Selection Handlers
+    const handleSelectTab = useCallback(
+        async (tab: TabSearchResult) => {
+            if (query) addRecentSearch(query);
+            setSearchOpen(false);
+            if (tab.windowId && tab.id) {
+                await chrome.windows?.update(tab.windowId, { focused: true }).catch(() => {});
+                await chrome.tabs?.update(tab.id, { active: true }).catch(() => {});
+            }
+        },
+        [setSearchOpen, query, addRecentSearch]
+    );
 
-        // Fetch spaces using spaceService
-        spaceService.getNonDeletedSpaces()
-            .then(setSpaces)
-            .catch(() => setSpaces([]));
+    const handleSelectSpace = useCallback(
+        async (space: SpaceSearchResult) => {
+            if (query) addRecentSearch(query);
+            setSearchOpen(false);
+            if (!space.id) return;
 
-        // Fetch grouped saved tabs using spaceService
-        spaceService.getSavedTabsGroupedByUrl()
-            .then(setSavedTabs)
-            .catch(() => setSavedTabs([]));
+            const activeWindowId = activeSpaces[space.id];
+            if (activeWindowId) {
+                await chrome.windows?.update(activeWindowId, { focused: true }).catch(() => {
+                    spaceService.restoreSpace(space.id);
+                });
+            } else {
+                await spaceService.restoreSpace(space.id);
+            }
+        },
+        [setSearchOpen, activeSpaces, query, addRecentSearch]
+    );
 
-        // Fetch read later items using readLaterService
-        readLaterService.getAllItems()
-            .then(setReadLater)
-            .catch(() => setReadLater([]));
-    }, [isSearchOpen]);
+    const handleSelectUrlItem = useCallback(
+        async (item: SavedTabSearchResult | ReadLaterSearchResult | BookmarkSearchResult) => {
+            if (query) addRecentSearch(query);
+            setSearchOpen(false);
+            await tabService.focusOrCreate(item.url).catch(() => {});
+        },
+        [setSearchOpen, query, addRecentSearch]
+    );
 
-    const handleSelectTab = useCallback(async (tab: chrome.tabs.Tab) => {
-        if (search) addRecentSearch(search);
-        setSearchOpen(false);
-        if (tab.windowId && tab.id) {
-            await chrome.windows.update(tab.windowId, { focused: true }).catch(() => { });
-            await chrome.tabs.update(tab.id, { active: true }).catch(() => { });
-        }
-    }, [setSearchOpen, search, addRecentSearch]);
+    const handleSelectCommand = useCallback(
+        async (command: CommandAction) => {
+            await executeCommand(command);
+        },
+        [executeCommand]
+    );
 
-    const handleSelectSpace = useCallback(async (space: Space) => {
-        if (search) addRecentSearch(search);
-        setSearchOpen(false);
-        if (!space.id) return;
-
-        const activeWindowId = activeSpaces[space.id];
-        if (activeWindowId) {
-            // Focus existing window
-            await chrome.windows.update(activeWindowId, { focused: true }).catch(() => {
-                // If window doesn't exist, restore
-                spaceService.restoreSpace(space.id!);
-            });
+    const toggleMode = useCallback(() => {
+        if (mode === 'command') {
+            setRawValue('');
         } else {
-            await spaceService.restoreSpace(space.id);
+            setRawValue('> ');
         }
-    }, [setSearchOpen, activeSpaces, search, addRecentSearch]);
-
-    const handleSelectReadLater = useCallback(async (item: ReadLaterItem) => {
-        if (search) addRecentSearch(search);
-        setSearchOpen(false);
-        await tabService.focusOrCreate(item.url).catch(() => { });
-    }, [setSearchOpen, search, addRecentSearch]);
-
-    const handleSelectSavedTab = useCallback(async (tab: SavedTabResult) => {
-        if (search) addRecentSearch(search);
-        setSearchOpen(false);
-        await tabService.focusOrCreate(tab.url).catch(() => { });
-    }, [setSearchOpen, search, addRecentSearch]);
+    }, [mode]);
 
     return (
-        <CommandDialog open={isSearchOpen} onOpenChange={setSearchOpen}>
-            <DialogTitle className="sr-only">OmniSearch</DialogTitle>
-            <DialogDescription className="sr-only">Search across tabs, spaces, and read later items</DialogDescription>
-            <CommandInput
-                placeholder="Search tabs, spaces, read later..."
-                value={search}
-                onValueChange={setSearch}
-            />
-            <CommandList>
-                <CommandEmpty>No results found.</CommandEmpty>
+        <CommandDialog
+            open={isSearchOpen}
+            onOpenChange={setSearchOpen}
+            shouldFilter={false}
+        >
+            <DialogTitle className="sr-only">OmniSearch 2.0</DialogTitle>
+            <DialogDescription className="sr-only">
+                Search tabs, spaces, bookmarks, read later items or execute workspace commands
+            </DialogDescription>
 
-                {search.length === 0 && recentSearches.length > 0 && (
+            <CommandInput
+                placeholder={
+                    mode === 'command'
+                        ? 'Type a command or action (e.g. discard, theme, backup)...'
+                        : 'Search tabs, spaces, bookmarks, read later... (Type > for commands)'
+                }
+                value={rawValue}
+                onValueChange={setRawValue}
+                onKeyDown={handleInputKeyDown}
+                icon={
+                    mode === 'command' ? (
+                        <Terminal className="h-4 w-4 shrink-0 text-primary" />
+                    ) : (
+                        <Search className="h-4 w-4 shrink-0 opacity-50" />
+                    )
+                }
+                modeBadge={
+                    mode === 'command' ? (
+                        <button
+                            type="button"
+                            onClick={toggleMode}
+                            className="text-xxs font-mono bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                            title="Click to exit command mode"
+                        >
+                            <span>&gt; Commands</span>
+                        </button>
+                    ) : null
+                }
+                rightElement={
+                    mode === 'search' ? (
+                        <button
+                            type="button"
+                            onClick={toggleMode}
+                            className="text-xxs font-mono text-muted-foreground/70 hover:text-foreground bg-muted/50 hover:bg-muted border border-border/50 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                            title="Switch to Command Mode"
+                        >
+                            <span>&gt; Commands</span>
+                            <ChevronRight className="h-3 w-3" />
+                        </button>
+                    ) : null
+                }
+            />
+
+            <CommandList className="max-h-[360px] overflow-y-auto">
+                {/* Mode Empty States */}
+                {mode === 'search' && totalResultsCount === 0 && query.length > 0 && (
+                    <CommandEmpty>No matching tabs, spaces, or bookmarks found.</CommandEmpty>
+                )}
+
+                {mode === 'command' && filteredCommands.length === 0 && (
+                    <CommandEmpty>No matching commands found.</CommandEmpty>
+                )}
+
+                {/* SEARCH MODE: Recent Searches */}
+                {mode === 'search' && query.length === 0 && recentSearches.length > 0 && (
                     <CommandGroup heading="Recent Searches">
                         {recentSearches.map((term) => (
                             <CommandItem
-                                key={term}
+                                key={`recent-${term}`}
                                 value={`recent ${term}`}
-                                onSelect={() => setSearch(term)}
+                                onSelect={() => setRawValue(term)}
+                                className="h-9 px-2.5 py-1.5 flex items-center gap-2.5 cursor-pointer rounded-sm hover:bg-muted/60 data-[selected=true]:bg-muted/80 transition-colors"
                             >
-                                <History className="mr-2 h-4 w-4 text-muted-foreground" />
-                                <span>{term}</span>
+                                <History className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <span className="text-xs text-foreground font-normal">{term}</span>
                             </CommandItem>
                         ))}
                     </CommandGroup>
                 )}
 
-                {spaces.length > 0 && (
-                    <CommandGroup heading="Spaces">
-                        {spaces.slice(0, 10).map((space) => (
-                            <CommandItem
-                                key={`space-${space.id}`}
-                                value={`space ${space.name}`}
-                                onSelect={() => handleSelectSpace(space)}
-                            >
-                                <Package className="mr-2 h-4 w-4 text-muted-foreground" />
-                                <span className="truncate">{space.name}</span>
-                                {space.id && activeSpaces[space.id] && (
-                                    <span className="ml-auto w-2 h-2 bg-green-500 rounded-full" />
-                                )}
-                            </CommandItem>
-                        ))}
-                    </CommandGroup>
-                )}
-
-                {savedTabs.length > 0 && (
-                    <CommandGroup heading="Saved Tabs">
-                        {savedTabs.map((tab) => (
-                            <CommandItem
-                                key={`saved-${tab.url}`}
-                                value={`savedtab ${tab.title || ''} ${tab.url} ${tab.spaceNames.join(' ')}`}
-                                onSelect={() => handleSelectSavedTab(tab)}
-                            >
-                                <SmartFallbackIcon url={tab.url} favicon={tab.favicon} className="mr-2 h-4 w-4 rounded-sm flex-shrink-0" />
-                                <span className="truncate">{tab.title || tab.url}</span>
-                                <span className="ml-auto pl-2 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
-                                    In: {tab.spaceNames.join(', ')}
-                                </span>
-                            </CommandItem>
-                        ))}
-                    </CommandGroup>
-                )}
-
-                {readLater.length > 0 && (
-                    <CommandGroup heading="Read Later">
-                        {readLater.slice(0, 10).map((item) => (
-                            <CommandItem
-                                key={`rl-${item.id}`}
-                                value={`readlater ${item.title} ${item.url}`}
-                                onSelect={() => handleSelectReadLater(item)}
-                            >
-                                <BookOpen className="mr-2 h-4 w-4 text-muted-foreground" />
-                                <span className="truncate">{item.title || item.url}</span>
-                            </CommandItem>
-                        ))}
-                    </CommandGroup>
-                )}
-
-                {activeTabs.length > 0 && (
-                    <CommandGroup heading="Active Tabs">
-                        {activeTabs.slice(0, 10).map((tab) => (
-                            <CommandItem
+                {/* SEARCH MODE: Active Tabs */}
+                {mode === 'search' && filteredActiveTabs.length > 0 && (
+                    <CommandGroup heading={<SearchSectionHeader title="Active Tabs" count={filteredActiveTabs.length} /> as any}>
+                        {filteredActiveTabs.map((tab) => (
+                            <SearchItemRow
                                 key={`tab-${tab.id}`}
-                                value={`tab ${tab.title} ${tab.url}`}
+                                item={tab}
                                 onSelect={() => handleSelectTab(tab)}
-                            >
-                                <LayoutTemplate className="mr-2 h-4 w-4 text-muted-foreground" />
-                                <span className="truncate">{tab.title || tab.url}</span>
-                            </CommandItem>
+                            />
                         ))}
                     </CommandGroup>
+                )}
+
+                {/* SEARCH MODE: Spaces */}
+                {mode === 'search' && filteredSpaces.length > 0 && (
+                    <CommandGroup heading={<SearchSectionHeader title="Saved Spaces" count={filteredSpaces.length} /> as any}>
+                        {filteredSpaces.map((space) => (
+                            <SearchItemRow
+                                key={`space-${space.id}`}
+                                item={space}
+                                isActiveSpace={Boolean(space.id && activeSpaces[space.id])}
+                                onSelect={() => handleSelectSpace(space)}
+                            />
+                        ))}
+                    </CommandGroup>
+                )}
+
+                {/* SEARCH MODE: Saved Space Tabs */}
+                {mode === 'search' && filteredSavedTabs.length > 0 && (
+                    <CommandGroup heading={<SearchSectionHeader title="Space Tabs" count={filteredSavedTabs.length} /> as any}>
+                        {filteredSavedTabs.map((tab) => (
+                            <SearchItemRow
+                                key={`saved-${tab.url}`}
+                                item={tab}
+                                onSelect={() => handleSelectUrlItem(tab)}
+                            />
+                        ))}
+                    </CommandGroup>
+                )}
+
+                {/* SEARCH MODE: Read Later */}
+                {mode === 'search' && filteredReadLater.length > 0 && (
+                    <CommandGroup heading={<SearchSectionHeader title="Read Later" count={filteredReadLater.length} /> as any}>
+                        {filteredReadLater.map((item) => (
+                            <SearchItemRow
+                                key={`rl-${item.id}`}
+                                item={item}
+                                onSelect={() => handleSelectUrlItem(item)}
+                            />
+                        ))}
+                    </CommandGroup>
+                )}
+
+                {/* SEARCH MODE: Bookmarks */}
+                {mode === 'search' && filteredBookmarks.length > 0 && (
+                    <CommandGroup heading={<SearchSectionHeader title="Bookmarks" count={filteredBookmarks.length} /> as any}>
+                        {filteredBookmarks.map((bm) => (
+                            <SearchItemRow
+                                key={`bm-${bm.id}`}
+                                item={bm}
+                                onSelect={() => handleSelectUrlItem(bm)}
+                            />
+                        ))}
+                    </CommandGroup>
+                )}
+
+                {/* COMMAND MODE: Grouped Action Registry */}
+                {mode === 'command' && (
+                    <>
+                        {Array.from(groupedCommands.entries()).map(([category, commands]) => (
+                            <CommandGroup
+                                key={`cat-${category}`}
+                                heading={<SearchSectionHeader title={category} count={commands.length} /> as any}
+                            >
+                                {commands.map((cmd) => (
+                                    <CommandItemRow
+                                        key={cmd.id}
+                                        command={cmd}
+                                        onSelect={() => handleSelectCommand(cmd)}
+                                    />
+                                ))}
+                            </CommandGroup>
+                        ))}
+                    </>
                 )}
             </CommandList>
         </CommandDialog>
