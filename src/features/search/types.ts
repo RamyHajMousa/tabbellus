@@ -82,3 +82,28 @@ export interface CommandAction {
 }
 
 export type OmniSearchMode = 'search' | 'command';
+
+export interface TopSiteItem {
+    title: string;
+    url: string;
+}
+
+export interface RecentSessionItem {
+    sessionId?: string;
+    lastModified: number;
+    title: string;
+    subtitle?: string;
+    url?: string;
+    isWindow: boolean;
+    tabCount?: number;
+    matchedSpaceId?: number;
+    matchedSpaceName?: string;
+    session: chrome.sessions.Session;
+}
+
+export interface LaunchpadData {
+    topSites: TopSiteItem[];
+    pinnedSpaces: SpaceSearchResult[];
+    recentSessions: RecentSessionItem[];
+    isLoading: boolean;
+}

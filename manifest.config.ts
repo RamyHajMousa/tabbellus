@@ -18,7 +18,8 @@ export default defineManifest({
         "alarms",
         "bookmarks",
         "contextMenus",
-        "favicon"
+        "favicon",
+        "topSites"
     ],
     action: {
         default_popup: "src/popup/index.html",

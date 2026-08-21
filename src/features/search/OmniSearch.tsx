@@ -20,6 +20,8 @@ import { COMMAND_REGISTRY, COMMAND_CATEGORIES, filterCommands } from './registry
 import { SearchItemRow } from './components/SearchItemRow';
 import { CommandItemRow } from './components/CommandItemRow';
 import { SearchSectionHeader } from './components/SearchSectionHeader';
+import { TopSiteRow, PinnedSpaceRow, RecentSessionRow } from './components/LaunchpadRows';
+import { useLaunchpadData } from './hooks/useLaunchpadData';
 import type {
     TabSearchResult,
     SpaceSearchResult,
@@ -27,6 +29,8 @@ import type {
     ReadLaterSearchResult,
     BookmarkSearchResult,
     CommandAction,
+    TopSiteItem,
+    RecentSessionItem,
 } from './types';
 
 export const OmniSearch: React.FC = () => {
@@ -47,7 +51,13 @@ export const OmniSearch: React.FC = () => {
         filteredReadLater,
         filteredBookmarks,
         totalResultsCount,
-    } = useOmniSearchData(isSearchOpen && mode === 'search', query);
+    } = useOmniSearchData(isSearchOpen && mode === 'search' && query.length > 0, query);
+
+    const {
+        topSites,
+        pinnedSpaces,
+        recentSessions,
+    } = useLaunchpadData(isSearchOpen && mode === 'search' && query.length === 0);
 
     const { executeCommand } = useCommandExecutor();
 
@@ -139,6 +149,32 @@ export const OmniSearch: React.FC = () => {
             await tabService.focusOrCreate(item.url).catch(() => {});
         },
         [setSearchOpen, query, addRecentSearch]
+    );
+
+    const handleSelectTopSite = useCallback(
+        async (site: TopSiteItem) => {
+            setSearchOpen(false);
+            await tabService.focusOrCreate(site.url).catch(() => {});
+        },
+        [setSearchOpen]
+    );
+
+    const handleSelectRecentSession = useCallback(
+        async (item: RecentSessionItem) => {
+            setSearchOpen(false);
+            if (item.sessionId && typeof chrome !== 'undefined' && chrome.sessions?.restore) {
+                try {
+                    await chrome.sessions.restore(item.sessionId);
+                } catch {
+                    if (item.url) {
+                        await tabService.focusOrCreate(item.url).catch(() => {});
+                    }
+                }
+            } else if (item.url) {
+                await tabService.focusOrCreate(item.url).catch(() => {});
+            }
+        },
+        [setSearchOpen]
     );
 
     const handleSelectCommand = useCallback(
@@ -240,19 +276,61 @@ export const OmniSearch: React.FC = () => {
 
                 {/* SEARCH MODE: Recent Searches */}
                 {mode === 'search' && query.length === 0 && recentSearches.length > 0 && (
-                    <CommandGroup heading="Recent Searches">
+                    <CommandGroup heading={<SearchSectionHeader title="Recent Searches" count={recentSearches.length} /> as any}>
                         {recentSearches.map((term) => (
                             <CommandItem
                                 key={`recent-${term}`}
                                 value={`recent ${term}`}
                                 onSelect={() => setRawValue(term)}
-                                className="h-9 px-2.5 py-1.5 flex items-center gap-2.5 cursor-pointer rounded-sm hover:bg-muted/60 data-[selected=true]:bg-muted/80 transition-colors"
+                                className="h-9 px-2.5 py-1.5 flex items-center gap-2.5 cursor-pointer rounded-sm hover:bg-accent/60 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground aria-selected:bg-accent aria-selected:text-accent-foreground transition-colors"
                             >
                                 <History className="h-4 w-4 text-muted-foreground shrink-0" />
                                 <span className="text-xs text-foreground font-normal">{term}</span>
                             </CommandItem>
                         ))}
                     </CommandGroup>
+                )}
+
+                {/* SEARCH MODE (ZERO STATE): Intelligent Launchpad */}
+                {mode === 'search' && query.length === 0 && (
+                    <>
+                        {topSites.length > 0 && (
+                            <CommandGroup heading={<SearchSectionHeader title="Frequent Sites" count={topSites.length} /> as any}>
+                                {topSites.map((site) => (
+                                    <TopSiteRow
+                                        key={`top-${site.url}`}
+                                        site={site}
+                                        onSelect={() => handleSelectTopSite(site)}
+                                    />
+                                ))}
+                            </CommandGroup>
+                        )}
+
+                        {pinnedSpaces.length > 0 && (
+                            <CommandGroup heading={<SearchSectionHeader title="Pinned Spaces" count={pinnedSpaces.length} /> as any}>
+                                {pinnedSpaces.map((space) => (
+                                    <PinnedSpaceRow
+                                        key={`pinned-${space.id}`}
+                                        space={space}
+                                        isActive={Boolean(space.id && activeSpaces[space.id])}
+                                        onSelect={() => handleSelectSpace(space)}
+                                    />
+                                ))}
+                            </CommandGroup>
+                        )}
+
+                        {recentSessions.length > 0 && (
+                            <CommandGroup heading={<SearchSectionHeader title="Recently Closed" count={recentSessions.length} /> as any}>
+                                {recentSessions.map((session, idx) => (
+                                    <RecentSessionRow
+                                        key={`recentsess-${session.sessionId || idx}-${session.lastModified}`}
+                                        session={session}
+                                        onSelect={() => handleSelectRecentSession(session)}
+                                    />
+                                ))}
+                            </CommandGroup>
+                        )}
+                    </>
                 )}
 
                 {/* SEARCH MODE: Active Tabs */}
