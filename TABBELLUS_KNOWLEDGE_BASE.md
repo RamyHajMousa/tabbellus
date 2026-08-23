@@ -14,7 +14,9 @@ tabbellus/
 │   └── AGENTS.md               # Supreme Override project rules
 ├── .context.md                 # Active Project Context Manifest
 ├── DESIGN.md                   # Visual design & layout specifications
-├── TECH_DEBT_REPORT.md         # Forensic code audit & tech debt findings
+├── docs/                       # Reviewer-ready CWS justifications & zero-data-collection privacy policy
+│   ├── CWS_JUSTIFICATIONS.md   # Line-by-line API and <all_urls> host permissions justification matrix
+│   └── PRIVACY.md              # Public zero-data-collection, local-first privacy policy
 ├── tailwind.config.ts          # Tailwind compiler configuration
 ├── manifest.config.ts          # Chrome Extension Manifest V3 configuration
 ├── package.json                # Project dependencies and release scripts
@@ -539,8 +541,10 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 24: OmniSearch 2.0 Intelligent Launchpad (Zero-State Engine)** - Complete.
 - **Phase 25: Color Swatch Picker Primitive Extraction & Create Space Modal Harmonization** - Complete.
 - **Phase 26: Hybrid Media Play/Pause Controller (Global Header Popover & Inline TabRow)** - Complete.
+- **Phase 27: Pre-Store Submission Stage 1 (Manifest V3 Security & Build Sanitization Audit)** - Complete.
+- **Phase 28: Pre-Store Submission Stage 2 (Dead Code Elimination, Vendor Chunking & CWS Compliance Documentation)** - Complete.
 
-<!-- Last Updated: 2026-08-23T13:45:00+02:00 -->
+<!-- Last Updated: 2026-08-23T14:15:00+02:00 -->
 
 
 

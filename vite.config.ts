@@ -28,6 +28,30 @@ export default defineConfig({
     },
   },
   build: {
+    target: 'esnext',
+    sourcemap: false,
+    chunkSizeWarningLimit: 1000,
     modulePreload: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/dexie/')) {
+            return 'vendor-dexie';
+          }
+          if (id.includes('node_modules/@radix-ui/') || id.includes('node_modules/cmdk/')) {
+            return 'vendor-ui';
+          }
+          if (id.includes('node_modules/@atlaskit/')) {
+            return 'vendor-dnd';
+          }
+          if (id.includes('node_modules/react-virtuoso/')) {
+            return 'vendor-virtuoso';
+          }
+        },
+      },
+    },
   },
 });
