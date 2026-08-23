@@ -6,37 +6,132 @@ This document serves as the comprehensive Source of Truth for the TabBellus proj
 
 ## 1. Project Directory Structure
 
-The codebase is structured around a local-first, domain-centric model using React 19, TypeScript, and Tailwind CSS. The folder hierarchy is organized as follows:
+The codebase is structured around a local-first, domain-centric model using React 19, TypeScript, Vite (@crxjs/vite-plugin), and Tailwind CSS. The folder hierarchy is organized as follows:
 
 ```
 tabbellus/
-├── .agents/                    # Custom agent instructions and rule files
-│   └── AGENTS.md               # Supreme Override project rules
-├── .context.md                 # Active Project Context Manifest
-├── DESIGN.md                   # Visual design & layout specifications
+├── .agents/                    # Custom agent instructions, supreme rules, and specialized skills
+│   ├── AGENTS.md               # Supreme Override project rules & architectural boundaries
+│   └── skills/                 # Internal specialized skills (logic-lens, brooks-lint, etc.)
+├── .context.md                 # Active Project Context Manifest & API abstractions
+├── .vscode/                    # IDE settings and project recommendations
 ├── docs/                       # Reviewer-ready CWS justifications & zero-data-collection privacy policy
 │   ├── CWS_JUSTIFICATIONS.md   # Line-by-line API and <all_urls> host permissions justification matrix
 │   └── PRIVACY.md              # Public zero-data-collection, local-first privacy policy
-├── tailwind.config.ts          # Tailwind compiler configuration
-├── manifest.config.ts          # Chrome Extension Manifest V3 configuration
-├── package.json                # Project dependencies and release scripts
-├── src/
-│   ├── background/             # Background service workers (chrome.runtime, tab/session listeners)
-│   ├── config/                 # External links and site configurations
-│   ├── components/
-│   │   └── ui/                 # Reusable Radix / shadcn visual primitives (Command, Dialog, Tooltip, Dropdown, Popover, SmartFallbackIcon)
-│   ├── features/               # Domain-specific logic & feature sub-systems (using Barrel imports)
-│   │   ├── bookmarks/          # Read-only browser bookmarks popover tree view
-│   │   ├── history/            # Chrome session retrieval, space fingerprinting, and window restoration
-│   │   ├── read-later/         # Inbox queue for deferred reading lists + ReadLaterToolbar
-│   │   ├── search/             # Command-K OmniSearch (cmdk search over spaces, tabs, read-later)
-│   │   ├── settings/           # Modular settings dialog (AppearanceTab, BehaviorTab, DataTab, SupportTab)
-│   │   ├── spaces/             # Workspace listing, 4-tier sorting, Radix empty space dialog + SpacesToolbar
-│   │   └── tabs/               # Tab lists, Drag & Drop trees, Group headers, render strategies + ActiveToolbar
-│   ├── hooks/                  # Global hooks (useClipboard, useUndoDelete, useIsTruncated, useWindowId, etc.)
-│   ├── lib/                    # Core service layer (db, spaceService, tabService, bookmarkService, platform, dataService, sessionUtils)
-│   ├── store/                  # Zustand stores (appStore.ts for AppSettings & persistence, uiStore.ts for layout views)
-│   └── sidepanel/              # Sidebar chrome container (GlobalHeader, ViewSwitcher, ActiveSpaceAnchor)
+├── public/                     # Static assets, icons, and unpacked extension resources
+├── scripts/                    # Release and build packaging automation (release.js)
+├── tests/                      # Testing infrastructure and fixtures
+│   ├── e2e/                    # Playwright end-to-end tests (spaces, capture, performance)
+│   ├── fixtures/               # Extension loader fixtures for browser test runners
+│   └── setup.ts                # Vitest global Chrome API mocks and test setup
+├── components.json             # shadcn/ui primitive configuration
+├── DESIGN.md                   # Visual design & layout specifications
+├── manifest.config.ts          # Chrome Extension Manifest V3 configuration (@crxjs/vite-plugin)
+├── package.json                # Project dependencies, test scripts, and build pipeline
+├── playwright.config.ts        # Playwright E2E configuration for Chromium extension runner
+├── postcss.config.js           # PostCSS compiler configuration
+├── SKILLS_SUMMARY.md           # Skills inventory and status reference
+├── TABBELLUS_KNOWLEDGE_BASE.md # Comprehensive system knowledge base & source of truth
+├── tailwind.config.ts          # Tailwind CSS compiler configuration and design tokens
+├── tsconfig.json               # Main TypeScript project compiler configuration
+├── tsconfig.node.json          # Node/tooling TypeScript compiler configuration
+├── vite.config.ts              # Vite bundler configuration (CRXJS plugin & manual chunking)
+├── vitest.config.ts            # Vitest unit and integration test configuration
+└── src/
+    ├── core/
+    │   └── contracts/          # Pure TypeScript interfaces & extension registry contracts (Free Core owns)
+    ├── pro/                    # Isolated Pro drivers, runtime registrations, and licensing engine
+    │   ├── licensing/          # Entitlement validation, signature verification, and cache manager
+    │   └── [modules]/          # Isolated Pro capability implementations
+    ├── background/             # MV3 background service workers & lifecycle controllers
+    │   ├── badgeService.ts     # Extension action badge updater for active tabs and audio state
+    │   ├── discardService.ts   # Tab auto-discarding and memory reclamation engine
+    │   └── index.ts            # Service worker bootstrap, tab/window listeners, context menus, shortcuts
+    ├── components/             # Reusable UI primitives and layout helpers
+    │   ├── ui/                 # Radix / shadcn-derived visual primitives (Component Ownership Model)
+    │   │   ├── Command.tsx           # Command palette input and group list container
+    │   │   ├── context-menu.tsx      # Radix context menu primitive
+    │   │   ├── Dialog.tsx            # Radix modal dialog primitive
+    │   │   ├── dropdown-menu.tsx     # Radix dropdown menu primitive
+    │   │   ├── popover.tsx           # Radix popover floating panel primitive
+    │   │   ├── SmartFallbackIcon.tsx # High-performance favicon cache cascade with fallback initials
+    │   │   ├── switch.tsx            # High-contrast accessible toggle switch
+    │   │   ├── tabs.tsx              # Radix tabs navigation primitive
+    │   │   ├── Toaster.tsx           # Sonner-based notification toast container
+    │   │   └── Tooltip.tsx           # Radix tooltip wrapper
+    │   └── ErrorBoundary.tsx   # React error boundary component for graceful degradation
+    ├── config/                 # Static configuration and external endpoints
+    │   └── links.ts            # Centralized external links, support hub, and donation URLs
+    ├── content/                # Injected content scripts
+    │   └── lockGuard.ts        # Injected script providing tab-close protection / beforeunload lock guard
+    ├── features/               # Domain-specific logic & feature sub-systems (using Barrel imports)
+    │   ├── bookmarks/          # Browser bookmarks popover tree explorer with search
+    │   │   └── BookmarkPopoverContent.tsx
+    │   ├── history/            # Chrome session retrieval, space fingerprinting, and window restoration
+    │   │   └── HistoryDialog.tsx
+    │   ├── read-later/         # Inbox queue for deferred reading lists with aging indicators
+    │   │   ├── components/     # ReadLaterItem, ReadLaterToolbar
+    │   │   ├── ReadLaterList.tsx
+    │   │   └── index.ts
+    │   ├── search/             # OmniSearch 2.0 executable command palette & zero-state launchpad
+    │   │   ├── components/     # CommandItemRow, LaunchpadRows, SearchItemRow, SearchSectionHeader
+    │   │   ├── hooks/          # useCommandExecutor, useLaunchpadData, useOmniSearchData
+    │   │   ├── registry/       # commandRegistry.ts (executable command dispatcher & metadata)
+    │   │   ├── utils/          # searchUtils.ts (score-based multi-token fuzzy matching)
+    │   │   ├── OmniSearch.tsx  # Command-K modal search palette
+    │   │   ├── types.ts        # Search & command action type definitions
+    │   │   └── index.ts
+    │   ├── settings/           # Modular settings dialog (Appearance, Behavior, Data, Support)
+    │   │   ├── components/     # AppearanceTab, BehaviorTab, DataTab, SupportTab
+    │   │   ├── hooks/          # useStorageTelemetry.ts (IndexedDB storage breakdown calculation)
+    │   │   ├── SettingsDialog.tsx
+    │   │   └── index.ts
+    │   ├── spaces/             # Workspace listing, 4-tier sorting, and space lifecycle
+    │   │   ├── components/     # ColorPickerGrid, CreateSpaceModal, EditSpaceDialog, SpaceDropzoneOverlay, SpaceItem, SpaceSelectorModal, SpacesToolbar
+    │   │   ├── hooks/          # useAddToSpaceAction.ts
+    │   │   ├── SpaceList.tsx   # Spaces main view with drag-and-drop, inline actions & context menus
+    │   │   ├── useSpaces.ts    # Dexie live query integration hook for spaces & tabs
+    │   │   └── index.ts
+    │   └── tabs/               # Active window tab lists, drag-and-drop trees, groups & media control
+    │       ├── components/     # ActiveToolbar, AnimatedAudioIcon, AudioControlPopover, GroupRow, InteractiveRow, SessionInsightsBar, TabRow, ZoomControlPopover, dnd/
+    │       ├── hooks/          # useActiveMediaSession, useAudioTabs, useCurrentTabs, useDuplicateTabs, useGroupLifecycle, useTabLifecycle, useWindowId
+    │       ├── store/          # tabLockStore.ts (Zustand store for tab lock states)
+    │       ├── utils/          # groupingUtils.ts (native group mapping & ordering)
+    │       ├── ActiveSession.tsx # Active tab session view with drag-and-drop reordering
+    │       ├── types.ts        # Tab & group view-model type definitions
+    │       └── index.ts
+    ├── hooks/                  # Global shared React hooks
+    │   ├── useActiveSpacesSync.ts # Syncs open window space associations with chrome.storage.local
+    │   ├── useClipboard.ts        # Safe clipboard copy utility with timed feedback
+    │   ├── useCurrentSpace.ts     # Live query hook resolving active space for current window
+    │   ├── useIsTruncated.ts      # ResizeObserver-based text truncation detector for tooltips
+    │   └── useUndoDelete.ts       # Unified deletion workflow with undo toast callbacks
+    ├── lib/                    # Core service layer, database engine & utility library
+    │   ├── bookmarkService.ts  # Chrome bookmarks tree explorer wrapper
+    │   ├── colors.ts           # Chrome tab group color token mappings & UI badges
+    │   ├── dataService.ts      # IndexedDB backup, single-space JSON export, import & reset
+    │   ├── dateUtils.ts        # Intl.RelativeTimeFormat, staleness checking, timestamp normalization
+    │   ├── db.ts               # Dexie.js database schema & table models (spaces, tabs, readLater)
+    │   ├── mediaService.ts     # Media playback controller script injector (video/audio play/pause)
+    │   ├── platform.ts         # OS/Browser detection, dynamic keybindings, safe external link handler
+    │   ├── readLaterService.ts # Read later CRUD, atomic batch archiving, ghost state migration
+    │   ├── sessionUtils.ts     # Closed window session recovery & fuzzy URL matching algorithms
+    │   ├── spaceService.ts     # Space capture, restore, tab moving/copying, and query providers
+    │   ├── tabService.ts       # Focus-or-create URL routing, duplicate detection, tab zoom control
+    │   ├── usageTracker.ts     # Privacy-respecting local feature interaction counters for launchpad
+    │   ├── utils.ts            # clsx and tailwind-merge helper
+    │   └── index.ts            # Barrel export for lib services
+    ├── popup/                  # Browser action popup entry point
+    │   ├── index.html          # Popup HTML shell
+    │   └── index.tsx           # Popup React root
+    ├── sidepanel/              # Main side panel container & layout routing
+    │   ├── components/         # ActiveSpaceAnchor, GlobalHeader, ViewSwitcher
+    │   ├── index.html          # Sidepanel HTML entry point
+    │   └── index.tsx           # Sidepanel React root, provider tree & view router
+    ├── store/                  # Zustand global stores
+    │   ├── appStore.ts         # AppSettings, active window spaces, auto-discard policies & persistence
+    │   └── uiStore.ts          # Active view navigation, OmniSearch modal state, search query
+    └── index.css               # Base Tailwind CSS, HSL design tokens & dark mode color definitions
 ```
 
 ---
@@ -275,6 +370,11 @@ TabBellus code evolution requires strict alignment with the rules stored in `.ag
     1. Compiles production assets (`dist/`).
     2. Runs safety scans for "localhost" bindings (deletes output and errors if found).
     3. Bundles output into a zip folder using PowerShell (`Compress-Archive`).
+
+### 4.3 Pro Subsystem Decoupling & Micro-Kernel Architecture
+* **Micro-Kernel Architecture Specification**: Document the lifecycle where Core initializes independently, and Pro modules attach via runtime registration hooks without circular dependencies.
+* **Fail-Safe Grace State**: Mandate that if licensing storage is corrupted or unreadable, the core free functionality (Spaces, Active Session, Read Later) operates normally without degradation.
+* **Single Build Pipeline**: Ensure Vite build configs (vite.config.ts) and TypeScript paths (tsconfig.json) treat src/core/contracts/ as public contracts and src/pro/ as decoupled consumers.
 
 ---
 
@@ -547,7 +647,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 30: Pre-Store Submission Stage 4 (Data Integrity, Schema Migrations & Storage Forensics)** - Complete.
 - **Phase 31: Pre-Store Submission Stage 5 (Visual Polish, Store Assets & Final Packaging Validation)** - Complete.
 
-<!-- Last Updated: 2026-08-23T14:32:00+02:00 -->
+<!-- Last Updated: 2026-08-23T18:34:00+02:00 -->
 
 
 

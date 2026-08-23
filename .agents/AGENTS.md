@@ -34,6 +34,12 @@
 - **KISS/MVS (Minimum Viable Solution):** Use native Browser APIs first. We rely on `@hello-pangea/dnd` for dragging, `cmdk` for search, and `shadcn/ui` for components. Do NOT install heavy third-party libraries without explicit permission.
 - **Component Ownership & Primitive Decoupling:** Primitives in `src/components/ui/` are owned source code, not external templates. Interactive surfaces (`<Switch>`, `<Checkbox>`, `<Slider>`, `<RadioGroup>`, menu items) must define explicit, high-contrast states (≥ 3.0:1 WCAG AA) and must NEVER use subtle layout/divider tokens (`--border`, `--input`, `--background`, `--muted`) that cause contrast collapse on OLED dark (`hsl(0 0% 0%)`) or pure white backgrounds. Radix accessibility and state selectors (`data-[state]`, `data-[disabled]`, `focus-visible:*`) must be fully preserved.
 
+### 3.1 Pro Architecture & Zero-Contamination Boundary (Mandatory)
+- **Pro Layer Isolation & Zero-Contamination Rule:** Free-tier feature files (`src/features/*`, `src/lib/*`, `src/store/*`, `src/sidepanel/*`) must NEVER import from `src/pro/*` or contain proprietary Pro business logic. TabBellus Free must build, pass 100% of test suites, and run completely if the `src/pro/` directory is entirely omitted.
+- **Dependency Inversion & Extension Point Contracts:** Free Core owns abstract interfaces and lifecycle hooks (src/core/contracts/ or src/lib/contracts/). Pro modules implement these contracts and dynamically register at runtime.
+- **Declarative Feature Slotting:** Pro gating must use declarative `<FeatureGate>` wrappers or registry slot lookups rather than scattered inline boolean conditionals (if (isPro)).
+- **Offline-First Entitlement & Grace Cycles:** License and entitlement checks must fail open to a clean fallback UI without crashing core tab operations or sidepanel renders.
+
 ## 4. Interaction Style
 - Keep responses concise, direct, and stripped of fluff.
 - Provide clear technical justifications for architectural choices (e.g., "Used `chrome.tabs.onReplaced` to prevent Edge Reader Mode ghost IDs").
