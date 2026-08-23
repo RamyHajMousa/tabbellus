@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Clock, Trash2, Copy, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon, Loader2 } from 'lucide-react';
+import { X, Clock, Trash2, Copy, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon, Loader2, Play, Pause } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { SpaceSelectorModal } from '@/features/spaces/components/SpaceSelectorModal';
 import { TooltipSimple } from '@/components/ui/Tooltip';
@@ -8,6 +8,7 @@ import { type RowTabData } from '../types';
 import { InteractiveRow } from './InteractiveRow';
 import { AnimatedAudioIcon } from './AnimatedAudioIcon';
 import { useTabLockStore } from '../store/tabLockStore';
+import { useActiveMediaSession } from '../hooks/useActiveMediaSession';
 import { useAppStore } from '@/store/appStore';
 import { useToast } from '@/components/ui/Toaster';
 import { getReadLaterShortcutText, tabService } from '@/lib';
@@ -53,6 +54,16 @@ export const TabRow = React.memo(
         const isActive = propIsActive ?? data.isActive;
         const canAddToSpace = data.source === 'active';
         const [isSpaceSelectorOpen, setIsSpaceSelectorOpen] = useState(false);
+
+        const mediaState = useActiveMediaSession(
+            (state) => data.chromeTabId !== undefined ? state.mediaSessions[data.chromeTabId] : undefined
+        );
+        const togglePlayback = useActiveMediaSession((state) => state.togglePlayback);
+
+        const isPausedSession = mediaState === 'paused';
+        const isAudibleOrPlaying = Boolean(data.audible) || mediaState === 'playing';
+        const showMediaControl = (isAudibleOrPlaying || isPausedSession) && typeof data.chromeTabId === 'number' && data.chromeTabId > 0;
+        const isPlaying = isPausedSession ? false : true;
 
         const isLocked = useTabLockStore((state) => data.chromeTabId !== undefined && state.lockedTabIds.includes(data.chromeTabId));
         const toggleLock = useTabLockStore((state) => state.toggleLock);
@@ -142,12 +153,13 @@ export const TabRow = React.memo(
                     )}
 
                     {/* Audio Indicator Toggle */}
-                    {(data.mutedInfo?.muted || data.audible) && (
+                    {(data.mutedInfo?.muted || data.audible || isPausedSession) && (
                         <TooltipSimple content={data.mutedInfo?.muted ? "Unmute Tab" : "Mute Tab"}>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    if (data.chromeTabId !== undefined) {
+                                    e.preventDefault();
+                                    if (typeof data.chromeTabId === 'number' && data.chromeTabId > 0) {
                                         chrome.tabs.update(data.chromeTabId, { muted: !data.mutedInfo?.muted }).catch(() => {});
                                     }
                                 }}
@@ -156,7 +168,7 @@ export const TabRow = React.memo(
                                 {data.mutedInfo?.muted ? (
                                     <VolumeX className="w-3.5 h-3.5" />
                                 ) : (
-                                    <AnimatedAudioIcon />
+                                    <AnimatedAudioIcon isPaused={isPausedSession} />
                                 )}
                             </button>
                         </TooltipSimple>
@@ -187,6 +199,21 @@ export const TabRow = React.memo(
                 <InteractiveRow.Actions
                     className={`gap-0.5 px-1 py-0.5 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto ${isActive ? 'bg-accent' : 'bg-background group-hover/tab:bg-accent'}`}
                 >
+                    {showMediaControl && (
+                        <TooltipSimple content={isPlaying ? "Pause Playback" : "Resume Playback"} side="top">
+                            <InteractiveRow.Action
+                                icon={isPlaying ? Pause : Play}
+                                onClick={async (e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    if (typeof data.chromeTabId === 'number' && data.chromeTabId > 0) {
+                                        await togglePlayback(data.chromeTabId);
+                                    }
+                                }}
+                                variant="primary"
+                            />
+                        </TooltipSimple>
+                    )}
                     {canAddToSpace && (
                         <TooltipSimple content="Save to Space..." side="top">
                             <InteractiveRow.Action

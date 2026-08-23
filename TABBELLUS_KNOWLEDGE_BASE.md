@@ -463,6 +463,18 @@ The project has completed major refactoring phases to optimize performance, clea
 
 ---
 
+### Phase 26: Hybrid Media Play/Pause Controller (Global Header Popover & Inline TabRow)
+*   **Outcome:**
+    *   **Manifest Permissions:** Added `"scripting"` permission and `host_permissions: ["<all_urls>"]` to `manifest.config.ts` for `chrome.scripting.executeScript` authorization across all websites.
+    *   **Media Execution Service:** Built `mediaService.ts` (`toggleMediaPlayback(tabId)`) using `chrome.scripting.executeScript` with `allFrames: true` to inject self-contained play/pause toggle logic into target tabs across all frames with `navigator.mediaSession` fallback and error normalization.
+    *   **Multi-Tab Media Session & Audio Tabs Tracking:** Built `useActiveMediaSession.ts` Zustand store managing a multi-tab dictionary registry (`mediaSessions: Record<number, 'playing' | 'paused'>`), and `useAudioTabs.ts` (`queryAudioTabs`) for active audio tab discovery and pause retention across all windows. Retains individual paused tabs in the audio list until tab removal (`onRemoved`), URL navigation (`changeInfo.url`), or tab discard.
+    *   **Global Header Audio Tabs Popover (`AudioControlPopover.tsx`):** Displays all playing and paused audio tabs with animated/static `AnimatedAudioIcon`, `SmartFallbackIcon` favicons, individual mute/unmute, instant 0ms optimistic Play/Pause controls, and a bi-directional header bulk action (`Mute All` / `Unmute All`) with `isAllMuted` predicate synchronization.
+    *   **Inline TabRow Media Control:** Renders a Play/Pause `InteractiveRow.Action` button inside `InteractiveRow.Actions` when `tab.audible === true` or when `mediaSessions[tab.chromeTabId] === 'paused'`. Swaps icon dynamically between `Play` (to resume) and `Pause` (to pause).
+    *   **ActiveMediaDock Teardown:** Completely removed `ActiveMediaDock.tsx` and reclaimed full vertical screen estate in `ActiveSession.tsx`.
+    *   **Testing Infrastructure:** Maintained `mediaService.test.ts` (8 tests), `useActiveMediaSession.test.ts` (8 tests), and `useAudioTabs.test.ts` (7 tests). Total suite: 188/188 tests passing across 18 files.
+
+---
+
 ## 6. Testing & Quality Assurance Infrastructure
 
 ### 6.1 Unit & Integration Testing (Vitest)
@@ -471,7 +483,7 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `discardService.test.ts` (16 tests)
     *   `tabService.test.ts` (10 tests)
     *   `sessionUtils.test.ts` (10 tests)
-    *   `spaceService.test.ts` (20 tests)
+    *   `spaceService.test.ts` (24 tests)
     *   `readLaterService.test.ts` (13 tests)
     *   `dataService.test.ts` (6 tests)
     *   `dateUtils.test.ts` (13 tests)
@@ -480,8 +492,13 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `useStorageTelemetry.test.ts` (5 tests)
     *   `commandRegistry.test.ts` (34 tests)
     *   `useOmniSearchData.test.ts` (8 tests)
+    *   `useLaunchpadData.test.ts` (5 tests)
     *   `badge.test.ts` (3 tests)
-*   **Execution Command:** `npm test` (153/153 passing).
+    *   `types.test.ts` (3 tests)
+    *   `mediaService.test.ts` (8 tests)
+    *   `useActiveMediaSession.test.ts` (8 tests)
+    *   `useAudioTabs.test.ts` (7 tests)
+*   **Execution Command:** `npm test` (188/188 passing).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -521,8 +538,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 23: Active Session Visual Polish — Tab Loading Spinner & Chromium _favicon Cache Cascade** - Complete.
 - **Phase 24: OmniSearch 2.0 Intelligent Launchpad (Zero-State Engine)** - Complete.
 - **Phase 25: Color Swatch Picker Primitive Extraction & Create Space Modal Harmonization** - Complete.
+- **Phase 26: Hybrid Media Play/Pause Controller (Global Header Popover & Inline TabRow)** - Complete.
 
-<!-- Last Updated: 2026-08-21T13:26:00+02:00 -->
+<!-- Last Updated: 2026-08-23T13:45:00+02:00 -->
 
 
 

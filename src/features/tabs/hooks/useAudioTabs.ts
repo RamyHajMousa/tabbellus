@@ -1,34 +1,94 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useActiveMediaSession } from './useActiveMediaSession';
 
 export interface AudioTabInfo {
     tab: chrome.tabs.Tab;
     isMuted: boolean;
 }
 
+/**
+ * Pure function to query and retain audio tabs across Chrome windows.
+ *
+ * Discovers audible, muted, and active media session tabs, retaining paused
+ * and muted media tabs until tab removal, tab discard, or URL change.
+ */
+export async function queryAudioTabs(trackedTabIds: Map<number, string>): Promise<chrome.tabs.Tab[]> {
+    if (typeof chrome === 'undefined' || !chrome.tabs) return [];
+
+    try {
+        // 1. Query live audible and muted tabs from browser
+        const allAudible = await chrome.tabs.query({ audible: true });
+        const allMuted = await chrome.tabs.query({ muted: true });
+
+        // Register newly audible or muted tabs
+        allAudible.forEach(t => {
+            if (t.id !== undefined && !t.discarded) {
+                trackedTabIds.set(t.id, t.url || '');
+            }
+        });
+        allMuted.forEach(t => {
+            if (t.id !== undefined && !t.discarded) {
+                trackedTabIds.set(t.id, t.url || '');
+            }
+        });
+
+        // Also check multi-tab active media session store
+        const { mediaSessions, lastKnownUrls } = useActiveMediaSession.getState();
+        for (const [tabIdStr, state] of Object.entries(mediaSessions)) {
+            const tabId = Number(tabIdStr);
+            if (state === 'playing' || state === 'paused') {
+                trackedTabIds.set(tabId, lastKnownUrls[tabId] || '');
+            }
+        }
+
+        // 2. Fetch and retain all tracked tabs (including paused & muted media tabs)
+        const combinedMap = new Map<number, chrome.tabs.Tab>();
+
+        for (const [id, originalUrl] of Array.from(trackedTabIds.entries())) {
+            try {
+                const tab = await chrome.tabs.get(id);
+                if (!tab || tab.discarded) {
+                    trackedTabIds.delete(id);
+                    continue;
+                }
+                // If URL changed (tab navigated to another page), drop it
+                if (originalUrl && tab.url && tab.url !== originalUrl) {
+                    trackedTabIds.delete(id);
+                    continue;
+                }
+                combinedMap.set(id, tab);
+            } catch {
+                // Tab was closed
+                trackedTabIds.delete(id);
+            }
+        }
+
+        return Array.from(combinedMap.values());
+    } catch (err) {
+        console.warn('queryAudioTabs failed', err);
+        return [];
+    }
+}
+
+/**
+ * Hook managing audio/media tabs across all Chrome windows.
+ *
+ * Retains tabs when they are audible, muted, or paused, ensuring the
+ * Audio Control Popover stays open and active across playback and mute toggles.
+ */
 export function useAudioTabs(): {
     audioTabs: chrome.tabs.Tab[];
     audibleCount: number;
     toggleMuteTab: (tabId: number) => Promise<void>;
     muteAllAudioTabs: () => Promise<void>;
+    unmuteAllAudioTabs: () => Promise<void>;
 } {
     const [audioTabs, setAudioTabs] = useState<chrome.tabs.Tab[]>([]);
+    const trackedTabIdsRef = useRef<Map<number, string>>(new Map()); // tabId -> url
 
     const refreshAudioTabs = useCallback(async () => {
-        try {
-            if (typeof chrome === 'undefined' || !chrome.tabs) return;
-            // Query all tabs in browser across windows that are audible or muted
-            const allAudible = await chrome.tabs.query({ audible: true });
-            // Also include tabs that are muted to allow unmuting
-            const allMuted = await chrome.tabs.query({ muted: true });
-            
-            const combinedMap = new Map<number, chrome.tabs.Tab>();
-            allAudible.forEach(t => t.id !== undefined && combinedMap.set(t.id, t));
-            allMuted.forEach(t => t.id !== undefined && combinedMap.set(t.id, t));
-
-            setAudioTabs(Array.from(combinedMap.values()));
-        } catch (err) {
-            console.warn('useAudioTabs: query failed', err);
-        }
+        const tabs = await queryAudioTabs(trackedTabIdsRef.current);
+        setAudioTabs(tabs);
     }, []);
 
     useEffect(() => {
@@ -36,15 +96,22 @@ export function useAudioTabs(): {
 
         refreshAudioTabs();
 
-        const handleTabUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
-            if (changeInfo.audible !== undefined || changeInfo.mutedInfo !== undefined) {
+        const handleTabUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+            if (changeInfo.audible !== undefined || changeInfo.mutedInfo !== undefined || changeInfo.url || changeInfo.discarded) {
+                if (changeInfo.discarded || (changeInfo.url && trackedTabIdsRef.current.has(tabId))) {
+                    const original = trackedTabIdsRef.current.get(tabId);
+                    if (changeInfo.url && original && changeInfo.url !== original) {
+                        trackedTabIdsRef.current.delete(tabId);
+                    }
+                }
                 if (mounted) {
                     refreshAudioTabs();
                 }
             }
         };
 
-        const handleTabRemoved = () => {
+        const handleTabRemoved = (tabId: number) => {
+            trackedTabIdsRef.current.delete(tabId);
             if (mounted) {
                 refreshAudioTabs();
             }
@@ -91,11 +158,26 @@ export function useAudioTabs(): {
                 .map(t => t.id!);
 
             await Promise.all(
-                unmutedTabIds.map(id => chrome.tabs.update(id, { muted: true }).catch(() => {}))
+                unmutedTabIds.map(id => chrome.tabs.update(id, { muted: true }).catch(() => { }))
             );
             refreshAudioTabs();
         } catch (err) {
             console.warn('useAudioTabs: muteAllAudioTabs failed', err);
+        }
+    }, [audioTabs, refreshAudioTabs]);
+
+    const unmuteAllAudioTabs = useCallback(async () => {
+        try {
+            const mutedTabIds = audioTabs
+                .filter(t => t.mutedInfo?.muted && t.id !== undefined)
+                .map(t => t.id!);
+
+            await Promise.all(
+                mutedTabIds.map(id => chrome.tabs.update(id, { muted: false }).catch(() => { }))
+            );
+            refreshAudioTabs();
+        } catch (err) {
+            console.warn('useAudioTabs: unmuteAllAudioTabs failed', err);
         }
     }, [audioTabs, refreshAudioTabs]);
 
@@ -107,5 +189,6 @@ export function useAudioTabs(): {
         audibleCount,
         toggleMuteTab,
         muteAllAudioTabs,
+        unmuteAllAudioTabs,
     };
 }

@@ -10,6 +10,7 @@ export default defineManifest({
     description: "The premium workspace and tab manager for power users. Save spaces, search tabs, and declutter your browser.",
     permissions: [
         "tabs",
+        "scripting",
         "storage",
         "sidePanel",
         "unlimitedStorage",
@@ -20,6 +21,9 @@ export default defineManifest({
         "contextMenus",
         "favicon",
         "topSites"
+    ],
+    host_permissions: [
+        "<all_urls>"
     ],
     action: {
         default_popup: "src/popup/index.html",
