@@ -1,4 +1,43 @@
-import { db, type Tab } from './db';
+import { db, type Tab, type Space, type ReadLaterItem } from './db';
+
+/**
+ * Base custom error for backup operations.
+ */
+export class BackupError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'BackupError';
+    }
+}
+
+export class InvalidBackupFormatError extends BackupError {
+    constructor(message: string = 'Invalid file format. Please upload a valid JSON backup file.') {
+        super(message);
+        this.name = 'InvalidBackupFormatError';
+    }
+}
+
+export class CorruptBackupJsonError extends BackupError {
+    constructor(message: string = 'Corrupt or malformed JSON. Could not parse backup file.') {
+        super(message);
+        this.name = 'CorruptBackupJsonError';
+    }
+}
+
+export class BackupValidationError extends BackupError {
+    constructor(message: string) {
+        super(message);
+        this.name = 'BackupValidationError';
+    }
+}
+
+export interface ImportResult {
+    spacesImported: number;
+    tabsImported: number;
+    spacesCount: number;
+    tabsCount: number;
+    readLaterCount: number;
+}
 
 /**
  * Data Backup & Restore Service
@@ -62,18 +101,12 @@ export const dataService = {
     },
 
     /**
-     * Import data from a JSON backup file.
-     * Removes IDs to let Dexie auto-generate new ones.
+     * Import data from a JSON backup file with deep validation and safe foreign-key remapping.
+     * Removes IDs to let Dexie auto-generate new auto-increment keys.
      */
-    async importData(file: File): Promise<{
-        spacesImported: number;
-        tabsImported: number;
-        spacesCount: number;
-        tabsCount: number;
-        readLaterCount: number;
-    }> {
+    async importData(file: File): Promise<ImportResult> {
         if (file.name && !file.name.toLowerCase().endsWith('.json')) {
-            throw new Error('Invalid file format. Please upload a valid JSON backup file.');
+            throw new InvalidBackupFormatError('Invalid file format. Please upload a valid JSON backup file.');
         }
 
         let data: any;
@@ -81,99 +114,146 @@ export const dataService = {
             const text = await file.text();
             data = JSON.parse(text);
         } catch {
-            throw new Error('Corrupt or malformed JSON. Could not parse backup file.');
+            throw new CorruptBackupJsonError('Corrupt or malformed JSON. Could not parse backup file.');
         }
 
-        if (!data || typeof data !== 'object') {
-            throw new Error('Invalid backup file: Payload is not a valid JSON object.');
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            throw new BackupValidationError('Invalid backup file: Payload is not a valid JSON object.');
         }
 
         // Support both multi-space backups (data.spaces) and single-space exports (data.space)
-        const spacesRaw = Array.isArray(data.spaces)
+        const isSingleSpace = Boolean(data.space && typeof data.space === 'object');
+        const spacesRaw: any[] = Array.isArray(data.spaces)
             ? data.spaces
-            : (data.space && typeof data.space === 'object' ? [data.space] : []);
+            : (isSingleSpace ? [data.space] : []);
 
         if (spacesRaw.length === 0) {
-            throw new Error('Invalid backup file: missing spaces data');
+            throw new BackupValidationError('Invalid backup file: missing spaces data.');
         }
 
+        // Validate Spaces structure
         for (const s of spacesRaw) {
-            if (!s || typeof s !== 'object' || typeof s.name !== 'string') {
-                throw new Error('Invalid backup file: contains invalid space entries.');
+            if (!s || typeof s !== 'object' || typeof s.name !== 'string' || !s.name.trim()) {
+                throw new BackupValidationError('Invalid backup file: contains invalid space entries.');
             }
         }
 
-        const tabsRaw = Array.isArray(data.tabs) ? data.tabs : [];
+        // Validate Tabs structure
+        const tabsRaw: any[] = Array.isArray(data.tabs) ? data.tabs : [];
         for (const t of tabsRaw) {
-            if (!t || typeof t !== 'object' || typeof t.url !== 'string') {
-                throw new Error('Invalid backup file: contains invalid tab entries.');
+            if (!t || typeof t !== 'object' || typeof t.url !== 'string' || !t.url.trim()) {
+                throw new BackupValidationError('Invalid backup file: contains invalid tab entries.');
+            }
+        }
+
+        // Validate Read Later structure
+        const readLaterRaw: any[] = Array.isArray(data.readLater) ? data.readLater : [];
+        const validStatuses = new Set(['unread', 'read', 'archived']);
+        for (const r of readLaterRaw) {
+            if (!r || typeof r !== 'object' || typeof r.url !== 'string' || !r.url.trim()) {
+                throw new BackupValidationError('Invalid backup file: contains invalid read-later entries.');
+            }
+            if (r.status && !validStatuses.has(r.status)) {
+                r.status = 'unread'; // Fallback to safe default
             }
         }
 
         let spacesCount = 0;
         let tabsCount = 0;
-        const readLaterCount = (Array.isArray(data.readLater) ? data.readLater : []).length;
+        const readLaterCount = readLaterRaw.length;
 
-        // Bulk add in transaction
-        await db.transaction('rw', db.spaces, db.tabs, db.readLater, async () => {
-            // 1. Import Spaces & Build ID Map
-            const spaceIdMap = new Map<number, number>();
+        try {
+            // Bulk add in an atomic transaction
+            await db.transaction('rw', db.spaces, db.tabs, db.readLater, async () => {
+                // 1. Import Spaces & Build ID Map
+                const spaceIdMap = new Map<number, number>();
 
-            for (const s of spacesRaw) {
-                const { id: oldId, ...rest } = s;
-                // Add space and get new ID
-                const newId = await db.spaces.add(rest) as number;
+                for (const s of spacesRaw) {
+                    const { id: oldId, ...rest } = s;
+                    const spaceToInsert: Space = {
+                        name: rest.name.trim(),
+                        createdAt: typeof rest.createdAt === 'number' ? rest.createdAt : Date.now(),
+                        ...(rest.color ? { color: rest.color } : {}),
+                        ...(rest.isPinned ? { isPinned: true } : {}),
+                        ...(rest.deletedAt ? { deletedAt: rest.deletedAt } : {}),
+                    };
 
-                if (oldId) {
-                    spaceIdMap.set(Number(oldId), newId);
+                    const newId = (await db.spaces.add(spaceToInsert)) as number;
+
+                    if (oldId !== undefined) {
+                        spaceIdMap.set(Number(oldId), newId);
+                    }
+                    spacesCount++;
                 }
-                spacesCount++;
-            }
 
-            // 2. Import Tabs (Remap spaceId)
-            const tabsToImport: Tab[] = [];
+                // 2. Import Tabs (Remap spaceId foreign key)
+                const tabsToImport: Tab[] = [];
 
-            for (const t of tabsRaw) {
-                const { id, spaceId, ...rest } = t;
-                const newSpaceId = spaceIdMap.get(Number(spaceId));
+                for (const t of tabsRaw) {
+                    const { id, spaceId, ...rest } = t;
+                    let targetSpaceId: number | undefined;
 
-                // Only import tab if we found its new parent space
-                if (newSpaceId !== undefined) {
-                    tabsToImport.push({
-                        ...rest,
-                        spaceId: newSpaceId,
-                        order: (rest.order !== undefined) ? rest.order : 0
-                    } as Tab);
+                    if (isSingleSpace && spacesCount === 1) {
+                        // For single-space exports, map all tabs to the newly inserted space
+                        targetSpaceId = Array.from(spaceIdMap.values())[0] || (await db.spaces.toCollection().last())?.id;
+                    } else if (spaceId !== undefined) {
+                        targetSpaceId = spaceIdMap.get(Number(spaceId));
+                    }
+
+                    // Only import tab if we successfully resolved its parent space
+                    if (targetSpaceId !== undefined) {
+                        tabsToImport.push({
+                            spaceId: targetSpaceId,
+                            url: rest.url.trim(),
+                            title: typeof rest.title === 'string' ? rest.title : 'Untitled',
+                            ...(rest.favicon ? { favicon: rest.favicon } : {}),
+                            order: typeof rest.order === 'number' ? rest.order : tabsToImport.length,
+                        });
+                    }
                 }
-            }
 
-            if (tabsToImport.length > 0) {
-                await db.tabs.bulkAdd(tabsToImport);
-                tabsCount = tabsToImport.length;
-            }
+                if (tabsToImport.length > 0) {
+                    await db.tabs.bulkAdd(tabsToImport);
+                    tabsCount = tabsToImport.length;
+                }
 
-            // 3. Import Read Later
-            const readLaterRaw = Array.isArray(data.readLater) ? data.readLater : [];
-            if (readLaterRaw.length > 0) {
-                const readLaterToImport = readLaterRaw.map((r: any) => {
-                    const { id, ...rest } = r;
-                    return rest;
-                });
-                await db.readLater.bulkAdd(readLaterToImport);
-            }
-        });
+                // 3. Import Read Later
+                if (readLaterRaw.length > 0) {
+                    const readLaterToImport: ReadLaterItem[] = readLaterRaw.map((r: any) => {
+                        const { id, ...rest } = r;
+                        return {
+                            url: rest.url.trim(),
+                            title: typeof rest.title === 'string' ? rest.title : undefined,
+                            ...(rest.favicon ? { favicon: rest.favicon } : {}),
+                            addedAt: typeof rest.addedAt === 'number' ? rest.addedAt : Date.now(),
+                            status: validStatuses.has(rest.status) ? rest.status : 'unread',
+                        };
+                    });
+                    await db.readLater.bulkAdd(readLaterToImport);
+                }
+            });
 
-        return {
-            spacesImported: spacesCount,
-            tabsImported: tabsCount,
-            spacesCount,
-            tabsCount,
-            readLaterCount,
-        };
+            return {
+                spacesImported: spacesCount,
+                tabsImported: tabsCount,
+                spacesCount,
+                tabsCount,
+                readLaterCount,
+            };
+        } catch (error: any) {
+            console.error('DataService: Import transaction failed:', error);
+            if (error.name === 'QuotaExceededError') {
+                throw new BackupError('Storage quota exceeded. Please free up browser storage space.');
+            }
+            if (error instanceof BackupError) {
+                throw error;
+            }
+            throw new BackupError(error instanceof Error ? error.message : 'Database error during backup import.');
+        }
     },
 
     /**
-     * Clear all application data.
+     * Clear all application data in an atomic transaction.
      */
     async clearData(): Promise<void> {
         await db.transaction('rw', db.spaces, db.tabs, db.readLater, async () => {

@@ -226,5 +226,119 @@ describe('DataService — Backup & Restore Integration', () => {
       'Invalid backup file: missing spaces data'
     );
   });
+
+  // ── Test Case 7: Single Space Export and Import ────────────────
+  it('should export a single space as JSON and re-import it with all tabs mapped', async () => {
+    const { spaceId1 } = await seedTestData();
+
+    const originalDocument = globalThis.document;
+    const originalURL = globalThis.URL;
+    const originalBlob = globalThis.Blob;
+
+    let exportedSinglePayload: any = null;
+
+    const mockAnchor = {
+      href: '',
+      download: '',
+      click: vi.fn(),
+    };
+
+    globalThis.document = {
+      body: {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      },
+      createElement: vi.fn().mockReturnValue(mockAnchor),
+    } as any;
+
+    globalThis.URL = {
+      createObjectURL: vi.fn().mockReturnValue('blob:mock-download-single-url'),
+      revokeObjectURL: vi.fn(),
+    } as any;
+
+    class MockBlob extends originalBlob {
+      constructor(chunks: any[], options?: any) {
+        super(chunks, options);
+        exportedSinglePayload = JSON.parse(chunks[0]);
+      }
+    }
+    globalThis.Blob = MockBlob as any;
+
+    try {
+      await dataService.exportSpaceAsJson(spaceId1);
+
+      expect(exportedSinglePayload).toBeDefined();
+      expect(exportedSinglePayload.version).toBe(1);
+      expect(exportedSinglePayload.space.name).toBe('Work Space');
+      expect(exportedSinglePayload.tabs).toHaveLength(2);
+      expect(mockAnchor.download).toContain('tabbellus-space-work_space.json');
+
+      // Clear data and import the single-space backup
+      await dataService.clearData();
+
+      const mockFile = {
+        name: 'single-space.json',
+        text: async () => JSON.stringify(exportedSinglePayload),
+      } as unknown as File;
+
+      const result = await dataService.importData(mockFile);
+      expect(result.spacesCount).toBe(1);
+      expect(result.tabsCount).toBe(2);
+
+      const spaces = await db.spaces.toArray();
+      expect(spaces).toHaveLength(1);
+      expect(spaces[0].name).toBe('Work Space');
+
+      const tabs = await db.tabs.toArray();
+      expect(tabs).toHaveLength(2);
+      expect(tabs[0].spaceId).toBe(spaces[0].id);
+      expect(tabs[1].spaceId).toBe(spaces[0].id);
+    } finally {
+      globalThis.document = originalDocument;
+      globalThis.URL = originalURL;
+      globalThis.Blob = originalBlob;
+    }
+  });
+
+  // ── Test Case 8: Invalid Tab Entries Rejection ─────────────────
+  it('should reject backup payload with invalid or empty tab URLs', async () => {
+    const invalidPayload = {
+      version: 1,
+      spaces: [{ name: 'Valid Space' }],
+      tabs: [{ spaceId: 1, url: '   ' }], // empty URL
+    };
+
+    const mockFile = {
+      name: 'backup.json',
+      text: async () => JSON.stringify(invalidPayload),
+    } as unknown as File;
+
+    await expect(dataService.importData(mockFile)).rejects.toThrow(
+      'Invalid backup file: contains invalid tab entries.'
+    );
+
+    // Verify nothing was written to database
+    expect(await db.spaces.count()).toBe(0);
+    expect(await db.tabs.count()).toBe(0);
+  });
+
+  // ── Test Case 9: Invalid Space Entries Rejection ───────────────
+  it('should reject backup payload with empty space names', async () => {
+    const invalidPayload = {
+      version: 1,
+      spaces: [{ name: '   ' }], // whitespace only
+    };
+
+    const mockFile = {
+      name: 'backup.json',
+      text: async () => JSON.stringify(invalidPayload),
+    } as unknown as File;
+
+    await expect(dataService.importData(mockFile)).rejects.toThrow(
+      'Invalid backup file: contains invalid space entries.'
+    );
+
+    expect(await db.spaces.count()).toBe(0);
+  });
 });
 
