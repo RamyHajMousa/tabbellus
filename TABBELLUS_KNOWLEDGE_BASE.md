@@ -38,8 +38,15 @@ tabbellus/
 ├── vite.config.ts              # Vite bundler configuration (CRXJS plugin & manual chunking)
 ├── vitest.config.ts            # Vitest unit and integration test configuration
 └── src/
-    ├── core/
-    │   └── contracts/          # Pure TypeScript interfaces & extension registry contracts (Free Core owns)
+    ├── core/                   # Pure TypeScript interfaces & extension registry contracts (Free Core owns)
+    │   ├── contracts/          # Core capability interfaces and registration models
+    │   │   ├── index.ts        # EntitlementStatus, LicensingContract, ProModule, FeatureSlotRegistration
+    │   │   └── registry.ts     # ContractRegistry singleton, NullLicensingEngine, reactive subscription dispatcher
+    │   ├── hooks/
+    │   │   └── useEntitlement.ts # Reactive hook querying active licensing provider with fail-open fallback
+    │   ├── components/
+    │   │   └── FeatureGate.tsx # Declarative UI feature gating primitive
+    │   └── index.ts            # Public Free Core export barrel
     ├── pro/                    # Isolated Pro drivers, runtime registrations, and licensing engine
     │   ├── licensing/          # Entitlement validation, signature verification, and cache manager
     │   └── [modules]/          # Isolated Pro capability implementations
@@ -600,7 +607,9 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `mediaService.test.ts` (8 tests)
     *   `useActiveMediaSession.test.ts` (8 tests)
     *   `useAudioTabs.test.ts` (7 tests)
-*   **Execution Command:** `npm test` (188/188 passing).
+    *   `registry.test.ts` (14 tests)
+    *   `FeatureGate.test.tsx` (5 tests)
+*   **Execution Command:** `npm test` (210/210 passing across 20 test files).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -646,8 +655,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 29: Pre-Store Submission Stage 3 (Performance, Memory & Event Listener Lifecycle Forensics)** - Complete.
 - **Phase 30: Pre-Store Submission Stage 4 (Data Integrity, Schema Migrations & Storage Forensics)** - Complete.
 - **Phase 31: Pre-Store Submission Stage 5 (Visual Polish, Store Assets & Final Packaging Validation)** - Complete.
+- **Phase 32: Free Core Gating Infrastructure (Registry, useEntitlement, FeatureGate)** - Complete.
 
-<!-- Last Updated: 2026-08-23T18:34:00+02:00 -->
+<!-- Last Updated: 2026-08-23T19:07:00+02:00 -->
 
 
 
