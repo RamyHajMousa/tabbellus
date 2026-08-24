@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Clock, Trash2, Copy, Pin, PinOff, VolumeX, Volume2, Lock, Unlock, Snowflake, CopyPlus, FolderPlus, Moon, Loader2, Play, Pause } from 'lucide-react';
 import { useClipboard } from '@/hooks/useClipboard';
 import { SpaceSelectorModal } from '@/features/spaces/components/SpaceSelectorModal';
@@ -54,6 +54,24 @@ export const TabRow = React.memo(
         const isActive = propIsActive ?? data.isActive;
         const canAddToSpace = data.source === 'active';
         const [isSpaceSelectorOpen, setIsSpaceSelectorOpen] = useState(false);
+        const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+
+        // Defensive UI loading watchdog: auto-clears orphan spinner if Chromium fails to dispatch final complete event on SPAs
+        useEffect(() => {
+            if (data.status !== 'loading') {
+                setLoadingTimedOut(false);
+                return;
+            }
+
+            setLoadingTimedOut(false);
+            const timer = setTimeout(() => {
+                setLoadingTimedOut(true);
+            }, 8000);
+
+            return () => clearTimeout(timer);
+        }, [data.status, data.url, data.chromeTabId]);
+
+        const isTabLoading = data.status === 'loading' && !loadingTimedOut;
 
         const mediaState = useActiveMediaSession(
             (state) => data.chromeTabId !== undefined ? state.mediaSessions[data.chromeTabId] : undefined
@@ -139,7 +157,7 @@ export const TabRow = React.memo(
                     {isLocked && (
                         <Lock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                     )}
-                    {data.status === 'loading' ? (
+                    {isTabLoading ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground flex-shrink-0" />
                     ) : (
                         <SmartFallbackIcon url={data.url} favicon={data.favicon} className="w-4 h-4 rounded-sm flex-shrink-0" />

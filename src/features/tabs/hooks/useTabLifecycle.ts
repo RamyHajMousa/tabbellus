@@ -50,17 +50,19 @@ export function useTabLifecycle(
 
         const onTabUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
             if (tab.windowId !== windowId) return;
-            // Intentionally check strict/shallow updates to prevent over-rendering
+            // Strict property check to avoid redundant re-renders while ensuring all relevant tab updates (including URL & status) are captured
             if (
-                changeInfo.status ||
-                changeInfo.title ||
-                changeInfo.favIconUrl ||
+                changeInfo.status !== undefined ||
+                changeInfo.title !== undefined ||
+                changeInfo.favIconUrl !== undefined ||
+                changeInfo.url !== undefined ||
                 changeInfo.groupId !== undefined ||
                 changeInfo.pinned !== undefined ||
                 changeInfo.audible !== undefined ||
                 changeInfo.mutedInfo !== undefined ||
                 changeInfo.discarded !== undefined
             ) {
+                // Guarantee tab state updates extract status and all properties directly from the full tab record
                 setTabs(prev => prev.map(t => (t.id === _tabId ? tab : t)).sort((a, b) => a.index - b.index));
             }
         };
@@ -75,9 +77,19 @@ export function useTabLifecycle(
             triggerTabsRefresh();
         };
 
-        const onTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+        const onTabActivated = async (activeInfo: chrome.tabs.TabActiveInfo) => {
             if (activeInfo.windowId !== windowId) return;
+            // Optimistically update active flag
             setTabs(prev => prev.map(t => ({ ...t, active: t.id === activeInfo.tabId })).sort((a, b) => a.index - b.index));
+            // Reconcile fresh tab record (including status) to resolve background loading transitions
+            try {
+                const freshTab = await chrome.tabs.get(activeInfo.tabId);
+                if (mounted && freshTab.windowId === windowId) {
+                    setTabs(prev => prev.map(t => (t.id === freshTab.id ? freshTab : t)).sort((a, b) => a.index - b.index));
+                }
+            } catch (e) {
+                // Tab may have closed or query failed
+            }
         };
 
         const onTabAttached = (_tabId: number, attachInfo: chrome.tabs.TabAttachInfo) => {
@@ -93,7 +105,7 @@ export function useTabLifecycle(
         const onTabReplaced = async (addedTabId: number, _removedTabId: number) => {
             try {
                 const newTab = await chrome.tabs.get(addedTabId);
-                if (newTab.windowId === windowId) {
+                if (mounted && newTab.windowId === windowId) {
                     triggerTabsRefresh();
                 }
             } catch (e) {

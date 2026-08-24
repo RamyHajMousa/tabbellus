@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Globe, FileText, File, Puzzle, Settings, AppWindow } from 'lucide-react';
 
 interface SmartFallbackIconProps {
@@ -7,13 +7,52 @@ interface SmartFallbackIconProps {
     className?: string;
 }
 
+const FAVICON_TIMEOUT_MS = 2500;
+
 export const SmartFallbackIcon: React.FC<SmartFallbackIconProps> = ({ url, favicon, className }) => {
     // Stage 0 = Tier 1 (Native favicon URL), Stage 1 = Tier 2 (Chromium _favicon cache), Stage 2 = Tier 3 (Context Lucide icon)
     const [fallbackStage, setFallbackStage] = useState<number>(0);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         setFallbackStage(0);
     }, [url, favicon]);
+
+    useEffect(() => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+
+        // Arm a timeout guard for image resolution stages (Stage 0 and Stage 1) to handle stalled requests, 204s, and CSP blocks
+        if (fallbackStage === 0 || fallbackStage === 1) {
+            timeoutRef.current = setTimeout(() => {
+                setFallbackStage((prev) => Math.min(prev + 1, 2));
+            }, FAVICON_TIMEOUT_MS);
+        }
+
+        return () => {
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+            }
+        };
+    }, [fallbackStage, url, favicon]);
+
+    const handleImageLoad = () => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+    };
+
+    const handleImageError = () => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+        setFallbackStage((prev) => Math.min(prev + 1, 2));
+    };
 
     const isInternalScheme = (targetUrl?: string) => {
         if (!targetUrl) return false;
@@ -67,7 +106,8 @@ export const SmartFallbackIcon: React.FC<SmartFallbackIconProps> = ({ url, favic
                     src={favicon}
                     alt=""
                     className={className}
-                    onError={() => setFallbackStage(1)}
+                    onLoad={handleImageLoad}
+                    onError={handleImageError}
                     loading="lazy"
                 />
             );
@@ -82,7 +122,8 @@ export const SmartFallbackIcon: React.FC<SmartFallbackIconProps> = ({ url, favic
                         src={chromiumFaviconUrl}
                         alt=""
                         className={className}
-                        onError={() => setFallbackStage(2)}
+                        onLoad={handleImageLoad}
+                        onError={handleImageError}
                         loading="lazy"
                     />
                 );
@@ -102,7 +143,8 @@ export const SmartFallbackIcon: React.FC<SmartFallbackIconProps> = ({ url, favic
                         src={chromiumFaviconUrl}
                         alt=""
                         className={className}
-                        onError={() => setFallbackStage(2)}
+                        onLoad={handleImageLoad}
+                        onError={handleImageError}
                         loading="lazy"
                     />
                 );
