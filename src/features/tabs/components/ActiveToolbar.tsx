@@ -261,36 +261,42 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({
                 <div className="w-[1px] h-4 bg-border mx-1" />
 
                 <TooltipSimple content="Back" side="bottom">
-                    <button
-                        onClick={handleGoBack}
-                        disabled={!activeTabId}
-                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
-                        aria-label="Go back"
-                    >
-                        <ArrowLeft className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="inline-flex">
+                        <button
+                            onClick={handleGoBack}
+                            disabled={!activeTabId}
+                            className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed rounded-md transition-colors"
+                            aria-label="Go back"
+                        >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                        </button>
+                    </span>
                 </TooltipSimple>
 
                 <TooltipSimple content="Forward" side="bottom">
-                    <button
-                        onClick={handleGoForward}
-                        disabled={!activeTabId}
-                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
-                        aria-label="Go forward"
-                    >
-                        <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="inline-flex">
+                        <button
+                            onClick={handleGoForward}
+                            disabled={!activeTabId}
+                            className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed rounded-md transition-colors"
+                            aria-label="Go forward"
+                        >
+                            <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                    </span>
                 </TooltipSimple>
 
                 <TooltipSimple content="Reload" side="bottom">
-                    <button
-                        onClick={handleReload}
-                        disabled={!activeTabId}
-                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors"
-                        aria-label="Reload tab"
-                    >
-                        <RotateCw className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="inline-flex">
+                        <button
+                            onClick={handleReload}
+                            disabled={!activeTabId}
+                            className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed rounded-md transition-colors"
+                            aria-label="Reload tab"
+                        >
+                            <RotateCw className="w-3.5 h-3.5" />
+                        </button>
+                    </span>
                 </TooltipSimple>
 
                 <ZoomControlPopover activeTabId={activeTabId} />
@@ -299,18 +305,20 @@ export const ActiveToolbar = React.memo<ActiveToolbarProps>(({
             {/* Right Group Actions */}
             <div className="flex items-center gap-0.5">
                 <TooltipSimple content={areAllGroupsCollapsed ? "Expand All Groups" : "Collapse All Groups"} side="bottom">
-                    <button
-                        onClick={onToggleCollapseAllGroups}
-                        disabled={!hasGroups}
-                        className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none rounded-md transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        aria-label={areAllGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
-                    >
-                        {areAllGroupsCollapsed ? (
-                            <FolderOpen className="w-3.5 h-3.5" />
-                        ) : (
-                            <FolderClosed className="w-3.5 h-3.5" />
-                        )}
-                    </button>
+                    <span className="inline-flex">
+                        <button
+                            onClick={onToggleCollapseAllGroups}
+                            disabled={!hasGroups}
+                            className="h-7 w-7 flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed rounded-md transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            aria-label={areAllGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
+                        >
+                            {areAllGroupsCollapsed ? (
+                                <FolderOpen className="w-3.5 h-3.5" />
+                            ) : (
+                                <FolderClosed className="w-3.5 h-3.5" />
+                            )}
+                        </button>
+                    </span>
                 </TooltipSimple>
 
                 <TooltipSimple content="Group by Domain" side="bottom">
