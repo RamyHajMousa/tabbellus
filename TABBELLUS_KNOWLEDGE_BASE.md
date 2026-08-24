@@ -609,7 +609,8 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `useAudioTabs.test.ts` (7 tests)
     *   `registry.test.ts` (14 tests)
     *   `FeatureGate.test.tsx` (5 tests)
-*   **Execution Command:** `npm test` (210/210 passing across 20 test files).
+    *   `Toaster.test.tsx` (3 tests)
+*   **Execution Command:** `npm test` (257/257 passing across 27 test files).
 
 ### 6.2 End-to-End Testing (Playwright)
 *   **Configuration (`playwright.config.ts`):** Single-worker headed Chromium instances loading extension from `./dist`.
@@ -657,8 +658,10 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 31: Pre-Store Submission Stage 5 (Visual Polish, Store Assets & Final Packaging Validation)** - Complete.
 - **Phase 32: Free Core Gating Infrastructure (Registry, useEntitlement, FeatureGate)** - Complete.
 - **Phase 33: Tab Loading Spinner Safety, Watchdog & Lifecycle Event Normalization** - Complete.
+- **Phase 34: Portal Escalation for Global Toaster (`z-[100]`), Overlay Stacking Standardization & Tactile Copy Feedback** - Complete.
 
-<!-- Last Updated: 2026-08-24T18:33:15+02:00 -->
+<!-- Last Updated: 2026-08-24T19:03:15+02:00 -->
+
 
 
 

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface Toast {
@@ -23,6 +24,11 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
     const [toasts, setToasts] = useState<Toast[]>([]);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     const removeToast = useCallback((id: string) => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -47,43 +53,58 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, [removeToast]);
 
+    const toasterContent = toasts.length > 0 ? (
+        <div
+            className="fixed bottom-4 right-4 flex flex-col gap-2 z-[100] pointer-events-none max-w-[calc(100vw-2rem)]"
+            role="region"
+            aria-label="Notifications"
+        >
+            {toasts.map((t) => (
+                <div
+                    key={t.id}
+                    className="pointer-events-auto bg-popover text-popover-foreground border border-border rounded-lg p-3.5 min-w-[280px] max-w-[380px] shadow-lg flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <div className="flex flex-col pr-2 min-w-0">
+                        <span className="text-sm font-medium leading-tight break-words">{t.message}</span>
+                        {t.description && (
+                            <span className="text-xs text-muted-foreground mt-0.5 break-words">{t.description}</span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {t.onUndo && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    t.onUndo?.();
+                                    removeToast(t.id);
+                                }}
+                                className="text-xs font-semibold text-primary hover:underline px-2 py-1 rounded hover:bg-primary/10 transition-colors"
+                            >
+                                Undo
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => removeToast(t.id)}
+                            className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+                            aria-label="Dismiss notification"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    ) : null;
+
     return (
         <ToastContext.Provider value={{ toast }}>
             {children}
-            <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
-                {toasts.map((t) => (
-                    <div
-                        key={t.id}
-                        className="bg-popover text-popover-foreground border border-border rounded-lg p-4 min-w-[300px] flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
-                    >
-                        <div className="flex flex-col pr-2">
-                            <span className="text-sm font-medium">{t.message}</span>
-                            {t.description && (
-                                <span className="text-xs text-muted-foreground mt-0.5">{t.description}</span>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                            {t.onUndo && (
-                                <button
-                                    onClick={() => {
-                                        t.onUndo?.();
-                                        removeToast(t.id);
-                                    }}
-                                    className="text-sm font-bold text-primary hover:underline transition-colors"
-                                >
-                                    Undo
-                                </button>
-                            )}
-                            <button
-                                onClick={() => removeToast(t.id)}
-                                className="text-muted-foreground hover:text-foreground"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
+            {mounted && typeof document !== 'undefined' && document.body
+                ? createPortal(toasterContent, document.body)
+                : toasterContent}
         </ToastContext.Provider>
     );
 };
@@ -93,3 +114,4 @@ export const useToast = () => {
     if (!context) throw new Error('useToast must be used within a ToastProvider');
     return context;
 };
+

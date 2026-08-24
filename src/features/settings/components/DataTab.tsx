@@ -255,10 +255,14 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
                     <button
                         type="button"
                         onClick={handleCopyDiagnostic}
-                        className="w-full flex items-center justify-between gap-4 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted/50 transition-colors text-left group"
+                        className="w-full flex items-center justify-between gap-4 p-3 rounded-lg border border-border hover:border-primary hover:bg-muted/50 active:scale-[0.98] transition-all text-left group"
                     >
                         <div className="flex items-center gap-3 min-w-0 pr-2">
-                            <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
+                            {hasCopied ? (
+                                <Check className="w-5 h-5 text-primary shrink-0 transition-transform duration-150 scale-105" />
+                            ) : (
+                                <FileText className="w-5 h-5 text-muted-foreground shrink-0 transition-colors group-hover:text-foreground" />
+                            )}
                             <div className="text-left min-w-0">
                                 <p className="text-sm font-medium text-foreground">Copy Diagnostic Summary</p>
                                 <p className="text-xs text-muted-foreground leading-normal">Sanitized report for GitHub issues or support</p>
