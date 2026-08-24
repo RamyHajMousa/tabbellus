@@ -10,5 +10,6 @@ export const EXTERNAL_LINKS = {
     DONATE: "https://ko-fi.com/tabbellus",
     FEEDBACK: "https://github.com/RamyHajMousa/tabbellus/issues",
     SUPPORT: "https://errorfirst.com/tabbellus-support", // Smart Hub
-    PRIVACY_POLICY: "https://errorfirst.com/tabbellus-privacy-policy/"
+    PRIVACY_POLICY: "https://errorfirst.com/tabbellus-privacy-policy/",
+    CHECKOUT: "https://tabbellus.lemonsqueezy.com/buy/tabbellus-pro"
 } as const;

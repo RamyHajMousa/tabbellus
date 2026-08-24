@@ -48,6 +48,14 @@ const SidePanel = () => {
         initUsageTracking();
     }, []);
 
+    // Bootstrap Pro subsystem via dynamic import (zero-contamination boundary).
+    // If src/pro/ is absent, the import fails silently — Free Core is unaffected.
+    React.useEffect(() => {
+        import('@/pro').catch(() => {
+            // Pro subsystem not available — silent fallback to free tier
+        });
+    }, []);
+
     // Theme synchronization
     React.useEffect(() => {
         const root = window.document.documentElement;

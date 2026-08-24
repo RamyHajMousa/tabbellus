@@ -1,12 +1,37 @@
-import React from 'react';
+import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import { Heart, Star, Coffee, LifeBuoy, ShieldCheck, ExternalLink } from 'lucide-react';
 import { EXTERNAL_LINKS } from '@/config/links';
 import { handleExternalLink, openSupportHub } from '@/lib/platform';
 import { TooltipSimple } from '@/components/ui/Tooltip';
+import { contractRegistry } from '@/core/contracts/registry';
+import type { FeatureSlotRegistration } from '@/core/contracts';
 
 interface SupportTabProps {
     isEligibleForPromo: boolean;
     onDismissPromo: () => void;
+}
+
+/**
+ * Resolves registered feature slot components for a given slot ID.
+ * Returns React.lazy components that can be rendered inside Suspense.
+ */
+function useSlotComponents(slotId: string): React.LazyExoticComponent<React.FC>[] {
+    return useMemo(() => {
+        const slots = contractRegistry.getSlots(slotId);
+        return slots
+            .filter(
+                (slot: FeatureSlotRegistration): slot is FeatureSlotRegistration<() => Promise<{ LicenseManagerCard: React.FC }>> =>
+                    typeof slot.component === 'function',
+            )
+            .map((slot) => {
+                const loader = slot.component as () => Promise<{ LicenseManagerCard: React.FC }>;
+                return React.lazy(() =>
+                    loader().then((mod) => ({
+                        default: mod.LicenseManagerCard,
+                    })),
+                );
+            });
+    }, [slotId]);
 }
 
 export const SupportTab: React.FC<SupportTabProps> = ({
@@ -17,8 +42,33 @@ export const SupportTab: React.FC<SupportTabProps> = ({
         ? chrome.runtime.getManifest().version
         : '1.2.2';
 
+    // Resolve dynamically registered license slot components
+    const [slotReady, setSlotReady] = useState(false);
+    useEffect(() => {
+        // Small delay to allow Pro subsystem dynamic import to complete registration
+        const timer = setTimeout(() => setSlotReady(true), 100);
+        return () => clearTimeout(timer);
+    }, []);
+
+    const licenseSlots = useSlotComponents(slotReady ? 'support-tab-license' : '');
+
     return (
         <div className="space-y-3.5">
+            {/* Pro License Management Slot — dynamically injected by Pro subsystem */}
+            {licenseSlots.length > 0 && (
+                <Suspense
+                    fallback={
+                        <div className="p-3 rounded-lg bg-card border border-border animate-pulse">
+                            <div className="h-4 w-32 bg-muted rounded" />
+                        </div>
+                    }
+                >
+                    {licenseSlots.map((SlotComponent, index) => (
+                        <SlotComponent key={`license-slot-${index}`} />
+                    ))}
+                </Suspense>
+            )}
+
             {/* Community & Contribution Section (Two-State Transition Model) */}
             {isEligibleForPromo ? (
                 <div className="p-3 rounded-lg bg-card border border-border space-y-2.5">
