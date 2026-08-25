@@ -5,6 +5,12 @@
  * Handles Lemon Squeezy API activation/validation/deactivation,
  * entitlement cache persistence, offline-first grace states,
  * and periodic background revalidation.
+ *
+ * DEV TESTING HARNESS (compile-time guarded):
+ * - Keys starting with `DEV-` or `TB-TEST-` bypass Lemon Squeezy API entirely.
+ * - `VITE_DEV_ENTITLEMENT` env var sets initial entitlement on startup.
+ * - `window.__tabbellusDev` exposes `setPro()`, `setFree()`, `getStatus()` console helpers.
+ * All dev code is tree-shaken from production bundles via `import.meta.env.DEV`.
  */
 
 import type { EntitlementStatus, LicensingContract } from '@/core/contracts';
@@ -34,6 +40,55 @@ export class ProLicensingEngine implements LicensingContract {
   constructor() {
     // Begin async hydration from storage
     this.hydrateFromStorage();
+
+    // --- DEV TESTING HARNESS: Env var fallback & console helpers ---
+    if (import.meta.env.DEV) {
+      const devEntitlement = import.meta.env.VITE_DEV_ENTITLEMENT;
+      if (devEntitlement === 'pro') {
+        this.currentStatus = { isPro: true, tier: 'pro' };
+      } else if (devEntitlement === 'free') {
+        this.currentStatus = { isPro: false, tier: 'free' };
+      }
+
+      // Bind DevTools console helper for runtime toggling
+      if (typeof window !== 'undefined') {
+        (window as any).__tabbellusDev = {
+          setPro: async (tier: 'pro' | 'enterprise' = 'pro') => {
+            const mockData: LicenseStorageData = {
+              licenseKey: `DEV-CONSOLE-${Date.now()}`,
+              instanceId: 'dev-console-instance',
+              status: 'active',
+              tier,
+              validatedAt: Date.now(),
+              expiresAt: null,
+            };
+            try {
+              await saveLicenseData(mockData);
+            } catch {
+              // Storage may not be available in all dev contexts
+            }
+            this.cachedStorage = mockData;
+            this.currentStatus = { isPro: true, tier, gracePeriodActive: false };
+            this.notifyListeners();
+            console.log(`[TabBellus Dev] Entitlement set to: ${tier}`);
+          },
+          setFree: async () => {
+            try {
+              await clearLicenseData();
+            } catch {
+              // Silent
+            }
+            this.cachedStorage = null;
+            this.currentStatus = { isPro: false, tier: 'free' };
+            this.notifyListeners();
+            console.log('[TabBellus Dev] Entitlement reset to: free');
+          },
+          getStatus: () => {
+            return { ...this.currentStatus };
+          },
+        };
+      }
+    }
   }
 
   /**
@@ -75,6 +130,36 @@ export class ProLicensingEngine implements LicensingContract {
     }
 
     const trimmedKey = licenseKey.trim();
+
+    // --- DEV TESTING HARNESS: Bypass API for dev prefix keys ---
+    if (import.meta.env.DEV) {
+      if (trimmedKey.startsWith('DEV-') || trimmedKey.startsWith('TB-TEST-')) {
+        const now = Date.now();
+        const mockData: LicenseStorageData = {
+          licenseKey: trimmedKey,
+          instanceId: 'dev-instance',
+          status: 'active',
+          tier: 'pro',
+          validatedAt: now,
+          expiresAt: null,
+        };
+
+        try {
+          await saveLicenseData(mockData);
+        } catch {
+          // Storage may not be available in all dev contexts
+        }
+
+        this.cachedStorage = mockData;
+        this.currentStatus = {
+          isPro: true,
+          tier: 'pro',
+          gracePeriodActive: false,
+        };
+        this.notifyListeners();
+        return { success: true };
+      }
+    }
 
     // Resolve device instance
     let instanceId: string;

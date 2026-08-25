@@ -239,4 +239,112 @@ describe('ProLicensingEngine', () => {
 
     expect(listener).not.toHaveBeenCalled();
   });
+
+  describe('Dev Testing Harness', () => {
+    it('should bypass API for DEV- prefix keys and activate Pro', async () => {
+      vi.mocked(loadLicenseData).mockResolvedValue(null);
+
+      const engine = new ProLicensingEngine();
+      await vi.waitFor(async () => {
+        await engine.getEntitlement();
+      });
+
+      const listener = vi.fn();
+      engine.subscribe(listener);
+      listener.mockClear();
+
+      const result = await engine.validateKey('DEV-KEY-123');
+
+      expect(result.success).toBe(true);
+      expect(activateLicense).not.toHaveBeenCalled();
+      expect(saveLicenseData).toHaveBeenCalledWith(
+        expect.objectContaining({
+          licenseKey: 'DEV-KEY-123',
+          instanceId: 'dev-instance',
+          status: 'active',
+          tier: 'pro',
+        }),
+      );
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({ isPro: true, tier: 'pro' }),
+      );
+
+      const status = await engine.getEntitlement();
+      expect(status.isPro).toBe(true);
+      expect(status.tier).toBe('pro');
+    });
+
+    it('should bypass API for TB-TEST- prefix keys and activate Pro', async () => {
+      vi.mocked(loadLicenseData).mockResolvedValue(null);
+
+      const engine = new ProLicensingEngine();
+      await vi.waitFor(async () => {
+        await engine.getEntitlement();
+      });
+
+      const result = await engine.validateKey('TB-TEST-456');
+
+      expect(result.success).toBe(true);
+      expect(activateLicense).not.toHaveBeenCalled();
+      expect(saveLicenseData).toHaveBeenCalledWith(
+        expect.objectContaining({
+          licenseKey: 'TB-TEST-456',
+          instanceId: 'dev-instance',
+          status: 'active',
+          tier: 'pro',
+        }),
+      );
+
+      const status = await engine.getEntitlement();
+      expect(status.isPro).toBe(true);
+    });
+
+    it('should still call Lemon Squeezy API for standard keys', async () => {
+      vi.mocked(loadLicenseData).mockResolvedValue(null);
+      vi.mocked(activateLicense).mockResolvedValue({
+        success: true,
+        data: {
+          activated: true,
+          licenseKey: { key: 'REAL-KEY-789', status: 'active' },
+          instance: { id: 'real-inst', name: 'device' },
+        },
+      });
+
+      const engine = new ProLicensingEngine();
+      await vi.waitFor(async () => {
+        await engine.getEntitlement();
+      });
+
+      const result = await engine.validateKey('REAL-KEY-789');
+
+      expect(result.success).toBe(true);
+      expect(activateLicense).toHaveBeenCalledWith('REAL-KEY-789', 'mock-instance-uuid');
+    });
+
+    it('should reset to free after clearLicense following dev bypass', async () => {
+      vi.mocked(loadLicenseData).mockResolvedValue(null);
+      vi.mocked(deactivateLicense).mockResolvedValue({
+        success: true,
+        data: { deactivated: true },
+      });
+
+      const engine = new ProLicensingEngine();
+      await vi.waitFor(async () => {
+        await engine.getEntitlement();
+      });
+
+      // Activate via dev bypass
+      await engine.validateKey('DEV-RESET-TEST');
+      const proStatus = await engine.getEntitlement();
+      expect(proStatus.isPro).toBe(true);
+
+      // Clear and verify reset
+      await engine.clearLicense();
+      const freeStatus = await engine.getEntitlement();
+      expect(freeStatus.isPro).toBe(false);
+      expect(freeStatus.tier).toBe('free');
+      expect(clearLicenseData).toHaveBeenCalled();
+    });
+  });
 });
+

@@ -661,6 +661,7 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 33: Tab Loading Spinner Safety, Watchdog & Lifecycle Event Normalization** - Complete.
 - **Phase 34: Portal Escalation for Global Toaster (`z-[100]`), Overlay Stacking Standardization & Tactile Copy Feedback** - Complete.
 - **Phase 35: Dev Manifest Security Isolation & Free Core Sync Contracts** - Complete.
+- **Phase 36: Zero-Leak Dev Testing Harness & Console Toggles for Pro Licensing** - Complete.
 
 ### Phase 35: Dev Manifest Security Isolation & Free Core Sync Contracts
 *   **Outcome:**
@@ -674,9 +675,15 @@ The project has completed major refactoring phases to optimize performance, clea
     *   **ContractRegistry Extension:** Implemented `NullSyncProvider` default fallback and extended `ContractRegistry` with `registerSyncProvider()`, `getSyncProvider()`, `getSyncStatus()`, `subscribeSync()`, subscriber re-binding, and full reset handling.
     *   **Testing & Build Verification:** Expanded unit tests in `src/core/__tests__/registry.test.ts` to 24 tests (267/267 tests passing workspace-wide). Verified clean `tsc --noEmit`, dev/prod Vite compilation, and automated release pipeline.
 
-<!-- Last Updated: 2026-08-25T13:14:00+02:00 -->
+### Phase 36: Zero-Leak Dev Testing Harness & Console Toggles for Pro Licensing
+*   **Outcome:**
+    *   **Dev Key Prefix Bypass:** `ProLicensingEngine.validateKey()` now recognizes `DEV-` and `TB-TEST-` prefixed keys, bypassing Lemon Squeezy API calls entirely. Persists mock active license credentials to storage and updates entitlement status atomically.
+    *   **Env Var Fallback:** `VITE_DEV_ENTITLEMENT` env variable (`'pro'` or `'free'`) sets initial entitlement status during engine construction in dev mode.
+    *   **Console Helpers:** `window.__tabbellusDev` exposes `setPro(tier?)`, `setFree()`, and `getStatus()` for runtime entitlement toggling in DevTools console.
+    *   **Compile-Time Guards:** All dev harness code wrapped in `if (import.meta.env.DEV)` blocks. Vite's Rollup/esbuild dead-code elimination guarantees zero bytes in production bundles.
+    *   **Vite Env Type Safety:** Created `src/vite-env.d.ts` with `/// <reference types="vite/client" />` and `ImportMetaEnv` interface declaring `VITE_DEV_ENTITLEMENT` and `VITE_CRX_PUBLIC_KEY`.
+    *   **Release Script Safety Net:** Added `/__tabbellusDev/` and `/TB-TEST-/` to `scripts/release.js` forbidden patterns to catch any tree-shaking failures.
+    *   **Testing:** Expanded `engine.test.ts` from 7 to 11 tests (271/271 tests passing workspace-wide). Verified zero `__tabbellusDev`, `DEV-`, and `TB-TEST-` strings in production bundle.
 
-
-
-
+<!-- Last Updated: 2026-08-25T15:07:00+02:00 -->
 

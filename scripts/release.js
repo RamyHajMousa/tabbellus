@@ -52,6 +52,8 @@ const forbiddenPatterns = [
     /ws:\/\/localhost/i,
     /http:\/\/127\.0\.0\.1/i,
     /ws:\/\/127\.0\.0\.1/i,
+    /__tabbellusDev/,
+    /TB-TEST-/,
 ];
 
 function scanDirectory(dir) {
