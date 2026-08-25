@@ -40,8 +40,9 @@ tabbellus/
 └── src/
     ├── core/                   # Pure TypeScript interfaces & extension registry contracts (Free Core owns)
     │   ├── contracts/          # Core capability interfaces and registration models
-    │   │   ├── index.ts        # EntitlementStatus, LicensingContract, ProModule, FeatureSlotRegistration
-    │   │   └── registry.ts     # ContractRegistry singleton, NullLicensingEngine, reactive subscription dispatcher
+    │   │   ├── index.ts        # EntitlementStatus, LicensingContract, ProModule, FeatureSlotRegistration, Sync interfaces
+    │   │   ├── sync.ts         # SyncState, SyncTelemetry, SyncStatus, SyncResult, SyncProvider contract
+    │   │   └── registry.ts     # ContractRegistry singleton, NullLicensingEngine, NullSyncProvider, reactive subscription dispatchers
     │   ├── hooks/
     │   │   └── useEntitlement.ts # Reactive hook querying active licensing provider with fail-open fallback
     │   ├── components/
@@ -659,8 +660,21 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 32: Free Core Gating Infrastructure (Registry, useEntitlement, FeatureGate)** - Complete.
 - **Phase 33: Tab Loading Spinner Safety, Watchdog & Lifecycle Event Normalization** - Complete.
 - **Phase 34: Portal Escalation for Global Toaster (`z-[100]`), Overlay Stacking Standardization & Tactile Copy Feedback** - Complete.
+- **Phase 35: Dev Manifest Security Isolation & Free Core Sync Contracts** - Complete.
 
-<!-- Last Updated: 2026-08-24T19:03:15+02:00 -->
+### Phase 35: Dev Manifest Security Isolation & Free Core Sync Contracts
+*   **Outcome:**
+    *   **Security & Git Hardening:** Added `*.pem` and `*.crx` to `.gitignore` to prevent secret and unpacked extension key leakage.
+    *   **Dynamic Manifest Generation:** Refactored `manifest.config.ts` to export an async function `(env: ConfigEnv)` leveraging Vite's `loadEnv`:
+        *   Dynamically injects extension `key` strictly in development mode (`env.mode === 'development'`) when `VITE_CRX_PUBLIC_KEY` is present.
+        *   Omits `key` completely from production release bundles.
+        *   Added `"identity"` permission to `manifest.config.ts`.
+        *   Configured Google Drive appdata `oauth2` authentication block (`client_id: "355684236759-lpotgaton5baaq7g9m74hj9f14i28bm6.apps.googleusercontent.com"`).
+    *   **Pure Core Sync Contracts:** Created `src/core/contracts/sync.ts` defining abstract types (`SyncState`, `SyncTelemetry`, `SyncStatus`, `SyncResult`, `SyncProvider`) with zero Pro contamination.
+    *   **ContractRegistry Extension:** Implemented `NullSyncProvider` default fallback and extended `ContractRegistry` with `registerSyncProvider()`, `getSyncProvider()`, `getSyncStatus()`, `subscribeSync()`, subscriber re-binding, and full reset handling.
+    *   **Testing & Build Verification:** Expanded unit tests in `src/core/__tests__/registry.test.ts` to 24 tests (267/267 tests passing workspace-wide). Verified clean `tsc --noEmit`, dev/prod Vite compilation, and automated release pipeline.
+
+<!-- Last Updated: 2026-08-25T13:14:00+02:00 -->
 
 
 

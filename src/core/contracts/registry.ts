@@ -15,6 +15,9 @@ import type {
   FeatureSlotRegistration,
   LicensingContract,
   ProModule,
+  SyncProvider,
+  SyncResult,
+  SyncStatus,
 } from './index';
 
 export interface EntitlementSnapshot extends EntitlementStatus {
@@ -45,17 +48,75 @@ export class NullLicensingEngine implements LicensingContract {
   }
 }
 
+/**
+ * Null-object pattern sync provider used as default fallback
+ * when no Pro sync driver has been registered.
+ */
+export class NullSyncProvider implements SyncProvider {
+  async getStatus(): Promise<SyncStatus> {
+    return {
+      state: 'idle',
+      isConnected: false,
+      telemetry: {
+        pendingMutations: 0,
+        encrypted: false,
+      },
+    };
+  }
+
+  async connect(): Promise<{ success: boolean; error?: string }> {
+    return { success: false, error: 'Sync subsystem not loaded' };
+  }
+
+  async disconnect(): Promise<void> {
+    // No-op for null provider
+  }
+
+  async syncNow(_options?: { forceFull?: boolean }): Promise<SyncResult> {
+    return {
+      success: false,
+      error: 'Sync subsystem not loaded',
+      timestamp: Date.now(),
+    };
+  }
+
+  subscribe(callback: (status: SyncStatus) => void): () => void {
+    callback({
+      state: 'idle',
+      isConnected: false,
+      telemetry: {
+        pendingMutations: 0,
+        encrypted: false,
+      },
+    });
+    return () => {};
+  }
+}
+
 export class ContractRegistry {
   private licensingProvider: LicensingContract = new NullLicensingEngine();
+  private syncProvider: SyncProvider = new NullSyncProvider();
   private currentEntitlement: EntitlementStatus = { isPro: false, tier: 'free' };
+  private currentSyncStatus: SyncStatus = {
+    state: 'idle',
+    isConnected: false,
+    telemetry: {
+      pendingMutations: 0,
+      encrypted: false,
+    },
+  };
   private isProviderReady: boolean = true;
+  private isSyncProviderReady: boolean = true;
   private modules: Map<string, ProModule> = new Map();
   private slots: Map<string, FeatureSlotRegistration[]> = new Map();
   private listeners: Set<(snapshot: EntitlementSnapshot) => void> = new Set();
+  private syncListeners: Set<(status: SyncStatus) => void> = new Set();
   private providerUnsubscribe: (() => void) | null = null;
+  private syncProviderUnsubscribe: (() => void) | null = null;
 
   constructor() {
     this.bindProviderSubscription(this.licensingProvider);
+    this.bindSyncProviderSubscription(this.syncProvider);
   }
 
   // --- Licensing Provider Registration & Query ---
@@ -152,6 +213,115 @@ export class ContractRegistry {
     });
   }
 
+  // --- Sync Provider Registration & Query ---
+
+  registerSyncProvider(provider: SyncProvider): void {
+    if (this.syncProviderUnsubscribe) {
+      this.syncProviderUnsubscribe();
+      this.syncProviderUnsubscribe = null;
+    }
+
+    this.syncProvider = provider;
+    this.isSyncProviderReady = false;
+    this.bindSyncProviderSubscription(provider);
+
+    // If subscription did not synchronously mark provider ready, notify subscribers of current status
+    if (!this.isSyncProviderReady) {
+      this.notifySyncListeners();
+    }
+
+    // Trigger async fetch in case provider updates asynchronously
+    provider
+      .getStatus()
+      .then((status) => {
+        this.isSyncProviderReady = true;
+        this.updateSyncAndNotify(status);
+      })
+      .catch(() => {
+        this.isSyncProviderReady = true;
+        this.updateSyncAndNotify({
+          state: 'idle',
+          isConnected: false,
+          telemetry: { pendingMutations: 0, encrypted: false },
+        });
+      });
+  }
+
+  getSyncProvider(): SyncProvider {
+    return this.syncProvider;
+  }
+
+  /**
+   * Returns current synchronous snapshot of sync status.
+   */
+  getSyncStatus(): SyncStatus {
+    return {
+      state: this.currentSyncStatus.state,
+      isConnected: Boolean(this.currentSyncStatus.isConnected),
+      telemetry: {
+        lastSyncedAt: this.currentSyncStatus.telemetry?.lastSyncedAt,
+        pendingMutations: this.currentSyncStatus.telemetry?.pendingMutations ?? 0,
+        lastError: this.currentSyncStatus.telemetry?.lastError,
+        encrypted: Boolean(this.currentSyncStatus.telemetry?.encrypted),
+      },
+    };
+  }
+
+  /**
+   * Subscribes to sync status changes across provider updates.
+   */
+  subscribeSync(callback: (status: SyncStatus) => void): () => void {
+    this.syncListeners.add(callback);
+    callback(this.getSyncStatus());
+
+    return () => {
+      this.syncListeners.delete(callback);
+    };
+  }
+
+  private bindSyncProviderSubscription(provider: SyncProvider): void {
+    try {
+      this.syncProviderUnsubscribe = provider.subscribe((status) => {
+        this.isSyncProviderReady = true;
+        this.updateSyncAndNotify(status);
+      });
+    } catch {
+      this.syncProviderUnsubscribe = null;
+      this.isSyncProviderReady = true;
+      this.updateSyncAndNotify({
+        state: 'idle',
+        isConnected: false,
+        telemetry: { pendingMutations: 0, encrypted: false },
+      });
+    }
+  }
+
+  private updateSyncAndNotify(status: SyncStatus): void {
+    this.currentSyncStatus = {
+      state: status?.state ?? 'idle',
+      isConnected: Boolean(status?.isConnected),
+      telemetry: {
+        lastSyncedAt: status?.telemetry?.lastSyncedAt,
+        pendingMutations: status?.telemetry?.pendingMutations ?? 0,
+        lastError: status?.telemetry?.lastError,
+        encrypted: Boolean(status?.telemetry?.encrypted),
+      },
+    };
+
+    this.notifySyncListeners();
+  }
+
+  private notifySyncListeners(): void {
+    const status = this.getSyncStatus();
+    this.syncListeners.forEach((listener) => {
+      try {
+        listener(status);
+      } catch {
+        // Prevent listener exception from breaking notification loop
+      }
+    });
+  }
+
   // --- Module Registration & Query ---
 
   registerModule(module: ProModule): void {
@@ -192,14 +362,28 @@ export class ContractRegistry {
       this.providerUnsubscribe();
       this.providerUnsubscribe = null;
     }
+    if (this.syncProviderUnsubscribe) {
+      this.syncProviderUnsubscribe();
+      this.syncProviderUnsubscribe = null;
+    }
     this.licensingProvider = new NullLicensingEngine();
+    this.syncProvider = new NullSyncProvider();
     this.currentEntitlement = { isPro: false, tier: 'free' };
+    this.currentSyncStatus = {
+      state: 'idle',
+      isConnected: false,
+      telemetry: { pendingMutations: 0, encrypted: false },
+    };
     this.isProviderReady = true;
+    this.isSyncProviderReady = true;
     this.modules.clear();
     this.slots.clear();
     this.listeners.clear();
+    this.syncListeners.clear();
     this.bindProviderSubscription(this.licensingProvider);
+    this.bindSyncProviderSubscription(this.syncProvider);
   }
 }
 
 export const contractRegistry = new ContractRegistry();
+

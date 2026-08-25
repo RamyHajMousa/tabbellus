@@ -31,9 +31,11 @@ dist-ssr/
 .env.test.local
 .env.production.local
 
-# Build output
+# Build output & Security
 dist
 *.zip
+*.pem
+*.crx
 
 # Test artifacts
 playwright-report/

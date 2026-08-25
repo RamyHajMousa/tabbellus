@@ -42,3 +42,6 @@ export interface FeatureSlotRegistration<T = unknown> {
   component: T;
   order?: number;
 }
+
+export * from './sync';
+
