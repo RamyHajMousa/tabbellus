@@ -22,9 +22,13 @@ function useSlotComponents(slotId: string): React.LazyExoticComponent<React.FC>[
             .map((slot) => {
                 const loader = slot.component as () => Promise<{ default?: React.FC; SyncSettingsCard?: React.FC; [key: string]: unknown }>;
                 return React.lazy(() =>
-                    loader().then((mod) => ({
-                        default: (mod.default ?? mod.SyncSettingsCard ?? (() => null)) as React.FC,
-                    })),
+                    loader()
+                        .then((mod) => ({
+                            default: (mod.default ?? mod.SyncSettingsCard ?? (() => null)) as React.FC,
+                        }))
+                        .catch(() => ({
+                            default: (() => null) as React.FC,
+                        })),
                 );
             });
     }, [slotId]);

@@ -49,14 +49,19 @@ function extractErrorMessage(json: Record<string, unknown> | null, status: numbe
   return `Unexpected error (HTTP ${status}).`;
 }
 
+const REQUEST_TIMEOUT_MS = 15000;
+
 /**
  * Makes a POST request to the Lemon Squeezy licensing API.
- * Wraps all failure modes into a normalized result type.
+ * Wraps all failure modes into a normalized result type with AbortController timeout.
  */
 async function postLicenseEndpoint<T>(
   endpoint: string,
   body: Record<string, string>,
 ): Promise<LicenseApiResult<T>> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch(`${LS_API_BASE}/${endpoint}`, {
       method: 'POST',
@@ -65,6 +70,7 @@ async function postLicenseEndpoint<T>(
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams(body).toString(),
+      signal: controller.signal,
     });
 
     const json = await safeParseJson(response);
@@ -88,13 +94,21 @@ async function postLicenseEndpoint<T>(
       data: json as T,
     };
   } catch (err: unknown) {
-    // Network failures, DNS resolution errors, timeouts, AbortError, etc.
+    if (err instanceof Error && err.name === 'AbortError') {
+      return {
+        success: false,
+        error: 'Connection timed out. Please check your internet connection.',
+      };
+    }
+    // Network failures, DNS resolution errors, timeouts, etc.
     const message =
       err instanceof Error ? err.message : 'Network request failed.';
     return {
       success: false,
       error: `Connection error: ${message}`,
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

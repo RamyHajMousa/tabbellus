@@ -20,15 +20,19 @@ function useSlotComponents(slotId: string): React.LazyExoticComponent<React.FC>[
         const slots = contractRegistry.getSlots(slotId);
         return slots
             .filter(
-                (slot: FeatureSlotRegistration): slot is FeatureSlotRegistration<() => Promise<{ LicenseManagerCard: React.FC }>> =>
+                (slot: FeatureSlotRegistration): slot is FeatureSlotRegistration<() => Promise<{ default?: React.FC; LicenseManagerCard?: React.FC }>> =>
                     typeof slot.component === 'function',
             )
             .map((slot) => {
-                const loader = slot.component as () => Promise<{ LicenseManagerCard: React.FC }>;
+                const loader = slot.component as () => Promise<{ default?: React.FC; LicenseManagerCard?: React.FC }>;
                 return React.lazy(() =>
-                    loader().then((mod) => ({
-                        default: mod.LicenseManagerCard,
-                    })),
+                    loader()
+                        .then((mod) => ({
+                            default: (mod.default ?? mod.LicenseManagerCard ?? (() => null)) as React.FC,
+                        }))
+                        .catch(() => ({
+                            default: (() => null) as React.FC,
+                        })),
                 );
             });
     }, [slotId]);

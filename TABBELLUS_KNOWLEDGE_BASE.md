@@ -744,6 +744,6 @@ The project has completed major refactoring phases to optimize performance, clea
     *   **DataTab Slot Integration (`src/features/settings/components/DataTab.tsx`):** Integrated `data-tab-sync` slot dynamically using `useSlotComponents` helper. Positioned above Diagnostic Report, wrapped in declarative `<FeatureGate fallback={<SyncPromoFallback />}>` and `<Suspense fallback={<SyncLoadingSkeleton />}>`. Maintained zero static imports from `src/pro/`.
     *   **Testing Infrastructure:** Created `src/core/__tests__/useSyncStatus.test.tsx` (3 tests) and `src/pro/sync/components/__tests__/SyncSettingsCard.test.tsx` (4 tests). Test coverage raised to **331/331 passing tests across 34 test files**. Verified clean `tsc --noEmit` and production Vite bundling (`npm run build` cleanly code-split `SyncSettingsCard-*.js`).
 
-<!-- Last Updated: 2026-08-27T18:45:00+02:00 -->
+<!-- Last Updated: 2026-08-31T22:37:00+02:00 -->
 
 
