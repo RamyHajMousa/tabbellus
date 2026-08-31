@@ -11,10 +11,15 @@
 
 import { contractRegistry } from '@/core/contracts/registry';
 import { proLicensingEngine } from './licensing';
+import { syncEngine } from './sync';
 
 // --- Licensing Provider Registration ---
 // Replaces the NullLicensingEngine with the real Pro driver
 contractRegistry.registerLicensingProvider(proLicensingEngine);
+
+// --- Sync Provider Registration ---
+// Replaces the NullSyncProvider with the real Pro Drive sync driver
+contractRegistry.registerSyncProvider(syncEngine);
 
 // --- Feature Slot Registration ---
 // Register the LicenseManagerCard component for the Support tab slot
@@ -24,4 +29,13 @@ contractRegistry.registerSlot({
   order: 0,
 });
 
-export { proLicensingEngine };
+// Register the SyncSettingsCard component for the Data tab slot
+contractRegistry.registerSlot({
+  slotId: 'data-tab-sync',
+  component: () => import('./sync/components/SyncSettingsCard'),
+  order: 10,
+});
+
+export { proLicensingEngine, syncEngine };
+
+

@@ -44,12 +44,32 @@ tabbellus/
     │   │   ├── sync.ts         # SyncState, SyncTelemetry, SyncStatus, SyncResult, SyncProvider contract
     │   │   └── registry.ts     # ContractRegistry singleton, NullLicensingEngine, NullSyncProvider, reactive subscription dispatchers
     │   ├── hooks/
-    │   │   └── useEntitlement.ts # Reactive hook querying active licensing provider with fail-open fallback
+    │   │   ├── useEntitlement.ts # Reactive hook querying active licensing provider with fail-open fallback
+    │   │   └── useSyncStatus.ts  # Reactive hook querying active sync provider with fail-open fallback
     │   ├── components/
     │   │   └── FeatureGate.tsx # Declarative UI feature gating primitive
     │   └── index.ts            # Public Free Core export barrel
     ├── pro/                    # Isolated Pro drivers, runtime registrations, and licensing engine
     │   ├── licensing/          # Entitlement validation, signature verification, and cache manager
+    │   ├── sync/               # Cloud synchronization modules (Google Drive, E2EE)
+    │   │   ├── api/            # Google Drive Auth & REST API client layer
+    │   │   │   ├── types.ts    # DriveFileMetadata, DriveFileListResponse, DriveApiResult<T>, VaultPayload
+    │   │   │   ├── googleAuthClient.ts  # OAuth2 token lifecycle (chrome.identity wrapper)
+    │   │   │   ├── googleDriveClient.ts # Drive v3 REST client (appDataFolder CRUD, 401 auto-recovery)
+    │   │   │   ├── index.ts    # Barrel re-export
+    │   │   │   └── __tests__/  # googleAuthClient.test.ts (13 tests), googleDriveClient.test.ts (16 tests)
+    │   │   ├── engine/         # Snapshot serialization & LWW reconciliation engine layer
+    │   │   │   ├── types.ts    # SyncVaultSnapshot, ReconciliationResult, SyncStorageState
+    │   │   │   ├── snapshotSerializer.ts # Dexie transaction extraction, atomic bulkPut updates, schema validation
+    │   │   │   ├── diffEngine.ts         # Record-level LWW diffing, soft-delete tombstones, FK remapping
+    │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, storage state
+    │   │   │   ├── index.ts    # Barrel re-export
+    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (6 tests), diffEngine.test.ts (9 tests), syncEngine.test.ts (9 tests)
+    │   │   ├── components/     # UI cards and slot components
+    │   │   │   ├── SyncSettingsCard.tsx # Google Drive sync management card for Data tab
+    │   │   │   ├── index.ts             # Barrel re-export
+    │   │   │   └── __tests__/           # SyncSettingsCard.test.tsx (4 tests)
+    │   │   └── index.ts        # Public Pro sync root barrel export
     │   └── [modules]/          # Isolated Pro capability implementations
     ├── background/             # MV3 background service workers & lifecycle controllers
     │   ├── badgeService.ts     # Extension action badge updater for active tabs and audio state
@@ -662,6 +682,9 @@ The project has completed major refactoring phases to optimize performance, clea
 - **Phase 34: Portal Escalation for Global Toaster (`z-[100]`), Overlay Stacking Standardization & Tactile Copy Feedback** - Complete.
 - **Phase 35: Dev Manifest Security Isolation & Free Core Sync Contracts** - Complete.
 - **Phase 36: Zero-Leak Dev Testing Harness & Console Toggles for Pro Licensing** - Complete.
+- **Phase 37: Google Drive Auth & REST API Client (Milestone 2 — Part 1)** - Complete.
+- **Phase 38: Record-Level LWW Diff & Sync Reconciliation Engine (Milestone 2 — Part 2)** - Complete.
+- **Phase 39: Sync UI Card & Settings Slot Integration (Milestone 2 — Part 3)** - Complete.
 
 ### Phase 35: Dev Manifest Security Isolation & Free Core Sync Contracts
 *   **Outcome:**
@@ -685,5 +708,42 @@ The project has completed major refactoring phases to optimize performance, clea
     *   **Release Script Safety Net:** Added `/__tabbellusDev/` and `/TB-TEST-/` to `scripts/release.js` forbidden patterns to catch any tree-shaking failures.
     *   **Testing:** Expanded `engine.test.ts` from 7 to 11 tests (271/271 tests passing workspace-wide). Verified zero `__tabbellusDev`, `DEV-`, and `TB-TEST-` strings in production bundle.
 
-<!-- Last Updated: 2026-08-25T15:07:00+02:00 -->
+### Phase 37: Google Drive Auth & REST API Client (Milestone 2 — Part 1)
+*   **Outcome:**
+    *   **Sync API Types (`src/pro/sync/api/types.ts`):** Defined `DriveFileMetadata` (id, name, mimeType, modifiedTime, appProperties), `DriveFileListResponse` (paginated file list), `DriveApiResult<T>` (discriminated union with `success: true; data: T` | `success: false; error; statusCode?; authExpired?`), and `VaultPayload` (JSON sync envelope with schemaVersion, clientTimestamp, payload/ciphertext, and optional E2EE iv/salt).
+    *   **Google Auth Client (`src/pro/sync/api/googleAuthClient.ts`):** Singleton `GoogleAuthClient` wrapping `chrome.identity.getAuthToken` for OAuth2 token lifecycle. Methods: `getAuthToken(interactive?)` (normalizes `chrome.runtime.lastError` and thrown exceptions into `DriveApiResult<string>`), `invalidateToken(token)` (calls `chrome.identity.removeCachedAuthToken`, swallows errors silently), `revokeToken(token)` (POSTs to Google's OAuth2 revocation endpoint then invalidates local cache, returns `DriveApiResult<void>`).
+    *   **Google Drive REST Client (`src/pro/sync/api/googleDriveClient.ts`):** Singleton `GoogleDriveClient` for Google Drive v3 REST API operations against `appDataFolder`. Methods: `findVaultFile(fileName?)` (queries `files?spaces=appDataFolder`), `downloadVaultFile(fileId)` (GETs `files/${fileId}?alt=media`), `uploadVaultFile(content, existingFileId?, fileName?)` (creates via POST or updates via PATCH using `multipart/related` boundary bodies). Implements resilient 401 auto-recovery protocol: invalidate stale token → request fresh non-interactive token → retry once. Normalizes 403 (quota/rate limit), 404 (file not found), 5xx (server error), and network offline drops into typed `DriveApiResult` without throwing.
+    *   **Barrel Export (`src/pro/sync/api/index.ts`):** Re-exports all types, classes, and singletons. Zero imports from `src/core/` implementation files, zero outward leakage into Free Core.
+    *   **Zero-Contamination Boundary Verified:** All new files reside under `src/pro/sync/api/`. No Free Core files were modified for feature code. `manifest.config.ts` already contained `"identity"` permission and `oauth2` configuration from Phase 35.
+    *   **Testing:** Created `googleAuthClient.test.ts` (13 tests: interactive/background token retrieval, `chrome.runtime.lastError` normalization, invalidation, revocation endpoint success/failure, exception catch-all) and `googleDriveClient.test.ts` (16 tests: findVaultFile found/empty, downloadVaultFile parsing, uploadVaultFile POST create/PATCH update multipart verification, 401 auto-recovery retry flow, 403/404/5xx normalization, network offline handling, pre-request auth failure). Achieved 300/300 tests passing across 29 test files. Clean `tsc --noEmit` verification.
+
+### Phase 38: Record-Level LWW Diff & Sync Reconciliation Engine (Milestone 2 — Part 2)
+*   **Outcome:**
+    *   **Sync Engine Types (`src/pro/sync/engine/types.ts`):** Defined `SyncVaultSnapshot` (version, clientTimestamp, deviceId, spaces, tabs, readLater), `ReconciliationResult` (localUpdates for Dexie, mergedSnapshot for Drive upload, hasChanges), and `SyncStorageState` (persistent storage state in `chrome.storage.local`).
+    *   **Snapshot Serializer (`src/pro/sync/engine/snapshotSerializer.ts`):** Implemented `SnapshotSerializer` providing `createLocalSnapshot(deviceId)` extracting full Dexie snapshots inside single read transactions, `applyRemoteUpdates(updates)` applying upserts to `spaces`, `tabs`, and `readLater` within atomic read-write transactions (`bulkPut`), and `validateSnapshot(data)` schema type guard.
+    *   **Record-Level LWW Diff Engine (`src/pro/sync/engine/diffEngine.ts`):** Implemented deterministic multi-master reconciliation:
+        *   *Spaces Reconciliation:* Matches spaces by composite fingerprint (`createdAt + "_" + name`). Applies LWW with soft-deletion tombstone preservation (`deletedAt`), preventing resurrected items across devices. Remaps remote IDs to local auto-increment IDs.
+        *   *Tabs Reconciliation:* Remaps remote tab `spaceId` foreign keys to resolved local space IDs to preserve hierarchical space containment. Matches tabs by `(spaceId, url)` and updates order/titles.
+        *   *Read Later Reconciliation:* Matches items by URL. Converges states toward `'archived'` to guarantee reliable cross-device reading queue synchronization.
+    *   **Concrete Sync Engine (`src/pro/sync/engine/syncEngine.ts`):** Implemented `SyncEngine` singleton conforming to `SyncProvider` from `@/core/contracts/sync.ts`:
+        *   *Status & Telemetry Management:* Maintains in-memory `SyncStatus` (`state: 'idle' | 'syncing' | 'synced' | 'error' | 'offline'`, `isConnected: boolean`, `telemetry: SyncTelemetry`).
+        *   *OAuth2 Lifecycle:* `connect()` requests interactive consent, updates status, and sets `syncEnabled: true` in storage. `disconnect()` revokes token, resets status, and disables sync.
+        *   *8-Step Sync Cycle (`syncNow`):* Verifies auth silently -> queries appDataFolder vault file -> downloads remote snapshot -> serializes local Dexie state -> performs DiffEngine LWW reconciliation -> writes local updates to Dexie -> uploads merged snapshot to Google Drive -> dispatches `'synced'` telemetry to subscribers. Fails open gracefully on 401 auth expiration and network drops. Prevents concurrent sync runs.
+    *   **Pro Subsystem Integration (`src/pro/index.ts`):** Registered `syncEngine` into `contractRegistry.registerSyncProvider(syncEngine)`.
+    *   **Testing Infrastructure:** Created `snapshotSerializer.test.ts` (6 tests), `diffEngine.test.ts` (9 tests), and `syncEngine.test.ts` (9 tests). Raised test coverage to **324/324 passing tests across 32 test files**. Verified zero TypeScript errors with `npx tsc --noEmit`.
+
+### Phase 39: Sync UI Card & Settings Slot Integration (Milestone 2 — Part 3)
+*   **Outcome:**
+    *   **Core Sync Hook (`src/core/hooks/useSyncStatus.ts`):** Implemented `useSyncStatus()` leveraging `useSyncExternalStore` with snapshot memoization. Subscribes reactively to `contractRegistry.subscribeSync()` and reads `contractRegistry.getSyncStatus()` with guaranteed fail-open fallback (`state: 'idle'`, `isConnected: false`, `telemetry: { pendingMutations: 0, encrypted: false }`). Exported from `src/core/index.ts`. Zero imports from `src/pro/`.
+    *   **Sync Settings Card (`src/pro/sync/components/SyncSettingsCard.tsx`):** High-density UI card adhering strictly to `DESIGN.md`:
+        *   *Status Pills:* Context-aware badge states (`synced` emerald, `syncing` blue with spinning indicator, `offline`/`error` amber, `disconnected` muted).
+        *   *Disconnected State:* Renders BYOC Google Drive private appData storage explanation and "Connect Google Drive" action with loading spinner.
+        *   *Connected State:* Displays relative last-synced telemetry via `dateUtils.formatRelativeTime`, appDataFolder storage location indicator, "Sync Now" action with spinning disabled state, and subtle "Disconnect" option.
+        *   *Accessibility:* Native `<TooltipSimple>` wrappers on all actions and `useToast()` notifications.
+    *   **Declarative Feature Slot Registration (`src/pro/index.ts`):** Registered `data-tab-sync` slot pointing to `SyncSettingsCard`.
+    *   **DataTab Slot Integration (`src/features/settings/components/DataTab.tsx`):** Integrated `data-tab-sync` slot dynamically using `useSlotComponents` helper. Positioned above Diagnostic Report, wrapped in declarative `<FeatureGate fallback={<SyncPromoFallback />}>` and `<Suspense fallback={<SyncLoadingSkeleton />}>`. Maintained zero static imports from `src/pro/`.
+    *   **Testing Infrastructure:** Created `src/core/__tests__/useSyncStatus.test.tsx` (3 tests) and `src/pro/sync/components/__tests__/SyncSettingsCard.test.tsx` (4 tests). Test coverage raised to **331/331 passing tests across 34 test files**. Verified clean `tsc --noEmit` and production Vite bundling (`npm run build` cleanly code-split `SyncSettingsCard-*.js`).
+
+<!-- Last Updated: 2026-08-27T18:45:00+02:00 -->
+
 

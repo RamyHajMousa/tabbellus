@@ -1,17 +1,80 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { Download, Upload, Trash2, AlertTriangle, Database, FileText, Check, RefreshCw } from 'lucide-react';
+import React, { useRef, useState, useEffect, Suspense, useMemo } from 'react';
+import { Download, Upload, Trash2, AlertTriangle, Database, FileText, Check, RefreshCw, Cloud, Sparkles } from 'lucide-react';
 import { dataService } from '@/lib/dataService';
 import { useToast } from '@/components/ui/Toaster';
 import { useClipboard } from '@/hooks/useClipboard';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useStorageTelemetry } from '../hooks/useStorageTelemetry';
-import { getOS, getBrowserVersion, isEdge } from '@/lib/platform';
+import { getOS, getBrowserVersion, isEdge, handleExternalLink } from '@/lib/platform';
 import { useAppStore } from '@/store/appStore';
+import { contractRegistry } from '@/core/contracts/registry';
+import { FeatureGate } from '@/core/components/FeatureGate';
+import { EXTERNAL_LINKS } from '@/config/links';
+
+/**
+ * Resolves registered feature slot components for a given slot ID.
+ */
+function useSlotComponents(slotId: string): React.LazyExoticComponent<React.FC>[] {
+    return useMemo(() => {
+        const slots = contractRegistry.getSlots(slotId);
+        return slots
+            .filter((slot) => typeof slot.component === 'function')
+            .map((slot) => {
+                const loader = slot.component as () => Promise<{ default?: React.FC; SyncSettingsCard?: React.FC; [key: string]: unknown }>;
+                return React.lazy(() =>
+                    loader().then((mod) => ({
+                        default: (mod.default ?? mod.SyncSettingsCard ?? (() => null)) as React.FC,
+                    })),
+                );
+            });
+    }, [slotId]);
+}
+
+const SyncPromoFallback: React.FC = () => (
+    <div className="p-3.5 rounded-lg border border-border bg-card space-y-2.5">
+        <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2.5 min-w-0">
+                <Cloud className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                            Google Drive Cloud Sync
+                        </h4>
+                        <span className="inline-flex items-center bg-primary/10 text-primary border border-primary/20 rounded-full px-2 py-0.5 text-xxs font-semibold">
+                            PRO
+                        </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 leading-normal">
+                        Sync your workspaces, saved tabs, and deferred reading queue across devices using your private Google Drive appData partition.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div className="pt-1">
+            <button
+                type="button"
+                onClick={() => handleExternalLink(EXTERNAL_LINKS.CHECKOUT)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 active:scale-[0.98] text-xs font-medium rounded-md transition-all"
+            >
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                <span>Unlock with Pro</span>
+            </button>
+        </div>
+    </div>
+);
+
+const SyncLoadingSkeleton: React.FC = () => (
+    <div className="p-3.5 rounded-lg border border-border bg-card animate-pulse space-y-2">
+        <div className="h-4 w-36 bg-muted rounded" />
+        <div className="h-3 w-48 bg-muted/60 rounded" />
+    </div>
+);
 
 interface DataTabProps {
     onImportSuccess?: () => void;
     onClearSuccess?: () => void;
 }
+
 
 export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSuccess }) => {
     const { toast } = useToast();
@@ -22,6 +85,15 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
 
     const { counts, usageFormatted, isLoading, refresh } = useStorageTelemetry();
 
+    // Resolve dynamically registered sync slot components
+    const [slotReady, setSlotReady] = useState(false);
+    useEffect(() => {
+        const timer = setTimeout(() => setSlotReady(true), 100);
+        return () => clearTimeout(timer);
+    }, []);
+
+    const syncSlots = useSlotComponents(slotReady ? 'data-tab-sync' : '');
+
     // Clean up danger zone safety timer on unmount
     useEffect(() => {
         return () => {
@@ -31,6 +103,7 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
             }
         };
     }, []);
+
 
     const handleExport = async () => {
         try {
@@ -238,9 +311,29 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
                 />
             </div>
 
+            {/* Cloud Synchronization Section */}
+            <div className="space-y-2 pt-2 border-t border-border">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Cloud Synchronization
+                </label>
+
+                <FeatureGate fallback={<SyncPromoFallback />}>
+                    {syncSlots.length > 0 ? (
+                        <Suspense fallback={<SyncLoadingSkeleton />}>
+                            {syncSlots.map((SlotComponent, index) => (
+                                <SlotComponent key={`sync-slot-${index}`} />
+                            ))}
+                        </Suspense>
+                    ) : (
+                        <SyncLoadingSkeleton />
+                    )}
+                </FeatureGate>
+            </div>
+
             {/* Diagnostic Report Section */}
             <div className="space-y-2 pt-2 border-t border-border">
                 <div className="flex items-center justify-between">
+
                     <div>
                         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             Diagnostic Report
