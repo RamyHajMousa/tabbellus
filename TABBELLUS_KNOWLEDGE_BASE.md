@@ -919,6 +919,16 @@ The project has completed major refactoring phases to optimize performance, clea
     *   **Space Service Clean Error Logging (`src/lib/spaceService.ts`):** In `addTabToSpace`, `moveTabBetweenSpaces`, and `copyTabToSpace`, suppressed `console.error` when the caught error is `DUPLICATE_TAB`. Business duplicate checks rethrow `new Error('DUPLICATE_TAB')` directly while reserving `console.error` strictly for unexpected database transaction failures.
     *   **Testing Infrastructure (`src/pro/rules/__tests__/executor.test.ts`):** Added tests verifying that when `addTabToSpace` throws `DUPLICATE_TAB`, `executeActions` completes cleanly without throwing and successfully executes subsequent actions (e.g., `pin`). Verified that unexpected database errors trigger `console.warn('[RuleExecutor] Could not assign tab to space:', ...)` without throwing. Suite raised to **501/501 passing tests across 47 test files**. Clean `tsc --noEmit` and production build (`npm run build`).
 
-<!-- Last Updated: 2026-09-01T22:34:00+02:00 -->
+### Phase 42.11: Milestone 3 Forensic Code Review & Architectural Audit
+*   **Audit Scope:** Audited entire Milestone 3 surface across contracts (`rules.ts`, `registry.ts`), hooks (`useRules.ts`), headless and runtime entry points (`src/pro/headless.ts`, `src/pro/index.ts`), engine modules (`matcher.ts`, `executor.ts`, `rulesEngine.ts`), storage (`ruleStorage.ts`, `templates.ts`), UI components (`RuleManagerCard.tsx`, `RuleEditorModal.tsx`, `TemplatePickerModal.tsx`, `ActionRow.tsx`, `ConditionRow.tsx`), background lifecycle dispatcher (`rulesDispatcher.ts`, `background/index.ts`), and command palette integrations (`commandRegistry.ts`, `useCommandExecutor.ts`).
+*   **Audit Findings & Remediation:**
+    *   *Zero-Contamination Boundary (Pass):* Zero static imports from `src/pro/` in `src/core/`, `src/features/`, or `src/lib/`. Extracted `src/pro/headless.ts` as a pure, React-free, DOM-free engine barrel export, allowing `src/background/index.ts` to import exclusively from `@/pro/headless`.
+    *   *Service Worker Safety (Pass):* All DevTools console helpers (`window.__tabbellusDev`) are guarded by `typeof window !== 'undefined'`. Zero DOM dependencies exist in the headless dependency graph.
+    *   *ReDoS & Algorithmic Security (Pass):* `RuleMatcher` bounds regex inputs to 250 characters, compiles inside `try/catch`, and escapes all wildcard metacharacters.
+    *   *Idempotence & Lifecycle Garbage Collection (Pass):* `RuleExecutor` isolates each action in individual try/catch blocks and handles `DUPLICATE_TAB` idempotently. `rulesDispatcher` navigation debounce cache evicts closed tab entries via `chrome.tabs.onRemoved`.
+    *   *React 19 Snapshot Stability (Pass):* `useRules` uses `useSyncExternalStore` with stable `EMPTY_RULES` snapshot and memoized callbacks. Dialog dismissals are fully guarded on toast interactions.
+*   **Verification:** `501/501` unit tests passing across `47` test files (100% pass rate), 0 TypeScript errors (`tsc --noEmit`), and clean production build (`npm run build`).
+
+<!-- Last Updated: 2026-09-01T22:45:00+02:00 -->
 
 

@@ -7,7 +7,7 @@ import { updateGlobalBadge } from './badgeService';
 import { runDiscardSweep } from './discardService';
 import { rulesDispatcher } from './rulesDispatcher';
 import { contractRegistry } from '@/core/contracts/registry';
-import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
+import { rulesEngine } from '@/pro/headless';
 
 console.log('TabBellus Service Worker Initialized');
 
