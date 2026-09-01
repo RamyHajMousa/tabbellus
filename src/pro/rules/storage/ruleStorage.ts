@@ -8,7 +8,8 @@
 
 import type { TabRule } from '@/core/contracts/rules';
 
-const STORAGE_KEY = 'tabbellus_tab_rules';
+export const RULES_STORAGE_KEY = 'tabbellus_tab_rules';
+const STORAGE_KEY = RULES_STORAGE_KEY;
 
 /**
  * Saves the rule set to `chrome.storage.sync`, falling back to

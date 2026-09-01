@@ -12,7 +12,7 @@
  */
 
 import type { RuleAction, RuleEvaluationResult, RulesContract, TabRule } from '@/core/contracts/rules';
-import { loadRules, saveRules as persistRules } from '../storage/ruleStorage';
+import { loadRules, saveRules as persistRules, RULES_STORAGE_KEY } from '../storage/ruleStorage';
 import { RuleMatcher } from './matcher';
 import { RuleExecutor } from './executor';
 
@@ -27,6 +27,29 @@ export class RulesEngine implements RulesContract {
 
   constructor() {
     this.hydrated = this.hydrateFromStorage();
+    this.bindStorageListener();
+  }
+
+  /**
+   * Keeps this engine's in-memory rule set in sync with `chrome.storage`
+   * regardless of which JS execution context wrote the change.
+   *
+   * Required because the background service worker and the sidepanel each
+   * hold their own separate `RulesEngine` singleton — one per JS execution
+   * context, each hydrated once at construction (see
+   * TABBELLUS_KNOWLEDGE_BASE.md Phase 42.5/42.6). Without this listener, a
+   * rule added/edited/removed via the sidepanel UI would update that
+   * instance's own copy and storage, but the background's separate
+   * instance — the one that actually drives live tab automation — would
+   * never learn about it until the service worker happened to restart.
+   */
+  private bindStorageListener(): void {
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if ((areaName === 'sync' || areaName === 'local') && changes[RULES_STORAGE_KEY]) {
+        this.hydrateFromStorage();
+      }
+    });
   }
 
   private async hydrateFromStorage(): Promise<void> {

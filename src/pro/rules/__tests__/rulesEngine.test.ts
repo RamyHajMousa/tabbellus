@@ -11,12 +11,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RulesEngine } from '../engine/rulesEngine';
-import { loadRules, saveRules as persistRules } from '../storage/ruleStorage';
+import { loadRules, saveRules as persistRules, RULES_STORAGE_KEY } from '../storage/ruleStorage';
 import type { TabRule } from '@/core/contracts/rules';
 
 vi.mock('../storage/ruleStorage', () => ({
   loadRules: vi.fn(),
   saveRules: vi.fn(),
+  RULES_STORAGE_KEY: 'tabbellus_tab_rules',
 }));
 
 const mockedLoadRules = vi.mocked(loadRules);
@@ -182,6 +183,85 @@ describe('RulesEngine.subscribe', () => {
     await engine.saveRules([makeRule()]);
 
     expect(callback).not.toHaveBeenCalled();
+  });
+});
+
+describe('RulesEngine — cross-context storage sync', () => {
+  const RULES_KEY = RULES_STORAGE_KEY;
+
+  let onChangedHandler: ((changes: Record<string, unknown>, areaName: string) => void) | undefined;
+
+  beforeEach(() => {
+    onChangedHandler = undefined;
+    (globalThis as any).chrome = {
+      storage: {
+        onChanged: {
+          addListener: vi.fn((fn: typeof onChangedHandler) => {
+            onChangedHandler = fn;
+          }),
+        },
+      },
+    };
+  });
+
+  it('re-hydrates from storage when the rules key changes (e.g. written by another JS execution context)', async () => {
+    const engine = new RulesEngine();
+    await engine.getRules(); // initial hydration (empty, per beforeEach default)
+
+    const fromOtherContext = makeRule({ id: 'from-other-context' });
+    mockedLoadRules.mockResolvedValueOnce([fromOtherContext]);
+
+    onChangedHandler?.({ [RULES_KEY]: { newValue: [fromOtherContext] } }, 'sync');
+
+    await vi.waitFor(async () => {
+      const rules = await engine.getRules();
+      expect(rules.map((r) => r.id)).toEqual(['from-other-context']);
+    });
+  });
+
+  it('notifies existing subscribers when a storage change arrives', async () => {
+    const engine = new RulesEngine();
+    await engine.getRules();
+
+    const callback = vi.fn();
+    engine.subscribe(callback);
+    callback.mockClear();
+
+    const updated = makeRule({ id: 'notified' });
+    mockedLoadRules.mockResolvedValueOnce([updated]);
+
+    onChangedHandler?.({ [RULES_KEY]: { newValue: [updated] } }, 'local');
+
+    await vi.waitFor(() => {
+      expect(callback).toHaveBeenCalledWith([expect.objectContaining({ id: 'notified' })]);
+    });
+  });
+
+  it('ignores storage changes for unrelated keys', async () => {
+    const engine = new RulesEngine();
+    await engine.getRules();
+    mockedLoadRules.mockClear();
+
+    onChangedHandler?.({ 'tabbellus-settings': { newValue: {} } }, 'local');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockedLoadRules).not.toHaveBeenCalled();
+  });
+
+  it('ignores changes from an unrelated storage area', async () => {
+    const engine = new RulesEngine();
+    await engine.getRules();
+    mockedLoadRules.mockClear();
+
+    onChangedHandler?.({ [RULES_KEY]: { newValue: [] } }, 'managed');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockedLoadRules).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when chrome.storage.onChanged is unavailable', () => {
+    (globalThis as any).chrome = undefined;
+    expect(() => new RulesEngine()).not.toThrow();
   });
 });
 
