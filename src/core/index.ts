@@ -12,5 +12,6 @@ export * from './contracts';
 export * from './contracts/registry';
 export * from './hooks/useEntitlement';
 export * from './hooks/useSyncStatus';
+export * from './hooks/useRules';
 export * from './components/FeatureGate';
 

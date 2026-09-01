@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import {
     ExternalLink,
     Layers,
@@ -10,13 +10,72 @@ import {
     CopyPlus,
     Focus,
     Clock,
+    ListChecks,
+    Sparkles,
 } from 'lucide-react';
 import { useAppStore, type AppSettings } from '@/store/appStore';
-import { openShortcutsSettings, getReadLaterShortcutText } from '@/lib/platform';
+import { openShortcutsSettings, getReadLaterShortcutText, handleExternalLink } from '@/lib/platform';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Switch } from '@/components/ui/switch';
+import { FeatureGate } from '@/core/components/FeatureGate';
+import { EXTERNAL_LINKS } from '@/config/links';
+import { useSlotComponents } from '../hooks/useSlotComponents';
+
+/**
+ * ZERO-CONTAMINATION BOUNDARY: This module MUST NOT statically import
+ * anything from `src/pro/`. The rules manager card is resolved exclusively
+ * through the declarative `behavior-tab-rules` feature slot.
+ */
+
+const RulesPromoFallback: React.FC = () => (
+    <div className="p-3.5 rounded-lg border border-border bg-card space-y-2.5">
+        <div className="flex items-start gap-2.5 min-w-0">
+            <ListChecks className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                        Declarative Tab Rules & Auto-Grouping
+                    </h4>
+                    <span className="inline-flex items-center bg-primary/10 text-primary border border-primary/20 rounded-full px-2 py-0.5 text-xxs font-semibold">
+                        PRO
+                    </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 leading-normal">
+                    Automatically group, pin, mute, or route tabs into Spaces based on URL, domain, or title conditions you define.
+                </p>
+            </div>
+        </div>
+        <div className="pt-1">
+            <button
+                type="button"
+                onClick={() => handleExternalLink(EXTERNAL_LINKS.CHECKOUT)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 active:scale-[0.98] text-xs font-medium rounded-md transition-all"
+            >
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                <span>Unlock with Pro</span>
+            </button>
+        </div>
+    </div>
+);
+
+const RulesLoadingSkeleton: React.FC = () => (
+    <div className="p-3.5 rounded-lg border border-border bg-card animate-pulse space-y-2">
+        <div className="h-4 w-56 bg-muted rounded" />
+        <div className="h-3 w-40 bg-muted/60 rounded" />
+    </div>
+);
 
 export const BehaviorTab: React.FC = () => {
+    // Resolve dynamically registered rules slot components, matching the
+    // Data tab's Pro-slot readiness delay so the promo fallback doesn't flash.
+    const [slotReady, setSlotReady] = useState(false);
+    useEffect(() => {
+        const timer = setTimeout(() => setSlotReady(true), 100);
+        return () => clearTimeout(timer);
+    }, []);
+
+    const rulesSlots = useSlotComponents(slotReady ? 'behavior-tab-rules' : '');
+
     const autoDiscardInterval = useAppStore((state) => state.settings.autoDiscardInterval);
     const duplicateTabBehavior = useAppStore((state) => state.settings.duplicateTabBehavior);
     const spaceRestoreTrigger = useAppStore((state) => state.settings.spaceRestoreTrigger);
@@ -102,6 +161,21 @@ export const BehaviorTab: React.FC = () => {
 
     return (
         <div className="space-y-5">
+            {/* Declarative Tab Rules & Auto-Grouping (Pro feature slot) */}
+            <div>
+                <FeatureGate fallback={<RulesPromoFallback />}>
+                    {rulesSlots.length > 0 ? (
+                        <Suspense fallback={<RulesLoadingSkeleton />}>
+                            {rulesSlots.map((SlotComponent, index) => (
+                                <SlotComponent key={`rules-slot-${index}`} />
+                            ))}
+                        </Suspense>
+                    ) : (
+                        <RulesLoadingSkeleton />
+                    )}
+                </FeatureGate>
+            </div>
+
             {/* Tab Automation & Memory Reclamation */}
             <div className="space-y-4">
                 <div>

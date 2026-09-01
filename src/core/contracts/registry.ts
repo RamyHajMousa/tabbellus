@@ -15,9 +15,12 @@ import type {
   FeatureSlotRegistration,
   LicensingContract,
   ProModule,
+  RuleEvaluationResult,
+  RulesContract,
   SyncProvider,
   SyncResult,
   SyncStatus,
+  TabRule,
 } from './index';
 
 export interface EntitlementSnapshot extends EntitlementStatus {
@@ -93,9 +96,37 @@ export class NullSyncProvider implements SyncProvider {
   }
 }
 
+/**
+ * Null-object pattern rules engine used as default fallback
+ * when no Pro tab automation rules driver has been registered.
+ */
+export class NullRulesEngine implements RulesContract {
+  async getRules(): Promise<TabRule[]> {
+    return [];
+  }
+
+  async saveRules(_rules: TabRule[]): Promise<void> {
+    // No-op for null provider
+  }
+
+  async evaluateTab(_tab: { url?: string; title?: string }): Promise<RuleEvaluationResult> {
+    return { matched: false, actions: [] };
+  }
+
+  async executeActions(_tabId: number, _actions: unknown[], _windowId?: number): Promise<void> {
+    // No-op for null provider
+  }
+
+  subscribe(callback: (rules: TabRule[]) => void): () => void {
+    callback([]);
+    return () => {};
+  }
+}
+
 export class ContractRegistry {
   private licensingProvider: LicensingContract = new NullLicensingEngine();
   private syncProvider: SyncProvider = new NullSyncProvider();
+  private rulesProvider: RulesContract = new NullRulesEngine();
   private currentEntitlement: EntitlementStatus = { isPro: false, tier: 'free' };
   private currentSyncStatus: SyncStatus = {
     state: 'idle',
@@ -105,18 +136,23 @@ export class ContractRegistry {
       encrypted: false,
     },
   };
+  private currentRules: TabRule[] = [];
   private isProviderReady: boolean = true;
   private isSyncProviderReady: boolean = true;
+  private isRulesProviderReady: boolean = true;
   private modules: Map<string, ProModule> = new Map();
   private slots: Map<string, FeatureSlotRegistration[]> = new Map();
   private listeners: Set<(snapshot: EntitlementSnapshot) => void> = new Set();
   private syncListeners: Set<(status: SyncStatus) => void> = new Set();
+  private ruleListeners: Set<(rules: TabRule[]) => void> = new Set();
   private providerUnsubscribe: (() => void) | null = null;
   private syncProviderUnsubscribe: (() => void) | null = null;
+  private rulesProviderUnsubscribe: (() => void) | null = null;
 
   constructor() {
     this.bindProviderSubscription(this.licensingProvider);
     this.bindSyncProviderSubscription(this.syncProvider);
+    this.bindRulesProviderSubscription(this.rulesProvider);
   }
 
   // --- Licensing Provider Registration & Query ---
@@ -322,6 +358,95 @@ export class ContractRegistry {
     });
   }
 
+  // --- Rules Provider Registration & Query ---
+
+  registerRulesProvider(provider: RulesContract): void {
+    if (this.rulesProviderUnsubscribe) {
+      this.rulesProviderUnsubscribe();
+      this.rulesProviderUnsubscribe = null;
+    }
+
+    this.rulesProvider = provider;
+    this.isRulesProviderReady = false;
+    this.bindRulesProviderSubscription(provider);
+
+    // If subscription did not synchronously mark provider ready, notify subscribers of current rules
+    if (!this.isRulesProviderReady) {
+      this.notifyRuleListeners();
+    }
+
+    // Trigger async fetch in case provider updates asynchronously
+    provider
+      .getRules()
+      .then((rules) => {
+        this.isRulesProviderReady = true;
+        this.updateRulesAndNotify(rules);
+      })
+      .catch(() => {
+        this.isRulesProviderReady = true;
+        this.updateRulesAndNotify([]);
+      });
+  }
+
+  getRulesProvider(): RulesContract {
+    return this.rulesProvider;
+  }
+
+  /**
+   * Returns the current synchronous snapshot of active tab rules.
+   *
+   * Returns the internal array reference directly (not a copy). `currentRules`
+   * is only ever reassigned wholesale in `updateRulesAndNotify` — never mutated
+   * in place — so this reference stays referentially stable between actual
+   * rule-list changes. This is required for `useSyncExternalStore` consumers
+   * (`useRules`): a fresh array on every call would fail `Object.is` on every
+   * render and trigger an infinite re-render loop.
+   */
+  getRulesSnapshot(): TabRule[] {
+    return this.currentRules;
+  }
+
+  /**
+   * Subscribes to tab rule changes across provider updates.
+   */
+  subscribeRules(callback: (rules: TabRule[]) => void): () => void {
+    this.ruleListeners.add(callback);
+    callback(this.getRulesSnapshot());
+
+    return () => {
+      this.ruleListeners.delete(callback);
+    };
+  }
+
+  private bindRulesProviderSubscription(provider: RulesContract): void {
+    try {
+      this.rulesProviderUnsubscribe = provider.subscribe((rules) => {
+        this.isRulesProviderReady = true;
+        this.updateRulesAndNotify(rules);
+      });
+    } catch {
+      this.rulesProviderUnsubscribe = null;
+      this.isRulesProviderReady = true;
+      this.updateRulesAndNotify([]);
+    }
+  }
+
+  private updateRulesAndNotify(rules: TabRule[]): void {
+    this.currentRules = Array.isArray(rules) ? [...rules] : [];
+    this.notifyRuleListeners();
+  }
+
+  private notifyRuleListeners(): void {
+    const snapshot = this.getRulesSnapshot();
+    this.ruleListeners.forEach((listener) => {
+      try {
+        listener(snapshot);
+      } catch {
+        // Prevent listener exception from breaking notification loop
+      }
+    });
+  }
+
   // --- Module Registration & Query ---
 
   registerModule(module: ProModule): void {
@@ -366,22 +491,31 @@ export class ContractRegistry {
       this.syncProviderUnsubscribe();
       this.syncProviderUnsubscribe = null;
     }
+    if (this.rulesProviderUnsubscribe) {
+      this.rulesProviderUnsubscribe();
+      this.rulesProviderUnsubscribe = null;
+    }
     this.licensingProvider = new NullLicensingEngine();
     this.syncProvider = new NullSyncProvider();
+    this.rulesProvider = new NullRulesEngine();
     this.currentEntitlement = { isPro: false, tier: 'free' };
     this.currentSyncStatus = {
       state: 'idle',
       isConnected: false,
       telemetry: { pendingMutations: 0, encrypted: false },
     };
+    this.currentRules = [];
     this.isProviderReady = true;
     this.isSyncProviderReady = true;
+    this.isRulesProviderReady = true;
     this.modules.clear();
     this.slots.clear();
     this.listeners.clear();
     this.syncListeners.clear();
+    this.ruleListeners.clear();
     this.bindProviderSubscription(this.licensingProvider);
     this.bindSyncProviderSubscription(this.syncProvider);
+    this.bindRulesProviderSubscription(this.rulesProvider);
   }
 }
 

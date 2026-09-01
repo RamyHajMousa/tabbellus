@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   ContractRegistry,
   NullLicensingEngine,
+  NullRulesEngine,
   NullSyncProvider,
   contractRegistry,
 } from '../contracts/registry';
@@ -9,8 +10,10 @@ import type {
   FeatureSlotRegistration,
   LicensingContract,
   ProModule,
+  RulesContract,
   SyncProvider,
   SyncStatus,
+  TabRule,
 } from '../contracts';
 
 describe('NullLicensingEngine', () => {
@@ -89,6 +92,39 @@ describe('NullSyncProvider', () => {
         encrypted: false,
       },
     });
+    expect(typeof unsubscribe).toBe('function');
+  });
+});
+
+describe('NullRulesEngine', () => {
+  it('should return an empty rule set on getRules', async () => {
+    const engine = new NullRulesEngine();
+    const rules = await engine.getRules();
+    expect(rules).toEqual([]);
+  });
+
+  it('should execute saveRules without throwing', async () => {
+    const engine = new NullRulesEngine();
+    await expect(engine.saveRules([])).resolves.toBeUndefined();
+  });
+
+  it('should return an unmatched evaluation result on evaluateTab', async () => {
+    const engine = new NullRulesEngine();
+    const result = await engine.evaluateTab({ url: 'https://example.com' });
+    expect(result).toEqual({ matched: false, actions: [] });
+  });
+
+  it('should execute executeActions without throwing', async () => {
+    const engine = new NullRulesEngine();
+    await expect(engine.executeActions(1, [])).resolves.toBeUndefined();
+  });
+
+  it('should notify subscriber immediately with an empty rule set', () => {
+    const engine = new NullRulesEngine();
+    const callback = vi.fn();
+    const unsubscribe = engine.subscribe(callback);
+
+    expect(callback).toHaveBeenCalledWith([]);
     expect(typeof unsubscribe).toBe('function');
   });
 });
@@ -294,6 +330,146 @@ describe('ContractRegistry', () => {
     });
   });
 
+  describe('Rules Provider Management & Subscriptions', () => {
+    const makeRulesProvider = (overrides: Partial<RulesContract> = {}): RulesContract => ({
+      getRules: vi.fn().mockResolvedValue([]),
+      saveRules: vi.fn().mockResolvedValue(undefined),
+      evaluateTab: vi.fn().mockResolvedValue({ matched: false, actions: [] }),
+      executeActions: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn((cb: (rules: TabRule[]) => void) => {
+        cb([]);
+        return () => {};
+      }),
+      ...overrides,
+    });
+
+    it('should initialize with NullRulesEngine by default', async () => {
+      const provider = registry.getRulesProvider();
+      expect(provider).toBeInstanceOf(NullRulesEngine);
+      const rules = await provider.getRules();
+      expect(rules).toEqual([]);
+      expect(registry.getRulesSnapshot()).toEqual([]);
+    });
+
+    it('should return a referentially stable snapshot across repeated calls (useSyncExternalStore contract)', () => {
+      // getRulesSnapshot() must return the SAME array reference between actual
+      // rule-list changes. A fresh array on every call fails Object.is() on
+      // every React render and triggers an infinite re-render loop in
+      // consumers of useRules() (regression: RuleManagerCard white-screened
+      // with "Maximum update depth exceeded" when this returned `[...rules]`).
+      const first = registry.getRulesSnapshot();
+      const second = registry.getRulesSnapshot();
+      const third = registry.getRulesSnapshot();
+
+      expect(second).toBe(first);
+      expect(third).toBe(first);
+    });
+
+    it('should return a new snapshot reference only when the rule list actually changes', async () => {
+      const beforeUpdate = registry.getRulesSnapshot();
+
+      const customRule: TabRule = {
+        id: 'stability-check',
+        name: 'Stability Check',
+        enabled: true,
+        priority: 0,
+        matchAll: false,
+        conditions: [],
+        actions: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      registry.registerRulesProvider(
+        makeRulesProvider({
+          subscribe: vi.fn((cb: (rules: TabRule[]) => void) => {
+            cb([customRule]);
+            return () => {};
+          }),
+        }),
+      );
+
+      const afterUpdate = registry.getRulesSnapshot();
+      expect(afterUpdate).not.toBe(beforeUpdate);
+      expect(afterUpdate).toEqual([customRule]);
+
+      // Stable again between calls until the next real change.
+      expect(registry.getRulesSnapshot()).toBe(afterUpdate);
+    });
+
+    it('should register a custom rules provider and notify subscribers', async () => {
+      const mockSubscriber = vi.fn();
+      registry.subscribeRules(mockSubscriber);
+
+      const customRule: TabRule = {
+        id: 'r1',
+        name: 'Group GitHub',
+        enabled: true,
+        priority: 0,
+        matchAll: false,
+        conditions: [{ field: 'domain', operator: 'contains', value: 'github.com' }],
+        actions: [{ type: 'group', groupName: 'Dev' }],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      const customProvider = makeRulesProvider({
+        getRules: vi.fn().mockResolvedValue([customRule]),
+        subscribe: vi.fn((cb: (rules: TabRule[]) => void) => {
+          cb([customRule]);
+          return () => {};
+        }),
+      });
+
+      registry.registerRulesProvider(customProvider);
+      expect(registry.getRulesProvider()).toBe(customProvider);
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockSubscriber).toHaveBeenCalledWith([expect.objectContaining({ id: 'r1' })]);
+      expect(registry.getRulesSnapshot()).toEqual([customRule]);
+    });
+
+    it('should handle rules provider errors gracefully during subscription', async () => {
+      const mockSubscriber = vi.fn();
+      const faultyProvider = makeRulesProvider({
+        getRules: vi.fn().mockRejectedValue(new Error('Rules load failure')),
+        subscribe: vi.fn(() => {
+          throw new Error('Rules subscription crash');
+        }),
+      });
+
+      registry.registerRulesProvider(faultyProvider);
+      registry.subscribeRules(mockSubscriber);
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockSubscriber).toHaveBeenCalledWith([]);
+    });
+
+    it('should unsubscribe previous rules provider when a new one is registered', () => {
+      const unsubscribeOld = vi.fn();
+      const oldProvider = makeRulesProvider({ subscribe: vi.fn(() => unsubscribeOld) });
+
+      registry.registerRulesProvider(oldProvider);
+      expect(unsubscribeOld).not.toHaveBeenCalled();
+
+      const newProvider = makeRulesProvider();
+      registry.registerRulesProvider(newProvider);
+      expect(unsubscribeOld).toHaveBeenCalledTimes(1);
+    });
+
+    it('should allow unsubscribing from rules updates', () => {
+      const mockSubscriber = vi.fn();
+      const unsubscribe = registry.subscribeRules(mockSubscriber);
+
+      mockSubscriber.mockClear();
+      unsubscribe();
+
+      registry.registerRulesProvider(makeRulesProvider());
+
+      expect(mockSubscriber).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Module Management', () => {
     it('should register and retrieve Pro modules by ID', () => {
       const mockModule: ProModule = {
@@ -356,7 +532,7 @@ describe('ContractRegistry', () => {
   });
 
   describe('Reset', () => {
-    it('should wipe modules, slots, and restore NullLicensingEngine and NullSyncProvider on reset', () => {
+    it('should wipe modules, slots, and restore NullLicensingEngine, NullSyncProvider, and NullRulesEngine on reset', () => {
       registry.registerModule({
         metadata: { id: 'm1', name: 'M1', version: '1.0' },
         initialize: () => {},
@@ -367,6 +543,8 @@ describe('ContractRegistry', () => {
 
       expect(registry.getLicensingProvider()).toBeInstanceOf(NullLicensingEngine);
       expect(registry.getSyncProvider()).toBeInstanceOf(NullSyncProvider);
+      expect(registry.getRulesProvider()).toBeInstanceOf(NullRulesEngine);
+      expect(registry.getRulesSnapshot()).toEqual([]);
       expect(registry.getAllModules()).toHaveLength(0);
       expect(registry.getSlots('s1')).toEqual([]);
     });

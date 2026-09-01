@@ -1,38 +1,15 @@
-import React, { useRef, useState, useEffect, Suspense, useMemo } from 'react';
+import React, { useRef, useState, useEffect, Suspense } from 'react';
 import { Download, Upload, Trash2, AlertTriangle, Database, FileText, Check, RefreshCw, Cloud, Sparkles } from 'lucide-react';
 import { dataService } from '@/lib/dataService';
 import { useToast } from '@/components/ui/Toaster';
 import { useClipboard } from '@/hooks/useClipboard';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { useStorageTelemetry } from '../hooks/useStorageTelemetry';
+import { useSlotComponents } from '../hooks/useSlotComponents';
 import { getOS, getBrowserVersion, isEdge, handleExternalLink } from '@/lib/platform';
 import { useAppStore } from '@/store/appStore';
-import { contractRegistry } from '@/core/contracts/registry';
 import { FeatureGate } from '@/core/components/FeatureGate';
 import { EXTERNAL_LINKS } from '@/config/links';
-
-/**
- * Resolves registered feature slot components for a given slot ID.
- */
-function useSlotComponents(slotId: string): React.LazyExoticComponent<React.FC>[] {
-    return useMemo(() => {
-        const slots = contractRegistry.getSlots(slotId);
-        return slots
-            .filter((slot) => typeof slot.component === 'function')
-            .map((slot) => {
-                const loader = slot.component as () => Promise<{ default?: React.FC; SyncSettingsCard?: React.FC; [key: string]: unknown }>;
-                return React.lazy(() =>
-                    loader()
-                        .then((mod) => ({
-                            default: (mod.default ?? mod.SyncSettingsCard ?? (() => null)) as React.FC,
-                        }))
-                        .catch(() => ({
-                            default: (() => null) as React.FC,
-                        })),
-                );
-            });
-    }, [slotId]);
-}
 
 const SyncPromoFallback: React.FC = () => (
     <div className="p-3.5 rounded-lg border border-border bg-card space-y-2.5">

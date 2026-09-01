@@ -44,4 +44,5 @@ export interface FeatureSlotRegistration<T = unknown> {
 }
 
 export * from './sync';
+export * from './rules';
 

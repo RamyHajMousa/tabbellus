@@ -5,8 +5,40 @@ import { readLaterService } from '@/lib/readLaterService';
 import { getReadLaterShortcutText } from '@/lib/platform';
 import { updateGlobalBadge } from './badgeService';
 import { runDiscardSweep } from './discardService';
+import { rulesDispatcher } from './rulesDispatcher';
+import { contractRegistry } from '@/core/contracts/registry';
+import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
 
 console.log('TabBellus Service Worker Initialized');
+
+// Register the Pro tab automation rules engine.
+//
+// NECESSARY, NARROW EXCEPTION to "zero static src/pro/ imports in
+// src/background/": dynamic `import()` is categorically disallowed inside
+// a ServiceWorkerGlobalScope per the HTML spec — confirmed via a live
+// runtime error: "TypeError: import() is disallowed on
+// ServiceWorkerGlobalScope by the HTML specification"
+// (https://github.com/w3c/ServiceWorkerIssues/1356). This is a hard
+// platform wall, not a timing/bundler issue — an earlier fix that awaited
+// a dynamic import's promise before evaluating tabs still failed 100% of
+// the time, because the import itself always rejects in this context, not
+// merely races. Unlike the sidepanel (a regular page, where
+// `import('@/pro')` works fine), the background has no way to lazily
+// attach Pro at runtime — only a static import, resolved at module
+// registration time, is possible here.
+//
+// Scoped to ONLY the concrete rules engine module (`@/pro/rules/engine/
+// rulesEngine`, which itself pulls in just the matcher/executor/storage —
+// no licensing, no sync, no React/UI component code) — the one piece of
+// Pro that must actually execute inside the background to automate tabs.
+// Licensing and sync remain excluded from the background entirely, as
+// before; only the sidepanel needs those.
+contractRegistry.registerRulesProvider(rulesEngine);
+
+// Bind tab lifecycle listeners for the automation rules engine. Registered
+// synchronously at module evaluation so listeners survive service worker
+// wake cycles, consistent with the other chrome.tabs.on* bindings below.
+rulesDispatcher.init();
 
 const TAB_DISCARD_ALARM_NAME = 'tab-discard-sweep';
 
