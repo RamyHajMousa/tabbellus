@@ -48,7 +48,33 @@ export const SettingsDialog: React.FC = () => {
 
     return (
         <Dialog open={isSettingsOpen} onOpenChange={setSettingsOpen}>
-            <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col">
+            <DialogContent
+                className="sm:max-w-md max-h-[85vh] flex flex-col"
+                onInteractOutside={(e) => {
+                    const target = (e.target as HTMLElement | null) ?? ((e as any)?.detail?.originalEvent?.target as HTMLElement | null);
+                    if (
+                        target?.closest('[data-toast]') ||
+                        target?.closest('[data-sonner-toaster]') ||
+                        target?.closest('.toaster') ||
+                        target?.closest('[role="status"]') ||
+                        target?.closest('[role="alert"]')
+                    ) {
+                        e.preventDefault();
+                    }
+                }}
+                onPointerDownOutside={(e) => {
+                    const target = (e.target as HTMLElement | null) ?? ((e as any)?.detail?.originalEvent?.target as HTMLElement | null);
+                    if (
+                        target?.closest('[data-toast]') ||
+                        target?.closest('[data-sonner-toaster]') ||
+                        target?.closest('.toaster') ||
+                        target?.closest('[role="status"]') ||
+                        target?.closest('[role="alert"]')
+                    ) {
+                        e.preventDefault();
+                    }
+                }}
+            >
                 <DialogHeader className="shrink-0">
                     <DialogTitle>Settings</DialogTitle>
                     <DialogDescription>Customize your TabBellus experience.</DialogDescription>

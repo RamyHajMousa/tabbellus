@@ -884,6 +884,25 @@ The project has completed major refactoring phases to optimize performance, clea
 *   **Regression Coverage (`src/pro/rules/__tests__/rulesEngine.test.ts`):** Added a "cross-context storage sync" describe block (5 tests): re-hydrates and returns the updated rule set when a matching storage change arrives; notifies existing `subscribe()` callbacks when that happens; ignores changes to unrelated storage keys; ignores changes from unrelated storage areas (e.g. `'managed'`); does not throw when `chrome.storage.onChanged` is unavailable (fail-open, consistent with the rest of the codebase's Chrome-API-optional guards). Test coverage raised to **477/477 passing tests across 43 test files**.
 *   **Verification:** Clean `tsc --noEmit`, full suite **477/477 passing across 43 test files**, `npm run build` succeeded.
 
-<!-- Last Updated: 2026-09-01T21:30:00+02:00 -->
+### Phase 42.7: Dialog Dismissal Guard on Toast Undo Interaction
+*   **Symptom:** Clicking the "Undo" button on an action toast (e.g., after deleting a rule in the Behavior tab's `RuleManagerCard` via `useUndoDelete`) while the Settings dialog is open caused the Settings dialog to dismiss immediately.
+*   **Root Cause:** The toast container is portalled to `document.body` with `z-[100]`, outside the Radix `DialogPrimitive.Content` boundary. When clicking the "Undo" action inside the toast, Radix UI interprets the click as an outside interaction (`onInteractOutside` / `onPointerDownOutside`), triggering dialog closure.
+*   **Fix (`src/components/ui/Dialog.tsx`, `src/features/settings/SettingsDialog.tsx`, `src/components/ui/Toaster.tsx`):**
+    *   `src/components/ui/Dialog.tsx`: Added `isToastTarget` helper to `DialogContent` checking `target?.closest('[data-toast]') || target?.closest('[data-sonner-toaster]') || target?.closest('.toaster') || target?.closest('[role="status"]') || target?.closest('[role="alert"]')`. Calls `e.preventDefault()` on both `onInteractOutside` and `onPointerDownOutside`, preventing dialog dismissal on toast clicks across all dialog instances while preserving user callbacks.
+    *   `src/features/settings/SettingsDialog.tsx`: Configured explicit `onInteractOutside` and `onPointerDownOutside` handlers on `<DialogContent>` for defense-in-depth.
+    *   `src/components/ui/Toaster.tsx`: Added `.toaster`, `data-sonner-toaster=""`, and `data-toast=""` attributes to toast container and toast card elements for explicit selector targeting.
+    *   `src/hooks/useUndoDelete.ts`: Verified `useUndoDelete` does not interact with `useUIStore.isSettingsOpen` or alter `activeView`, ensuring modal focus remains completely stable during undo operations.
+*   **Testing Infrastructure (`src/components/ui/__tests__/Dialog.test.tsx`):** Created 6 unit tests covering selector detection, event prevention on toast interactions, normal backdrop dismissal retention, SSR rendering, and `useUndoDelete` modal open state stability. Full suite raised to **483/483 passing tests across 44 test files**.
+*   **Verification:** Clean `tsc --noEmit`, full suite **483/483 passing across 44 test files**.
+
+### Phase 42.8: ActionRow Radix Space Selector & Dialog Guard Hardening
+*   **Outcome:**
+    *   **Polished Space Selector (`src/pro/rules/components/ActionRow.tsx`):** Completely eradicated raw HTML `<select>` and `<option>` elements in `ActionRow`. Replaced target space selection and action type selection with Radix-based `<DropdownMenu>` components conforming strictly to `DESIGN.md`:
+        *   *Trigger Button:* `h-8`, `px-2.5`, `border border-border`, `bg-card hover:bg-muted` with active space color dot (`w-2 h-2 rounded-full shrink-0` mapped via `getGroupColorClasses` from `@/lib/colors`), space name with `truncate max-w-[170px] text-xs font-medium text-foreground`, and trailing `ChevronDown` icon (`w-3.5 h-3.5 text-muted-foreground`). Falls back to `"Select target space..."` placeholder when unselected.
+        *   *Dropdown Content Panel:* `bg-popover`, `border border-border`, `rounded-md`, `shadow-md`, `p-1`, `max-h-48 overflow-y-auto`. Each item displays space color indicator, truncated name, and active `Check` mark.
+        *   *Action Type Selector:* Styled `<DropdownMenu>` displaying active option label and checkmark indicator.
+    *   **Testing Infrastructure:** Created `src/pro/rules/components/__tests__/ActionRow.test.tsx` (6 tests: placeholder rendering, color swatch and truncated name rendering, uncolored space fallback, space selection callback with `spaceId` and `spaceName`, group options rendering, and action type rendering). Extended `RuleEditorModal.test.tsx` (+1 test, total 22 tests). Test coverage raised to **490/490 passing tests across 45 test files**. Verified clean `tsc --noEmit` and production Vite bundling (`npm run build`).
+
+<!-- Last Updated: 2026-09-01T22:10:00+02:00 -->
 
 

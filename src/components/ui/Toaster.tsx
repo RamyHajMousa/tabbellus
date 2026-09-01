@@ -55,9 +55,10 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
 
     const toasterContent = toasts.length > 0 ? (
         <div
-            className="fixed bottom-4 right-4 flex flex-col gap-2 z-[100] pointer-events-none max-w-[calc(100vw-2rem)]"
+            className="toaster fixed bottom-4 right-4 flex flex-col gap-2 z-[100] pointer-events-none max-w-[calc(100vw-2rem)]"
             role="region"
             aria-label="Notifications"
+            data-sonner-toaster=""
         >
             {toasts.map((t) => (
                 <div
@@ -65,6 +66,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                     className="pointer-events-auto bg-popover text-popover-foreground border border-border rounded-lg p-3.5 min-w-[280px] max-w-[380px] shadow-lg flex items-center justify-between animate-in slide-in-from-bottom-2 fade-in"
                     role="status"
                     aria-live="polite"
+                    data-toast=""
                 >
                     <div className="flex flex-col pr-2 min-w-0">
                         <span className="text-sm font-medium leading-tight break-words">{t.message}</span>

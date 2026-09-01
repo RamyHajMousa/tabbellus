@@ -216,3 +216,20 @@ describe('buildRuleFromDraft', () => {
     expect(rule.updatedAt).toBeGreaterThanOrEqual(existing.updatedAt);
   });
 });
+
+describe('updateActionRow — space actions', () => {
+  it('updates an action with spaceId and spaceName', () => {
+    const actions: RuleAction[] = [{ type: 'space' }];
+    const updated = updateActionRow(actions, 0, {
+      type: 'space',
+      spaceId: 42,
+      spaceName: 'Design Workspace',
+    });
+
+    expect(updated[0]).toEqual({
+      type: 'space',
+      spaceId: 42,
+      spaceName: 'Design Workspace',
+    });
+  });
+});
