@@ -7,17 +7,28 @@ interface Toast {
     message: string;
     description?: string;
     onUndo?: () => void;
+    action?: { label: string; onClick: () => void };
     duration?: number;
 }
 
-interface ToastOptions {
+export interface ToastOptions {
     description?: string;
     onUndo?: () => void;
+    action?: { label: string; onClick: () => void };
     duration?: number;
 }
 
+export type ToastPayload = string | {
+    title?: string;
+    message?: string;
+    description?: string;
+    onUndo?: () => void;
+    action?: { label: string; onClick: () => void };
+    duration?: number;
+};
+
 interface ToastContextType {
-    toast: (message: string, options?: ToastOptions) => void;
+    toast: (messageOrConfig: ToastPayload, options?: ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -34,16 +45,34 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
     }, []);
 
-    const toast = useCallback((message: string, options?: ToastOptions) => {
+    const toast = useCallback((messageOrConfig: ToastPayload, options?: ToastOptions) => {
         const id = Math.random().toString(36).substring(7);
-        const duration = options?.duration || 5000;
+
+        let message = '';
+        let opts: ToastOptions = options || {};
+
+        if (typeof messageOrConfig === 'string') {
+            message = messageOrConfig;
+        } else if (messageOrConfig && typeof messageOrConfig === 'object') {
+            message = messageOrConfig.title || messageOrConfig.message || '';
+            opts = {
+                description: messageOrConfig.description,
+                onUndo: messageOrConfig.onUndo,
+                action: messageOrConfig.action,
+                duration: messageOrConfig.duration,
+                ...options,
+            };
+        }
+
+        const duration = opts.duration ?? 5000;
 
         setToasts((prev) => [...prev, {
             id,
             message,
-            description: options?.description,
+            description: opts.description,
             duration,
-            onUndo: options?.onUndo
+            onUndo: opts.onUndo,
+            action: opts.action,
         }]);
 
         if (duration > 0) {
@@ -75,7 +104,18 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                         )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                        {t.onUndo && (
+                        {t.action ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    t.action?.onClick();
+                                    removeToast(t.id);
+                                }}
+                                className="text-xs font-semibold text-primary hover:underline px-2 py-1 rounded hover:bg-primary/10 transition-colors"
+                            >
+                                {t.action.label}
+                            </button>
+                        ) : t.onUndo ? (
                             <button
                                 type="button"
                                 onClick={() => {
@@ -86,7 +126,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                             >
                                 Undo
                             </button>
-                        )}
+                        ) : null}
                         <button
                             type="button"
                             onClick={() => removeToast(t.id)}

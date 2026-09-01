@@ -543,6 +543,9 @@ class SpaceService {
                 });
             });
         } catch (e) {
+            if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
+                throw e;
+            }
             console.error('SpaceService: Failed to add tab to space', e);
             throw e;
         }
@@ -643,6 +646,9 @@ class SpaceService {
                 return { sourceSpaceId, originalOrder };
             });
         } catch (e) {
+            if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
+                throw e;
+            }
             console.error('SpaceService: Failed to move tab between spaces', e);
             throw e;
         }
@@ -704,6 +710,9 @@ class SpaceService {
                 });
             });
         } catch (e) {
+            if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
+                throw e;
+            }
             console.error('SpaceService: Failed to copy tab to space', e);
             throw e;
         }

@@ -62,8 +62,8 @@ describe('Command Registry & Filter Engine', () => {
         };
     });
 
-    it('should have all 27 registered commands with valid unique metadata', () => {
-        expect(COMMAND_REGISTRY.length).toBe(27);
+    it('should have all 28 registered commands with valid unique metadata', () => {
+        expect(COMMAND_REGISTRY.length).toBe(28);
 
         const seenIds = new Set<string>();
 
@@ -81,6 +81,17 @@ describe('Command Registry & Filter Engine', () => {
         }
     });
 
+    it('should register apply-tab-rules with isPro: true under Tab Management & Memory', () => {
+        const cmd = COMMAND_REGISTRY.find((c) => c.id === 'apply-tab-rules')!;
+        expect(cmd).toBeDefined();
+        expect(cmd.title).toBe('Apply Tab Rules to Window');
+        expect(cmd.category).toBe('Tab Management & Memory');
+        expect(cmd.isPro).toBe(true);
+        expect(cmd.keywords).toEqual(
+            expect.arrayContaining(['rules', 'auto group', 'organize', 'tab rules', 'match', 'automate'])
+        );
+    });
+
     it('should partition commands precisely across the 5 categories', () => {
         const counts: Record<string, number> = {};
         for (const cmd of COMMAND_REGISTRY) {
@@ -88,16 +99,16 @@ describe('Command Registry & Filter Engine', () => {
         }
 
         expect(counts['Spaces & Workspaces']).toBe(5);
-        expect(counts['Tab Management & Memory']).toBe(9);
+        expect(counts['Tab Management & Memory']).toBe(10);
         expect(counts['Audio & Tab Control']).toBe(4);
         expect(counts['Read Later & Ingestion']).toBe(4);
         expect(counts['Navigation & System']).toBe(5);
     });
 
     describe('filterCommands', () => {
-        it('should return all 27 commands when query is empty or whitespace', () => {
-            expect(filterCommands('')).toHaveLength(27);
-            expect(filterCommands('   ')).toHaveLength(27);
+        it('should return all 28 commands when query is empty or whitespace', () => {
+            expect(filterCommands('')).toHaveLength(28);
+            expect(filterCommands('   ')).toHaveLength(28);
         });
 
         it('should filter commands by title (case-insensitive)', () => {
@@ -187,6 +198,56 @@ describe('Command Registry & Filter Engine', () => {
     // CATEGORY 2: TAB MANAGEMENT & MEMORY (9 Automated Execution Tests)
     // ══════════════════════════════════════════════════════════════════════
     describe('Tab Management & Memory Execution', () => {
+        it('should execute "apply-tab-rules" when Free Tier by dismissing palette and prompting upgrade', async () => {
+            const cmd = COMMAND_REGISTRY.find((c) => c.id === 'apply-tab-rules')!;
+            const { contractRegistry } = await import('@/core/contracts/registry');
+            vi.spyOn(contractRegistry, 'getEntitlementSnapshot').mockReturnValue({
+                isPro: false,
+                tier: 'free',
+                loading: false,
+            });
+
+            await cmd.run(mockContext);
+
+            expect(mockContext.setSearchOpen).toHaveBeenCalledWith(false);
+            expect(mockContext.toast).toHaveBeenCalledWith(
+                'TabBellus Pro Feature',
+                expect.objectContaining({
+                    description: 'Tab Rules and automation require an active Pro license.',
+                    action: expect.objectContaining({ label: 'Upgrade' }),
+                })
+            );
+        });
+
+        it('should execute "apply-tab-rules" when Pro Tier by dispatching runtime message and reporting stats', async () => {
+            const cmd = COMMAND_REGISTRY.find((c) => c.id === 'apply-tab-rules')!;
+            const { contractRegistry } = await import('@/core/contracts/registry');
+            vi.spyOn(contractRegistry, 'getEntitlementSnapshot').mockReturnValue({
+                isPro: true,
+                tier: 'pro',
+                loading: false,
+            });
+
+            (globalThis as any).chrome = {
+                ...(globalThis as any).chrome,
+                runtime: {
+                    sendMessage: vi.fn().mockResolvedValue({ processed: 8, matched: 3 }),
+                },
+            };
+
+            await cmd.run(mockContext);
+
+            expect(globalThis.chrome.runtime.sendMessage).toHaveBeenCalledWith({
+                type: 'APPLY_RULES_TO_WINDOW',
+            });
+            expect(mockContext.toast).toHaveBeenCalledWith(
+                'Tab Rules Applied',
+                expect.objectContaining({
+                    description: 'Organized 3 of 8 tabs in this window.',
+                })
+            );
+        });
+
         it('should execute "discard-idle-tabs"', async () => {
             const cmd = COMMAND_REGISTRY.find((c) => c.id === 'discard-idle-tabs')!;
             vi.spyOn(discardService, 'runDiscardSweep').mockResolvedValue(3);

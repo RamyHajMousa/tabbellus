@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RuleExecutor } from '../engine/executor';
+import { spaceService } from '@/lib/spaceService';
 import { db } from '@/lib/db';
 import type { RuleAction } from '@/core/contracts/rules';
 
@@ -138,6 +139,50 @@ describe('RuleExecutor.executeActions', () => {
 
       const tabs = await db.tabs.where('spaceId').equals(spaceId).toArray();
       expect(tabs).toHaveLength(1);
+    });
+
+    it('completes cleanly when spaceService.addTabToSpace throws DUPLICATE_TAB and executes subsequent actions', async () => {
+      const spaceId = 99;
+      chrome.tabs.get = vi.fn().mockResolvedValue({
+        id: 1,
+        windowId: 10,
+        url: 'https://example.com/duplicate',
+        title: 'Duplicate Page',
+      });
+
+      vi.spyOn(spaceService, 'addTabToSpace').mockRejectedValueOnce(new Error('DUPLICATE_TAB'));
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const actions: RuleAction[] = [
+        { type: 'space', spaceId },
+        { type: 'pin' },
+      ];
+
+      await expect(RuleExecutor.executeActions(1, actions)).resolves.toBeUndefined();
+
+      // Subsequent action (pin) must still execute
+      expect(chrome.tabs.update).toHaveBeenCalledWith(1, { pinned: true });
+      // DUPLICATE_TAB must not trigger console.warn
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('logs a polite warning without throwing when spaceService.addTabToSpace encounters an unexpected error', async () => {
+      const spaceId = 99;
+      chrome.tabs.get = vi.fn().mockResolvedValue({
+        id: 1,
+        windowId: 10,
+        url: 'https://example.com/error',
+        title: 'Error Page',
+      });
+
+      const dbError = new Error('Database locked');
+      vi.spyOn(spaceService, 'addTabToSpace').mockRejectedValueOnce(dbError);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const actions: RuleAction[] = [{ type: 'space', spaceId }];
+
+      await expect(RuleExecutor.executeActions(1, actions)).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith('[RuleExecutor] Could not assign tab to space:', dbError);
     });
 
     it('is a no-op when the action has no spaceId', async () => {

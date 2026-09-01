@@ -97,8 +97,14 @@ export class RuleExecutor {
         favIconUrl: tab.favIconUrl,
       });
     } catch (err) {
-      if (err instanceof Error && err.message === 'DUPLICATE_TAB') return;
-      // Non-duplicate failures are best-effort — do not halt other actions.
+      if (
+        err === 'DUPLICATE_TAB' ||
+        (err instanceof Error && err.message === 'DUPLICATE_TAB') ||
+        (typeof err === 'object' && err !== null && (err as any).message === 'DUPLICATE_TAB')
+      ) {
+        return;
+      }
+      console.warn('[RuleExecutor] Could not assign tab to space:', err);
     }
   }
 }

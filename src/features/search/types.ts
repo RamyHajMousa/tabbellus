@@ -63,7 +63,10 @@ export type CommandCategory =
     | 'Navigation & System';
 
 export interface CommandContext {
-    toast: (message: string, options?: { description?: string; onUndo?: () => void; duration?: number }) => void;
+    toast: (
+        message: string | { title?: string; description?: string; action?: { label: string; onClick: () => void } },
+        options?: { description?: string; onUndo?: () => void; action?: { label: string; onClick: () => void }; duration?: number }
+    ) => void;
     setSearchOpen: (open: boolean) => void;
     setSettingsOpen: (open: boolean) => void;
     setHistoryOpen?: (open: boolean) => void;
@@ -74,10 +77,12 @@ export interface CommandContext {
 export interface CommandAction {
     id: string;
     title: string;
+    description?: string;
     category: CommandCategory;
     keywords: string[];
     shortcut?: string;
     icon: React.ComponentType<{ className?: string }>;
+    isPro?: boolean;
     run: (context: CommandContext) => Promise<void> | void;
 }
 

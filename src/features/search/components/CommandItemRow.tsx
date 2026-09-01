@@ -27,6 +27,12 @@ export const CommandItemRow: React.FC<CommandItemRowProps> = ({ command, onSelec
                 </span>
             </TooltipOverflow>
 
+            {command.isPro && (
+                <span className="text-xxs font-semibold px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary shrink-0">
+                    PRO
+                </span>
+            )}
+
             {command.shortcut && (
                 <kbd className="px-1.5 py-0.5 text-xxs font-mono rounded bg-muted text-muted-foreground border border-border/50 shrink-0">
                     {command.shortcut}

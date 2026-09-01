@@ -903,6 +903,22 @@ The project has completed major refactoring phases to optimize performance, clea
         *   *Action Type Selector:* Styled `<DropdownMenu>` displaying active option label and checkmark indicator.
     *   **Testing Infrastructure:** Created `src/pro/rules/components/__tests__/ActionRow.test.tsx` (6 tests: placeholder rendering, color swatch and truncated name rendering, uncolored space fallback, space selection callback with `spaceId` and `spaceName`, group options rendering, and action type rendering). Extended `RuleEditorModal.test.tsx` (+1 test, total 22 tests). Test coverage raised to **490/490 passing tests across 45 test files**. Verified clean `tsc --noEmit` and production Vite bundling (`npm run build`).
 
-<!-- Last Updated: 2026-09-01T22:10:00+02:00 -->
+### Phase 42.9: OmniSearch 2.0 Pro Command Integration ("Apply Tab Rules to Window")
+*   **Outcome:**
+    *   **Command Registration (`src/features/search/registry/commandRegistry.ts`):** Added command #28 (`apply-tab-rules`) under `'Tab Management & Memory'` category (10 commands in category, 28 total across workspace). Metadata includes `isPro: true`, `Sparkles` icon, comprehensive keywords (`rules`, `auto group`, `organize`, `tab rules`, `match`, `automate`).
+    *   **Visual Pro Badge Pill (`src/features/search/components/CommandItemRow.tsx`):** Rendered a high-contrast `PRO` badge pill (`text-xxs font-semibold px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary shrink-0`) in trailing container before shortcut indicators when `command.isPro` is `true`.
+    *   **Execution Dispatcher & Zero-Contamination Boundary (`src/features/search/hooks/useCommandExecutor.ts`):** Evaluates user entitlement via `contractRegistry.getEntitlementSnapshot()` without importing from `src/pro/`:
+        *   *Free Tier:* Dismisses search palette (`setSearchOpen(false)`) and triggers upgrade prompt toast (`toast('TabBellus Pro Feature', { description: 'Tab Rules and automation require an active Pro license.', action: { label: 'Upgrade', onClick: () => setSettingsOpen(true) } })`).
+        *   *Pro Tier:* Dispatches `chrome.runtime.sendMessage({ type: 'APPLY_RULES_TO_WINDOW' })` and triggers toast with telemetry (`Organized X of Y tabs in this window.`). Fails open gracefully with error toast on rejection.
+    *   **Toaster Action Support (`src/components/ui/Toaster.tsx`):** Enhanced `Toaster.tsx` to support custom `action: { label: string; onClick: () => void }` buttons alongside existing `onUndo` actions, and supported object-based config payloads.
+    *   **Testing Infrastructure:** Added `src/features/search/hooks/__tests__/useCommandExecutor.test.tsx` (4 tests) and `src/features/search/components/__tests__/CommandItemRow.test.tsx` (2 tests). Updated `src/features/search/__tests__/commandRegistry.test.ts` (36 tests). Full test suite raised to **499/499 passing tests across 47 test files**. Clean `tsc --noEmit` (0 errors) and production Vite bundling (`npm run build`).
+
+### Phase 42.10: Idempotent Space Rule Action & DUPLICATE_TAB Noise Suppression
+*   **Outcome:**
+    *   **Idempotent Space Action (`src/pro/rules/engine/executor.ts`):** Wrapped `spaceService.addTabToSpace` invocation in `RuleExecutor`'s `'space'` action execution. If the tab's URL is already saved in the space (error is `DUPLICATE_TAB` or `err.message === 'DUPLICATE_TAB'`), it silently returns, guaranteeing idempotence and preventing failure of subsequent rule actions. If an unexpected error occurs (e.g., database lock or deleted space), logs a polite warning `console.warn('[RuleExecutor] Could not assign tab to space:', err)` without throwing or halting the rule pipeline.
+    *   **Space Service Clean Error Logging (`src/lib/spaceService.ts`):** In `addTabToSpace`, `moveTabBetweenSpaces`, and `copyTabToSpace`, suppressed `console.error` when the caught error is `DUPLICATE_TAB`. Business duplicate checks rethrow `new Error('DUPLICATE_TAB')` directly while reserving `console.error` strictly for unexpected database transaction failures.
+    *   **Testing Infrastructure (`src/pro/rules/__tests__/executor.test.ts`):** Added tests verifying that when `addTabToSpace` throws `DUPLICATE_TAB`, `executeActions` completes cleanly without throwing and successfully executes subsequent actions (e.g., `pin`). Verified that unexpected database errors trigger `console.warn('[RuleExecutor] Could not assign tab to space:', ...)` without throwing. Suite raised to **501/501 passing tests across 47 test files**. Clean `tsc --noEmit` and production build (`npm run build`).
+
+<!-- Last Updated: 2026-09-01T22:34:00+02:00 -->
 
 

@@ -25,6 +25,7 @@ import {
     Sliders,
     Settings,
     Keyboard,
+    Sparkles,
 } from 'lucide-react';
 import {
     spaceService,
@@ -38,6 +39,7 @@ import {
 import { autoGroupByDomain } from '@/features/tabs/utils/groupingUtils';
 import { runDiscardSweep } from '@/background/discardService';
 import { useAppStore } from '@/store/appStore';
+import { contractRegistry } from '@/core/contracts/registry';
 import type { CommandAction, CommandCategory } from '../types';
 
 export const COMMAND_CATEGORIES: CommandCategory[] = [
@@ -120,8 +122,51 @@ export const COMMAND_REGISTRY: CommandAction[] = [
     },
 
     // ══════════════════════════════════════════════════════════════════
-    // 2. TAB MANAGEMENT & MEMORY (9 Commands)
+    // 2. TAB MANAGEMENT & MEMORY (10 Commands)
     // ══════════════════════════════════════════════════════════════════
+    {
+        id: 'apply-tab-rules',
+        title: 'Apply Tab Rules to Window',
+        description: 'Evaluate active tab rules and auto-group or route window tabs',
+        category: 'Tab Management & Memory',
+        keywords: ['rules', 'auto group', 'organize', 'tab rules', 'match', 'automate'],
+        icon: Sparkles,
+        isPro: true,
+        run: async (context) => {
+            const entitlement = contractRegistry.getEntitlementSnapshot();
+            if (!entitlement.isPro) {
+                context.setSearchOpen(false);
+                context.toast('TabBellus Pro Feature', {
+                    description: 'Tab Rules and automation require an active Pro license.',
+                    action: {
+                        label: 'Upgrade',
+                        onClick: () => {
+                            context.setSettingsOpen(true);
+                        },
+                    },
+                });
+                return;
+            }
+
+            try {
+                if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+                    context.toast('Tab Rules Error', { description: 'Chrome runtime is unavailable.' });
+                    return;
+                }
+                const response = await chrome.runtime.sendMessage({ type: 'APPLY_RULES_TO_WINDOW' });
+                const processed = typeof response?.processed === 'number' ? response.processed : 0;
+                const matched = typeof response?.matched === 'number' ? response.matched : 0;
+                context.toast('Tab Rules Applied', {
+                    description: `Organized ${matched} of ${processed} tabs in this window.`,
+                });
+            } catch (error) {
+                console.error('[commandRegistry] Failed to apply tab rules:', error);
+                context.toast('Failed to apply tab rules', {
+                    description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+                });
+            }
+        },
+    },
     {
         id: 'discard-idle-tabs',
         title: 'Discard Idle Tabs Now',

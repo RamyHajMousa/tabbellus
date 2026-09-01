@@ -3,6 +3,7 @@ import { useToast } from '@/components/ui/Toaster';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useUIStore } from '@/store/uiStore';
 import { useAppStore } from '@/store/appStore';
+import { contractRegistry } from '@/core/contracts/registry';
 import type { CommandAction, CommandContext } from '../types';
 
 export function useCommandExecutor() {
@@ -27,6 +28,45 @@ export function useCommandExecutor() {
                 copy,
             };
 
+            // Specialized Pro Command Dispatcher for Tab Rules
+            if (command.id === 'apply-tab-rules') {
+                const entitlement = contractRegistry.getEntitlementSnapshot();
+                if (!entitlement.isPro) {
+                    setSearchOpen(false);
+                    toast('TabBellus Pro Feature', {
+                        description: 'Tab Rules and automation require an active Pro license.',
+                        action: {
+                            label: 'Upgrade',
+                            onClick: () => {
+                                setSettingsOpen(true);
+                            },
+                        },
+                    });
+                    return;
+                }
+
+                try {
+                    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+                        toast('Tab Rules Error', { description: 'Chrome runtime is unavailable.' });
+                        return;
+                    }
+
+                    const response = await chrome.runtime.sendMessage({ type: 'APPLY_RULES_TO_WINDOW' });
+                    const processed = typeof response?.processed === 'number' ? response.processed : 0;
+                    const matched = typeof response?.matched === 'number' ? response.matched : 0;
+
+                    toast('Tab Rules Applied', {
+                        description: `Organized ${matched} of ${processed} tabs in this window.`,
+                    });
+                } catch (error) {
+                    console.error('[useCommandExecutor] Failed to apply tab rules to window:', error);
+                    toast('Failed to apply tab rules', {
+                        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+                    });
+                }
+                return;
+            }
+
             try {
                 await command.run(context);
             } catch (error) {
@@ -41,3 +81,4 @@ export function useCommandExecutor() {
 
     return { executeCommand };
 }
+
