@@ -183,8 +183,8 @@ describe('ReadLaterService — Dexie Integration', () => {
     expect(archivedItems.some(i => i.url === 'https://c.com/3')).toBe(true);
   });
 
-  // ── Test Case 9: Clear All Archived ──────────────────────────────
-  it('should delete all items with archived status and return snapshot for undo', async () => {
+  // ── Test Case 9: Clear All Archived (Soft Delete) ────────────────
+  it('should soft-delete all items with archived status and return snapshot for undo', async () => {
     const id1 = await db.readLater.add({ url: 'https://archived1.com', title: 'A1', addedAt: Date.now(), status: 'archived' });
     const id2 = await db.readLater.add({ url: 'https://archived2.com', title: 'A2', addedAt: Date.now(), status: 'archived' });
     await db.readLater.add({ url: 'https://unread1.com', title: 'U1', addedAt: Date.now(), status: 'unread' });
@@ -194,13 +194,87 @@ describe('ReadLaterService — Dexie Integration', () => {
     expect(deleted.some(i => i.id === id1)).toBe(true);
     expect(deleted.some(i => i.id === id2)).toBe(true);
 
-    // Verify deletions
-    expect(await db.readLater.get(id1 as number)).toBeUndefined();
-    expect(await db.readLater.get(id2 as number)).toBeUndefined();
+    // Verify soft-deletions in DB: rows exist but have deletedAt set
+    const raw1 = await db.readLater.get(id1 as number);
+    const raw2 = await db.readLater.get(id2 as number);
+    expect(raw1).toBeDefined();
+    expect(raw1!.deletedAt).toBeGreaterThan(0);
+    expect(raw2).toBeDefined();
+    expect(raw2!.deletedAt).toBeGreaterThan(0);
+
+    // Active query ignores them
+    const activeArchived = await readLaterService.getItemsByStatusQuery('archived')();
+    expect(activeArchived).toHaveLength(0);
 
     // Unread item should survive
-    const remaining = await db.readLater.toArray();
+    const remaining = await readLaterService.getAllItems();
     expect(remaining.some(i => i.url === 'https://unread1.com')).toBe(true);
+  });
+
+  // ── Test Case 9b: Single Item Soft Delete & Restoration ─────────
+  it('should soft-delete an item and restore it clearing deletedAt', async () => {
+    const id = (await db.readLater.add({
+      url: 'https://single-delete.com',
+      title: 'Single Delete',
+      addedAt: Date.now(),
+      status: 'unread',
+    })) as number;
+
+    const countBefore = await readLaterService.getUnreadCountQuery()();
+    await readLaterService.deleteItem(id);
+
+    // Record remains in DB with deletedAt
+    const raw = await db.readLater.get(id);
+    expect(raw).toBeDefined();
+    expect(raw!.deletedAt).toBeGreaterThan(0);
+
+    // Excluded from active queries
+    const countAfter = await readLaterService.getUnreadCountQuery()();
+    expect(countAfter).toBe(countBefore - 1);
+    const all = await readLaterService.getAllItems();
+    expect(all.some(i => i.id === id)).toBe(false);
+
+    // Restore via ID
+    await readLaterService.restoreItem(id);
+    const restored = await readLaterService.getItemById(id);
+    expect(restored!.deletedAt).toBeUndefined();
+    expect(await readLaterService.getUnreadCountQuery()()).toBe(countBefore);
+  });
+
+  // ── Test Case 9c: Defensive Revival on Re-add ──────────────────
+  it('should defensively revive tombstoned item on re-add and purge redundant tombstones', async () => {
+    const t1 = (await db.readLater.add({
+      url: 'https://revive-link.com',
+      title: 'Old Link Title 1',
+      addedAt: Date.now() - 5000,
+      status: 'archived',
+      deletedAt: Date.now() - 4000,
+    })) as number;
+
+    const t2 = (await db.readLater.add({
+      url: 'https://revive-link.com',
+      title: 'Old Link Title 2',
+      addedAt: Date.now() - 3000,
+      status: 'archived',
+      deletedAt: Date.now() - 2000,
+    })) as number;
+
+    // Re-add from tab
+    const revivedId = await readLaterService.addFromTab({
+      url: 'https://revive-link.com',
+      title: 'New Fresh Title',
+      favIconUrl: 'https://revive-link.com/favicon.ico',
+    });
+
+    expect(revivedId).toBe(t1); // Revives primary record
+    const revived = await readLaterService.getItemById(t1);
+    expect(revived).toBeDefined();
+    expect(revived!.title).toBe('New Fresh Title');
+    expect(revived!.status).toBe('unread');
+    expect(revived!.deletedAt).toBeUndefined();
+
+    // Redundant tombstone t2 is purged
+    expect(await db.readLater.get(t2)).toBeUndefined();
   });
 
   // ── Test Case 10: Archive All Unread (empty set) ────────────────

@@ -9,61 +9,80 @@ class ReadLaterService {
     }
 
     /**
-     * Deletes a read later item by its ID.
+     * Soft deletes a read later item by its ID by setting deletedAt timestamp.
      */
     async deleteItem(itemId: number): Promise<void> {
-        await db.readLater.delete(itemId);
+        await db.readLater.update(itemId, { deletedAt: Date.now() });
     }
 
     /**
-     * Restores (adds back) a read later item record.
+     * Restores (un-deletes) a read later item record.
      */
-    async restoreItem(item: ReadLaterItem): Promise<void> {
-        await db.readLater.put(item);
+    async restoreItem(itemOrId: ReadLaterItem | number): Promise<void> {
+        if (typeof itemOrId === 'number') {
+            await db.readLater.update(itemOrId, { deletedAt: undefined });
+        } else {
+            await db.readLater.put({ ...itemOrId, deletedAt: undefined });
+        }
     }
 
     /**
-     * Restores (re-adds) multiple read later item records inside an atomic transaction.
+     * Restores (un-deletes) multiple read later item records inside an atomic transaction.
      */
-    async restoreItems(items: ReadLaterItem[]): Promise<void> {
+    async restoreItems(itemsOrIds: (ReadLaterItem | number)[]): Promise<void> {
         await db.transaction('rw', db.readLater, async () => {
-            for (const item of items) {
-                await db.readLater.put(item);
+            for (const item of itemsOrIds) {
+                if (typeof item === 'number') {
+                    await db.readLater.update(item, { deletedAt: undefined });
+                } else {
+                    await db.readLater.put({ ...item, deletedAt: undefined });
+                }
             }
         });
     }
 
     /**
      * Query provider for useLiveQuery in ReadLaterList.
+     * Excludes soft-deleted items.
      */
     getItemsByStatusQuery(status: ReadLaterItem['status']) {
         return () => db.readLater
             .where('status')
             .equals(status)
+            .filter(item => !item.deletedAt)
             .reverse()
             .sortBy('addedAt');
     }
 
     /**
      * Query provider for unread count in ViewSwitcher.
+     * Excludes soft-deleted items.
      */
     getUnreadCountQuery() {
-        return () => db.readLater.where('status').equals('unread').count();
+        return () => db.readLater
+            .where('status')
+            .equals('unread')
+            .filter(item => !item.deletedAt)
+            .count();
     }
 
     /**
-     * Fetches all read later items.
+     * Fetches all active non-deleted read later items.
      */
     async getAllItems(): Promise<ReadLaterItem[]> {
-        return db.readLater.toArray();
+        return db.readLater.filter(item => !item.deletedAt).toArray();
     }
 
     /**
-     * Computes distinct domain hostnames from items matching a given status.
+     * Computes distinct domain hostnames from active items matching a given status.
      * Returns a sorted array of unique hostnames.
      */
     async getDistinctDomains(status: ReadLaterItem['status']): Promise<string[]> {
-        const items = await db.readLater.where('status').equals(status).toArray();
+        const items = await db.readLater
+            .where('status')
+            .equals(status)
+            .filter(item => !item.deletedAt)
+            .toArray();
         const hosts = new Set<string>();
         for (const item of items) {
             try {
@@ -74,33 +93,70 @@ class ReadLaterService {
         }
         return [...hosts].sort();
     }
+
     /**
      * Saves a Chrome tab to Read Later.
-     * Guards against duplicate URLs already in the queue (unread/read).
+     * Guards against duplicate URLs already in the active queue (unread/read).
+     * Defensively revives a tombstoned item if present and purges redundant tombstones.
      *
-     * @returns The new ReadLaterItem ID, or throws if duplicate.
+     * @returns The new or revived ReadLaterItem ID, or throws if duplicate active.
      */
     async addFromTab(tab: { url?: string; title?: string; favIconUrl?: string }): Promise<number> {
         const url = tab.url;
         if (!url) throw new Error('Cannot save a tab without a URL to Read Later.');
 
-        // Check for existing non-archived entries with the same URL
-        const existing = await db.readLater
-            .where('url')
-            .equals(url)
-            .and(item => item.status !== 'archived')
-            .first();
+        return await db.transaction('rw', db.readLater, async () => {
+            // 1. Check for existing active non-archived entries with the same URL
+            const existingActive = await db.readLater
+                .where('url')
+                .equals(url)
+                .filter(item => item.status !== 'archived' && !item.deletedAt)
+                .first();
 
-        if (existing) {
-            throw new DuplicateReadLaterError(url);
-        }
+            if (existingActive) {
+                throw new DuplicateReadLaterError(url);
+            }
 
-        return db.readLater.add({
-            url,
-            title: tab.title,
-            favicon: tab.favIconUrl,
-            addedAt: Date.now(),
-            status: 'unread',
+            // 2. Defensive Revival: Check for tombstoned items with identical URL
+            const tombstonedItems = await db.readLater
+                .where('url')
+                .equals(url)
+                .filter(item => !!item.deletedAt)
+                .toArray();
+
+            if (tombstonedItems.length > 0) {
+                // Select at most one matching record to revive
+                const primary = tombstonedItems[0];
+                await db.readLater.update(primary.id!, {
+                    title: tab.title || primary.title,
+                    favicon: tab.favIconUrl || primary.favicon,
+                    addedAt: Date.now(),
+                    status: 'unread',
+                    deletedAt: undefined,
+                });
+
+                // Purge any redundant secondary tombstones with the same URL
+                if (tombstonedItems.length > 1) {
+                    const redundantIds = tombstonedItems
+                        .slice(1)
+                        .map(i => i.id!)
+                        .filter(id => id !== undefined);
+                    if (redundantIds.length > 0) {
+                        await db.readLater.bulkDelete(redundantIds);
+                    }
+                }
+
+                return primary.id!;
+            }
+
+            // 3. Fresh insert
+            return await db.readLater.add({
+                url,
+                title: tab.title,
+                favicon: tab.favIconUrl,
+                addedAt: Date.now(),
+                status: 'unread',
+            });
         });
     }
 
@@ -112,10 +168,14 @@ class ReadLaterService {
     }
 
     /**
-     * Marks all unread items as archived inside an atomic transaction.
+     * Marks all active unread items as archived inside an atomic transaction.
      */
     async archiveAllUnread(): Promise<number> {
-        const unreadItems = await db.readLater.where('status').equals('unread').toArray();
+        const unreadItems = await db.readLater
+            .where('status')
+            .equals('unread')
+            .filter(item => !item.deletedAt)
+            .toArray();
         if (unreadItems.length === 0) return 0;
         await db.transaction('rw', db.readLater, async () => {
             for (const item of unreadItems) {
@@ -133,15 +193,26 @@ class ReadLaterService {
     }
 
     /**
-     * Clears (deletes) all archived items inside an atomic transaction.
+     * Clears (soft deletes) all archived items inside an atomic transaction.
+     * Sets deletedAt timestamp on active archived items.
      * Returns the array of deleted item snapshots for undo recovery.
      */
     async clearAllArchived(): Promise<ReadLaterItem[]> {
-        const archivedItems = await db.readLater.where('status').equals('archived').toArray();
+        const archivedItems = await db.readLater
+            .where('status')
+            .equals('archived')
+            .filter(item => !item.deletedAt)
+            .toArray();
         if (archivedItems.length === 0) return [];
-        const ids = archivedItems.map(i => i.id!).filter(id => id !== undefined);
+
+        const now = Date.now();
         await db.transaction('rw', db.readLater, async () => {
-            await db.readLater.bulkDelete(ids);
+            for (const item of archivedItems) {
+                if (item.id) {
+                    await db.readLater.update(item.id, { deletedAt: now });
+                    item.deletedAt = now;
+                }
+            }
         });
         return archivedItems;
     }
@@ -154,13 +225,17 @@ class ReadLaterService {
     }
 
     /**
-     * Migrates legacy/orphaned items with status === 'read' to status === 'archived'.
+     * Migrates legacy/orphaned active items with status === 'read' to status === 'archived'.
      * Resolves ghost states blocking re-addition of URLs in the binary state machine.
      *
      * @returns Number of migrated records.
      */
     async migrateGhostStatesToArchive(): Promise<number> {
-        const readItems = await db.readLater.where('status').equals('read').toArray();
+        const readItems = await db.readLater
+            .where('status')
+            .equals('read')
+            .filter(item => !item.deletedAt)
+            .toArray();
         if (readItems.length === 0) return 0;
         const ids = readItems.map(i => i.id!).filter(id => id !== undefined);
         await db.transaction('rw', db.readLater, async () => {

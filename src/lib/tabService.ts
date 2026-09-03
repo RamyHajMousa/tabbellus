@@ -14,6 +14,24 @@ export interface FocusOrCreateResult {
     windowId: number;
 }
 
+/**
+ * Normalizes a tab URL for robust comparison across devices, windows, and sync engines.
+ * Strips URL hash fragments, trailing slashes on root path, and trims whitespace.
+ */
+export function normalizeTabUrl(rawUrl: string): string {
+    try {
+        const parsed = new URL(rawUrl);
+        parsed.hash = ''; // ignore scroll anchors
+        let href = parsed.href;
+        if (href.endsWith('/') && parsed.pathname === '/') {
+            href = href.slice(0, -1);
+        }
+        return href;
+    } catch {
+        return rawUrl.trim();
+    }
+}
+
 class TabService {
     /**
      * Normalizes a URL for comparison by stripping trailing slashes, handling case, and removing tracking params.

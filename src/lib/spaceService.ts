@@ -41,17 +41,21 @@ class SpaceService {
     }
 
     /**
-     * Deletes a tab by its ID.
+     * Soft deletes a tab by its ID by setting deletedAt timestamp.
      */
     async deleteTab(tabId: number): Promise<void> {
-        await db.tabs.delete(tabId);
+        await db.tabs.update(tabId, { deletedAt: Date.now() });
     }
 
     /**
-     * Restores (adds back) a tab record.
+     * Restores (un-deletes) a tab record.
      */
-    async restoreTab(tab: Tab): Promise<void> {
-        await db.tabs.add(tab);
+    async restoreTab(tabOrId: Tab | number): Promise<void> {
+        if (typeof tabOrId === 'number') {
+            await db.tabs.update(tabOrId, { deletedAt: undefined });
+        } else {
+            await db.tabs.put({ ...tabOrId, deletedAt: undefined });
+        }
     }
 
     /**
@@ -95,18 +99,19 @@ class SpaceService {
     }
 
     /**
-     * Query provider for fetching sorted tabs in a space.
+     * Query provider for fetching sorted active tabs in a space.
      */
     getTabsForSpaceQuery(spaceId: number | undefined) {
-        return () => (spaceId ? db.tabs.where({ spaceId }).sortBy('order') : []);
+        return () => (spaceId ? db.tabs.where({ spaceId }).sortBy('order').then(tabs => tabs.filter(t => !t.deletedAt)) : []);
     }
 
     /**
-     * Fetches all sorted tabs for a specific space ID.
+     * Fetches all sorted active tabs for a specific space ID.
      */
     async getTabsForSpace(spaceId: number): Promise<Tab[]> {
         try {
-            return await db.tabs.where({ spaceId }).sortBy('order');
+            const tabs = await db.tabs.where({ spaceId }).sortBy('order');
+            return tabs.filter(t => !t.deletedAt);
         } catch (error) {
             console.error('SpaceService: Failed to get tabs for space', error);
             return [];
@@ -114,7 +119,7 @@ class SpaceService {
     }
 
     /**
-     * Query provider for spaces with their tabs populated (for history matching).
+     * Query provider for spaces with their active tabs populated (for history matching).
      */
     getSpacesWithTabsQuery(isEnabled: boolean) {
         return async (): Promise<SpaceWithTabs[]> => {
@@ -123,7 +128,7 @@ class SpaceService {
 
             return Promise.all(
                 spaces.map(async (space) => {
-                    const tabs = await db.tabs.where('spaceId').equals(space.id!).toArray();
+                    const tabs = await db.tabs.where('spaceId').equals(space.id!).filter(t => !t.deletedAt).toArray();
                     return { space, tabs };
                 })
             );
@@ -146,7 +151,7 @@ class SpaceService {
         if (spaceIds.length === 0) return [];
 
         try {
-            const allTabs = await db.tabs.where('spaceId').anyOf(spaceIds).toArray();
+            const allTabs = await db.tabs.where('spaceId').anyOf(spaceIds).filter(t => !t.deletedAt).toArray();
             const spaceNameMap = new Map<number, string>();
             fetchedSpaces.forEach((s) => {
                 if (s.id !== undefined) {
@@ -359,6 +364,7 @@ class SpaceService {
 
                 const sourceTabs = await db.tabs
                     .where({ spaceId })
+                    .filter(t => !t.deletedAt)
                     .sortBy('order');
 
                 const newSpaceId = (await db.spaces.add({
@@ -390,7 +396,7 @@ class SpaceService {
 
     async restoreSpace(spaceId: number): Promise<void> {
         try {
-            const tabs = await db.tabs.where({ spaceId }).sortBy('order');
+            const tabs = await db.tabs.where({ spaceId }).filter(t => !t.deletedAt).sortBy('order');
             if (tabs.length === 0) return;
 
             const win = await chrome.windows.create({
@@ -512,35 +518,65 @@ class SpaceService {
 
         try {
             await db.transaction('rw', db.tabs, async () => {
-                // 1. Check for duplicate URL in target space
-                const existing = await db.tabs
+                // 1. Check for active duplicate URL in target space
+                const activeExisting = await db.tabs
                     .where('spaceId')
                     .equals(spaceId)
-                    .filter(t => t.url === tab.url)
+                    .filter(t => t.url === tab.url && !t.deletedAt)
                     .first();
 
-                if (existing) {
+                if (activeExisting) {
                     throw new Error('DUPLICATE_TAB');
                 }
 
-                // 2. Get current max order
+                // 2. Get current max order of active tabs
                 const lastTab = await db.tabs
                     .where('spaceId')
                     .equals(spaceId)
+                    .filter(t => !t.deletedAt)
                     .reverse()
                     .sortBy('order')
                     .then(tabs => tabs[0]);
 
                 const nextOrder = lastTab ? lastTab.order + 1 : 0;
 
-                // 3. Add
-                await db.tabs.add({
-                    spaceId,
-                    url: tab.url!,
-                    title: tab.title || 'Untitled',
-                    favicon: tab.favIconUrl || '',
-                    order: nextOrder
-                });
+                // 3. Defensive Revival: Check for tombstoned tab(s) with identical URL in target space
+                const tombstonedTabs = await db.tabs
+                    .where('spaceId')
+                    .equals(spaceId)
+                    .filter(t => t.url === tab.url && !!t.deletedAt)
+                    .toArray();
+
+                if (tombstonedTabs.length > 0) {
+                    // Select at most one matching record to revive at tail
+                    const primary = tombstonedTabs[0];
+                    await db.tabs.update(primary.id!, {
+                        title: tab.title || primary.title || 'Untitled',
+                        favicon: tab.favIconUrl || primary.favicon || '',
+                        order: nextOrder,
+                        deletedAt: undefined,
+                    });
+
+                    // Purge any redundant secondary tombstones with the same URL
+                    if (tombstonedTabs.length > 1) {
+                        const redundantIds = tombstonedTabs
+                            .slice(1)
+                            .map(t => t.id!)
+                            .filter(id => id !== undefined);
+                        if (redundantIds.length > 0) {
+                            await db.tabs.bulkDelete(redundantIds);
+                        }
+                    }
+                } else {
+                    // Fresh insert
+                    await db.tabs.add({
+                        spaceId,
+                        url: tab.url!,
+                        title: tab.title || 'Untitled',
+                        favicon: tab.favIconUrl || '',
+                        order: nextOrder,
+                    });
+                }
             });
         } catch (e) {
             if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
@@ -616,21 +652,22 @@ class SpaceService {
                     return { sourceSpaceId, originalOrder }; // Already in target space
                 }
 
-                // 1. Check for duplicate URL in target space
+                // 1. Check for duplicate URL in target space among active tabs
                 const existing = await db.tabs
                     .where('spaceId')
                     .equals(targetSpaceId)
-                    .filter(t => t.url === sourceTab.url)
+                    .filter(t => t.url === sourceTab.url && !t.deletedAt)
                     .first();
 
                 if (existing) {
                     throw new Error('DUPLICATE_TAB');
                 }
 
-                // 2. Get current max order in target space
+                // 2. Get current max order in target space among active tabs
                 const lastTab = await db.tabs
                     .where('spaceId')
                     .equals(targetSpaceId)
+                    .filter(t => !t.deletedAt)
                     .reverse()
                     .sortBy('order')
                     .then(tabs => tabs[0]);
@@ -679,21 +716,22 @@ class SpaceService {
                     throw new Error('Tab not found.');
                 }
 
-                // 1. Check for duplicate URL in target space
+                // 1. Check for duplicate URL in target space among active tabs
                 const existing = await db.tabs
                     .where('spaceId')
                     .equals(targetSpaceId)
-                    .filter(t => t.url === sourceTab.url)
+                    .filter(t => t.url === sourceTab.url && !t.deletedAt)
                     .first();
 
                 if (existing) {
                     throw new Error('DUPLICATE_TAB');
                 }
 
-                // 2. Get current max order in target space
+                // 2. Get current max order in target space among active tabs
                 const lastTab = await db.tabs
                     .where('spaceId')
                     .equals(targetSpaceId)
+                    .filter(t => !t.deletedAt)
                     .reverse()
                     .sortBy('order')
                     .then(tabs => tabs[0]);

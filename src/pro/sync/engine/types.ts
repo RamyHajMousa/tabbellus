@@ -16,7 +16,7 @@ import type { Space, Tab, ReadLaterItem } from '@/lib/db';
  */
 export interface SyncVaultSnapshot {
   version: number;
-  clientTimestamp: number;
+  clientTimestamp: number | string;
   deviceId: string;
   spaces: Space[];
   tabs: Tab[];
@@ -32,9 +32,14 @@ export interface ReconciliationResult {
     spaces: Space[];
     tabs: Tab[];
     readLater: ReadLaterItem[];
+    tabIdsToDelete?: number[]; // Explicit list of local tab IDs to prune
   };
   /** Fully reconciled snapshot to upload to Google Drive */
   mergedSnapshot: SyncVaultSnapshot;
+  /** Whether local Dexie needs to apply incoming cloud updates */
+  hasLocalChanges: boolean;
+  /** Whether Google Drive needs to receive the updated merged snapshot */
+  hasRemoteChanges: boolean;
   /** Whether any local or remote mutations occurred during reconciliation */
   hasChanges: boolean;
 }

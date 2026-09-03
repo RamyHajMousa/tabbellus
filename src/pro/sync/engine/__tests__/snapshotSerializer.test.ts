@@ -121,6 +121,32 @@ describe('SnapshotSerializer', () => {
         }),
       ).resolves.toBeUndefined();
     });
+
+    it('atomically deletes pruned tabs via bulkDelete', async () => {
+      const tab1Id = await db.tabs.add({
+        spaceId: 1,
+        url: 'https://example.com/1',
+        order: 0,
+      });
+      const tab2Id = await db.tabs.add({
+        spaceId: 1,
+        url: 'https://example.com/2',
+        order: 1,
+      });
+
+      await SnapshotSerializer.applyRemoteUpdates({
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        tabIdsToDelete: [Number(tab1Id)],
+      });
+
+      const remainingTab1 = await db.tabs.get(Number(tab1Id));
+      const remainingTab2 = await db.tabs.get(Number(tab2Id));
+
+      expect(remainingTab1).toBeUndefined();
+      expect(remainingTab2).toBeDefined();
+    });
   });
 
   describe('validateSnapshot', () => {

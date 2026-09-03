@@ -45,11 +45,12 @@ export interface ImportResult {
 export const dataService = {
     /**
      * Export all spaces and read-later items to a JSON file.
+     * Sanitizes export by excluding soft-deleted records.
      */
     async exportData(): Promise<void> {
-        const spaces = await db.spaces.toArray();
-        const tabs = await db.tabs.toArray();
-        const readLater = await db.readLater.toArray();
+        const spaces = await db.spaces.filter(s => !s.deletedAt).toArray();
+        const tabs = await db.tabs.filter(t => !t.deletedAt).toArray();
+        const readLater = await db.readLater.filter(r => !r.deletedAt).toArray();
 
         const backup = {
             version: 1,
@@ -73,13 +74,14 @@ export const dataService = {
 
     /**
      * Export a single space and its tabs to a JSON file.
+     * Sanitizes export by excluding soft-deleted records.
      */
     async exportSpaceAsJson(spaceId: number): Promise<void> {
         const space = await db.spaces.get(spaceId);
-        if (!space) {
+        if (!space || space.deletedAt) {
             throw new Error(`Space with ID ${spaceId} not found`);
         }
-        const tabs = await db.tabs.where('spaceId').equals(spaceId).toArray();
+        const tabs = await db.tabs.where('spaceId').equals(spaceId).filter(t => !t.deletedAt).toArray();
 
         const backup = {
             version: 1,

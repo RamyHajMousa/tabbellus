@@ -138,6 +138,98 @@ describe('SpaceService — Dexie Integration', () => {
     expect(tabs).toHaveLength(0);
   });
 
+  // ── Tab Soft Delete & Defensive Revival ──────────────────────────
+
+  it('should soft-delete a tab by marking deletedAt rather than removing row from IndexedDB', async () => {
+    const spaceId = await seedSpace('Soft Tab Space');
+    await seedTab(spaceId, 'https://soft-tab.com', 0);
+
+    const activeTabsBefore = await spaceService.getTabsForSpace(spaceId);
+    expect(activeTabsBefore).toHaveLength(1);
+    const tabId = activeTabsBefore[0].id!;
+
+    await spaceService.deleteTab(tabId);
+
+    // IndexedDB record still exists but is marked with deletedAt
+    const rawRecord = await db.tabs.get(tabId);
+    expect(rawRecord).toBeDefined();
+    expect(rawRecord!.deletedAt).toBeGreaterThan(0);
+
+    // getTabsForSpace and getTabsForSpaceQuery exclude it
+    const activeTabsAfter = await spaceService.getTabsForSpace(spaceId);
+    expect(activeTabsAfter).toHaveLength(0);
+
+    const queryTabs = await spaceService.getTabsForSpaceQuery(spaceId)();
+    expect(queryTabs).toHaveLength(0);
+  });
+
+  it('should restore a soft-deleted tab and clear its deletedAt tombstone', async () => {
+    const spaceId = await seedSpace('Restore Tab Space');
+    await seedTab(spaceId, 'https://restore-tab.com', 0);
+
+    const tabs = await spaceService.getTabsForSpace(spaceId);
+    const tabId = tabs[0].id!;
+
+    await spaceService.deleteTab(tabId);
+    expect(await spaceService.getTabsForSpace(spaceId)).toHaveLength(0);
+
+    // Restore via ID
+    await spaceService.restoreTab(tabId);
+
+    const restored = await spaceService.getTabsForSpace(spaceId);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].id).toBe(tabId);
+    expect(restored[0].deletedAt).toBeUndefined();
+
+    // Soft delete again and restore via Tab object
+    await spaceService.deleteTab(tabId);
+    await spaceService.restoreTab(restored[0]);
+    expect(await spaceService.getTabsForSpace(spaceId)).toHaveLength(1);
+  });
+
+  it('should defensively revive tombstoned tab on re-add and purge redundant tombstones', async () => {
+    const spaceId = await seedSpace('Revival Space');
+    await seedTab(spaceId, 'https://existing-active.com', 0);
+
+    // Add two tombstoned records with identical URL
+    const t1 = (await db.tabs.add({
+      spaceId,
+      url: 'https://revive-me.com',
+      title: 'Old Title 1',
+      order: 1,
+      deletedAt: Date.now() - 5000,
+    })) as number;
+
+    const t2 = (await db.tabs.add({
+      spaceId,
+      url: 'https://revive-me.com',
+      title: 'Old Title 2',
+      order: 2,
+      deletedAt: Date.now() - 2000,
+    })) as number;
+
+    // Re-add tab with identical URL
+    await spaceService.addTabToSpace(spaceId, {
+      url: 'https://revive-me.com',
+      title: 'Revived New Title',
+      favIconUrl: 'https://revive-me.com/favicon.ico',
+    });
+
+    // Verify active tabs: should contain exactly 2 tabs
+    const activeTabs = await spaceService.getTabsForSpace(spaceId);
+    expect(activeTabs).toHaveLength(2);
+
+    const revived = activeTabs.find((t) => t.url === 'https://revive-me.com');
+    expect(revived).toBeDefined();
+    expect(revived!.id).toBe(t1); // Primary record revived
+    expect(revived!.title).toBe('Revived New Title');
+    expect(revived!.order).toBe(1); // Positioned at tail (order after 0)
+    expect(revived!.deletedAt).toBeUndefined();
+
+    // Verify redundant tombstone t2 was purged
+    expect(await db.tabs.get(t2)).toBeUndefined();
+  });
+
   // ── Toggle Pin ─────────────────────────────────────────────────
 
   it('should toggle the pinned state of a space', async () => {

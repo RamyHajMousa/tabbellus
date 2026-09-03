@@ -16,6 +16,7 @@ export interface Tab {
     title?: string;
     favicon?: string;
     order: number;
+    deletedAt?: number; // Soft delete timestamp
 }
 
 export interface ReadLaterItem {
@@ -25,6 +26,7 @@ export interface ReadLaterItem {
     favicon?: string;
     addedAt: number;
     status: 'unread' | 'read' | 'archived';
+    deletedAt?: number; // Soft delete timestamp
 }
 
 export interface SpaceWithTabs {
@@ -49,10 +51,13 @@ export class TabBellusDB extends Dexie {
         this.version(3).stores({
             spaces: '++id, name, createdAt, deletedAt, isPinned',
             tabs: '++id, spaceId, url, order, [spaceId+order]',
-            readLater: '++id, url, title, addedAt, status' // Added title to index if useful for search, favicon not indexed usually
-        }).upgrade(() => {
-            // Optional: Migration logic if needed, but adding columns is usually safe in Dexie without explicit upgrade for purely new fields if not strictly typed in previous stores without default. 
-            // Actually, simply defining the new schema version is enough for Dexie to handle the store update.
+            readLater: '++id, url, title, addedAt, status'
+        });
+
+        this.version(4).stores({
+            spaces: '++id, name, createdAt, deletedAt, isPinned',
+            tabs: '++id, spaceId, url, order, deletedAt, [spaceId+order]',
+            readLater: '++id, url, title, addedAt, status, deletedAt'
         });
     }
 
@@ -64,6 +69,26 @@ export class TabBellusDB extends Dexie {
     // Restore a soft-deleted space
     async undoDeleteSpace(id: number) {
         return this.spaces.update(id, { deletedAt: undefined });
+    }
+
+    // Soft delete a tab
+    async softDeleteTab(id: number) {
+        return this.tabs.update(id, { deletedAt: Date.now() });
+    }
+
+    // Restore a soft-deleted tab
+    async undoDeleteTab(id: number) {
+        return this.tabs.update(id, { deletedAt: undefined });
+    }
+
+    // Soft delete a read later item
+    async softDeleteReadLater(id: number) {
+        return this.readLater.update(id, { deletedAt: Date.now() });
+    }
+
+    // Restore a soft-deleted read later item
+    async undoDeleteReadLater(id: number) {
+        return this.readLater.update(id, { deletedAt: undefined });
     }
 
     // Hard delete a space and its tabs

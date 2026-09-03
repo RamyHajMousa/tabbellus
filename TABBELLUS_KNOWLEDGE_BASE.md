@@ -67,7 +67,7 @@ tabbellus/
     │   │   │   ├── diffEngine.ts         # Record-level LWW diffing, soft-delete tombstones, FK remapping
     │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, storage state
     │   │   │   ├── index.ts    # Barrel re-export
-    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (6 tests), diffEngine.test.ts (9 tests), syncEngine.test.ts (9 tests)
+    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (7 tests), diffEngine.test.ts (16 tests), syncEngine.test.ts (15 tests)
     │   │   ├── crypto/         # Pure WebCrypto E2EE primitives & ephemeral session key store
     │   │   │   ├── types.ts    # EncryptedVaultEnvelope, KeyStoreRecord, CryptoErrorCode, CryptoEngineError
     │   │   │   ├── webCrypto.ts # WebCryptoEngine (PBKDF2 600k, AES-GCM 256, chunked Base64, auth tag validation)
@@ -1019,4 +1019,144 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **549/549 passing tests across 51 test files** (100% pass rate).
 *   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (549/549 passing), production build (`npm run build` completed in 9.13s).
 
-<!-- Last Updated: 2026-09-02 (Milestone 4 — Part 3: UI Integration, Passphrase Setup Modal & Vault Unlock Dialogs Complete: 549 Unit Tests Passing across 51 Test Files) -->
+### Phase 43.4: Milestone 4 — Part 4: Multi-Master Tab Deduplication, Empty Space Adoption & Tab Pruning
+*   **Architectural Scope:** Resolved multi-master tab duplication, ghost tab resurrection, tab count divergence (e.g. 13 vs 14), and empty space fragmentation in the Pro cloud sync reconciler (`DiffEngine`).
+*   **Engine & Serializer Enhancements:**
+    *   **URL Normalization (`normalizeTabUrl`):** Pure utility stripping hash fragments (`parsed.hash = ''`), trailing slashes on root paths (`href.endsWith('/') && parsed.pathname === '/'`), and trimming whitespace to ensure deterministic cross-device URL comparisons.
+    *   **Empty Space Placeholder Adoption:** In `DiffEngine.reconcileSpaces`, unmatched remote spaces fall back to inspect active (`deletedAt === undefined`) local spaces with the exact same name and 0 local tabs. When found, the remote space binds to the local space ID (`remoteToLocalSpaceId`), updating local metadata (`createdAt`, `color`) without generating a duplicate space.
+    *   **Self-Healing Remote Tab Deduplication:** In `DiffEngine.reconcileTabs`, incoming remote tabs within each space are pre-deduplicated by `normalizeTabUrl(tab.url)`. If corrupted remote snapshots in Google Drive contain duplicates, only the tab with the lowest `order` index is retained, automatically cleansing corrupted cloud vaults.
+    *   **Local Primary Key Binding:** In `DiffEngine.reconcileTabs`, when a remote tab matches an existing local tab by normalized URL within a space, `tabToUpsert.id` is explicitly bound to `existingLocalTab.id`. This ensures Dexie's `db.tabs.bulkPut` performs an in-place update rather than generating new auto-increment rows. New tabs omit `id` (leave `undefined`) so Dexie safely generates auto-increment primary keys without collision.
+    *   **Pruning Timestamp Ground Truth:** Since `Space` in `db.ts` lacks an `updatedAt` field, `DiffEngine.reconcileTabs` accepts `localLastSyncedAt: number` (hydrated from `SyncStorageState.lastSyncedAt ?? 0`). For spaces known to both devices, local tabs absent from the incoming remote list are only pruned if `remoteClientTimestamp > localLastSyncedAt`. Pruned tabs are added to `localUpdates.tabIdsToDelete` and omitted from `mergedTabs`.
+    *   **Atomic Bulk Deletion (`SnapshotSerializer.applyRemoteUpdates`):** Executes `await db.tabs.bulkDelete(updates.tabIdsToDelete)` inside the atomic read-write transaction (`db.transaction('rw', [db.spaces, db.tabs, db.readLater])`) prior to `bulkPut`.
+*   **Testing Infrastructure:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts` (16 tests):
+        1. `"Idempotent multi-cycle sync does not duplicate tabs"` (verified across 4 consecutive reconciliation cycles that tab count remains strictly $N$, never $2N$, $3N$, or $4N$).
+        2. `"Adopts empty local space with matching name instead of duplicating"`.
+        3. `"Prunes deleted tabs when remote snapshot has fewer tabs"`.
+        4. `"Does not prune local tabs when localLastSyncedAt is more recent than remote snapshot"`.
+        5. `"cleanses duplicate remote tabs within space by keeping lowest order index"`.
+        6. `"normalizeTabUrl"` tests for root slashes, anchors, whitespace, and non-standard schemes.
+    *   `src/pro/sync/engine/__tests__/snapshotSerializer.test.ts` (7 tests): Added test verifying atomic `bulkDelete` execution on `tabIdsToDelete`.
+    *   Full test suite raised to **557/557 passing tests across 51 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (557/557 passing).
+
+### Phase 43.5: Milestone 5 — Step 1: Dexie Schema Version 4 & Soft-Delete Architecture
+*   **Architectural Scope:** Eliminated the fundamental cause of cloud sync ghost tab resurrection and data loss by introducing non-destructive soft-delete tombstones (`deletedAt?: number`) across all tab and Read Later records, accompanied by defensive revival and backup export sanitization.
+*   **Dexie Schema Evolution (`src/lib/db.ts`):**
+    *   **Version 4 Store Declaration:** Added `this.version(4).stores({ tabs: '++id, spaceId, url, order, deletedAt, [spaceId+order]', readLater: '++id, url, status, addedAt, deletedAt' })` without modifying historic version 1, 2, or 3 definitions.
+    *   **Tombstone Interfaces:** Extended `Tab` and `ReadLaterItem` interfaces with optional `deletedAt?: number`.
+    *   **Atomic Helpers:** Added `softDeleteTab`, `undoDeleteTab`, `softDeleteReadLater`, and `undoDeleteReadLater` in `TabBellusDB`.
+*   **Space Domain Service Refactoring (`src/lib/spaceService.ts`):**
+    *   **Tab Soft Deletion (`deleteTab`):** Soft deletes tabs by recording `{ deletedAt: Date.now() }` rather than permanently dropping rows from IndexedDB.
+    *   **Tab Restoration (`restoreTab`):** Restores tabs by clearing the tombstone (`{ deletedAt: undefined }`). Supports both `number` primary key and `Tab` object (via `db.tabs.put`).
+    *   **Query Filtering:** `getTabsForSpaceQuery` and `getTabsForSpace` use Dexie native index traversal (`.sortBy('order')`) followed by post-filtering active records (`.then(tabs => tabs.filter(t => !t.deletedAt))`), preserving high-throughput query velocity (500 tabs processed in 5.36ms).
+    *   **Defensive Revival (`addTabToSpace`):** When adding a tab, checks active tabs for duplicate URL. If inactive tombstoned records exist for that URL, selects at most one record to revive (`deletedAt: undefined`), positions it at the tail of active items (`nextOrder`), updates title and favicon, and purges any redundant secondary tombstones (`db.tabs.bulkDelete(redundantIds)`).
+    *   **Active Isolation:** `duplicateSpace`, `restoreSpace`, `getSavedTabsGroupedByUrl`, `moveTabBetweenSpaces`, and `copyTabToSpace` strictly operate on active records (`!t.deletedAt`).
+*   **Read Later Domain Service Refactoring (`src/lib/readLaterService.ts`):**
+    *   **Item Soft Deletion (`deleteItem`):** Soft deletes items by recording `{ deletedAt: Date.now() }`.
+    *   **Item Restoration (`restoreItem`, `restoreItems`):** Restores records by clearing `{ deletedAt: undefined }` using `put` for item objects and `update` for numeric IDs.
+    *   **Archived Purging (`clearAllArchived`):** Soft deletes active archived items by setting `{ deletedAt: Date.now() }` and returns snapshots for undo recovery.
+    *   **Defensive Revival (`addFromTab`):** If tombstoned items exist with identical URL, revives primary record (`deletedAt: undefined`, `status: 'unread'`), updates metadata, and cleanses secondary tombstones.
+    *   **Active Query Isolation:** `getItemsByStatusQuery`, `getUnreadCountQuery`, `getAllItems`, `getDistinctDomains`, and `archiveAllUnread` filter out soft-deleted items.
+*   **Backup Export Sanitization (`src/lib/dataService.ts`):**
+    *   `exportData()` filters out soft-deleted spaces, tabs, and readLater items (`!s.deletedAt`, `!t.deletedAt`, `!r.deletedAt`).
+    *   `exportSpaceAsJson(spaceId)` rejects soft-deleted spaces and filters out soft-deleted tabs, ensuring exported JSON backups never contain ghost tombstones.
+*   **Testing Infrastructure:**
+    *   `src/lib/__tests__/spaceService.test.ts` (27 tests): Added tests for tab soft-delete retention in IndexedDB, active query exclusion, tab restoration, and defensive revival with redundant tombstone purging.
+    *   `src/lib/__tests__/readLaterService.test.ts` (15 tests): Updated test case 9 for soft delete assertions, added single item soft-delete and restoration, and defensive revival with redundant tombstone purging.
+    *   `src/lib/__tests__/dataService.test.ts` (10 tests): Added test case 10 verifying export sanitization for both full backups and single space exports.
+    *   Full test suite raised to **563/563 passing tests across 51 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (563/563 passing), production build (`npm run build` completed in 12.73s).
+
+### Phase 43.6: Milestone 5 — Step 2: Neutralize Background Saboteur (performSync Delta Upsert)
+*   **Architectural Scope:** Neutralized the background service worker tab synchronizer (`performSync`) which previously executed destructive `db.tabs.where({ spaceId }).delete()` on window tab events, obliterating auto-increment primary keys, destroying soft-delete tombstones, and causing cross-device sync thrashing and tab multiplication.
+*   **Zero-Contamination Utility Relocation:**
+    *   **Tab URL Normalizer (`src/lib/tabService.ts`):** Moved `normalizeTabUrl(rawUrl: string): string` into Free Core `tabService.ts`. Strips `#hash` scroll anchors, root path trailing slashes, and trims whitespace with safe fallback for non-standard schemes.
+    *   **Pro Inversion:** `src/pro/sync/engine/diffEngine.ts` now imports `normalizeTabUrl` from `@/lib/tabService` and re-exports it for backward compatibility.
+    *   **Zero-Contamination Compliance:** `src/background/tabSyncService.ts` and `src/background/index.ts` import `normalizeTabUrl` strictly from `@/lib/tabService`, maintaining zero static imports from `src/pro/` in Free Core background code.
+*   **In-Place Delta Upsert Architecture (`src/background/tabSyncService.ts`):**
+    *   **Signature:** `performSync(windowId: number, explicitSpaceId?: number)` resolves `spaceId` from `explicitSpaceId` or looks up the tracked window from `chrome.storage.session.get('activeSpaces')`.
+    *   **Pre-Filter Safeguard:** Filters out internal browser schemes (`chrome://`, `chrome-extension://`, `about:`, `edge://`). If 0 valid tabs exist, returns early without touching IndexedDB.
+    *   **In-Place Primary Key Binding:** Groups existing space tabs by `normalizeTabUrl(tab.url)`. Open tabs matching an existing active record retain `id: existingTab.id`, update `order`, `title`, and `favicon`, with `deletedAt: undefined`.
+    *   **Tombstone Revival:** Open tabs matching a soft-deleted record revive it in place (`deletedAt: undefined`), preserving the original row primary key.
+    *   **Closed Tab Tombstoning:** Any existing active tabs for the space that are no longer open in the Chrome window are marked with `{ ...existingTab, deletedAt: Date.now() }`.
+    *   **Atomic Bulk Put:** Replaced destructive `db.tabs.where({ spaceId }).delete()` and `bulkAdd()` with an atomic `await db.tabs.bulkPut(tabsToUpsert)` within `db.transaction('rw', db.tabs)`.
+*   **Testing Infrastructure:**
+    *   `src/background/__tests__/tabSyncService.test.ts` (5 tests):
+        1. `"should update tab order and metadata in place while strictly preserving original auto-increment IDs"`.
+        2. `"should tombstone closed tabs with deletedAt instead of destroying rows"`.
+        3. `"should revive a tombstoned tab when reopened and preserve its original ID"`.
+        4. `"should resolve spaceId from session storage activeSpaces when not explicitly provided"`.
+        5. `"should safely skip execution if window contains only internal or invalid URLs"`.
+    *   Full test suite raised to **568/568 passing tests across 52 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (568/568 passing), production build (`npm run build` completed in 8.69s).
+
+### Phase 43.7: Milestone 5 — Step 3: Symmetric Tombstone Reconciliation in DiffEngine
+*   **Architectural Scope:** Implemented symmetric tombstone reconciliation and deduplication across both `tabs` and `readLater` domains within `src/pro/sync/engine/diffEngine.ts`. Prevents tab resurrection loops and ghost record propagation across multiple syncing devices.
+*   **Symmetric 4-Case Tombstone LWW Reconciliation for Tabs (`reconcileTabs`):**
+    *   **Case 1 (Local Tombstone vs Remote Active):** If `localTab.deletedAt > remoteClientTimestamp`, the local deletion occurred after the remote snapshot was taken; local tombstone wins (`deletedAt: localTab.deletedAt`), preventing tab resurrection. If `remoteClientTimestamp >= localTab.deletedAt`, the remote device modified or reopened the tab after deletion; remote wins, reviving the tab locally (`deletedAt: undefined`).
+    *   **Case 2 (Remote Tombstone vs Local Active):** If `remoteTab.deletedAt > localLastSyncedAt`, the remote deletion occurred after this machine's baseline sync; remote tombstone wins, queuing `tabToUpsert` with `deletedAt: remoteTab.deletedAt` into `localUpdates.tabs` for in-place soft-delete without row destruction. If `localLastSyncedAt >= remoteTab.deletedAt`, local activity is newer; local wins, keeping the tab active.
+    *   **Case 3 (Both Active):** Preserves local `id`, updates metadata/order in place.
+    *   **Case 4 (Both Tombstoned):** Preserves newest tombstone (`Math.max(localTab.deletedAt, remoteTab.deletedAt)`).
+    *   **Unmatched Remote Tombstones:** If a remote tab is tombstoned and does not exist locally, it is retained in `mergedTabs` for cloud propagation but omitted from `localUpdates.tabs` to prevent cluttering local IndexedDB.
+*   **Symmetric Tombstone & Self-Healing Reconciliation for Read Later (`reconcileReadLater`):**
+    *   **Pre-Deduplication:** Sanitizes and deduplicates incoming `remote.readLater` array by `normalizeTabUrl(item.url)` before reconciliation. Resolves duplicates by favoring `'archived'` status, active over tombstoned (or latest deletion timestamp), and highest `addedAt`.
+    *   **4-Case Tombstone Resolution:** Applies identical symmetric LWW logic using `item.deletedAt` against `remoteClientTimestamp` and `localLastSyncedAt`.
+    *   **Status Convergence:** For active items, converges toward `'archived'` status if either device has marked the item archived.
+    *   **In-Place Primary Key Binding:** Preserves local Dexie primary key `id` on matched updates so `bulkPut` updates records in place.
+*   **Testing Infrastructure (`src/pro/sync/engine/__tests__/diffEngine.test.ts`):**
+    *   Added 4 new comprehensive test cases:
+        1. `"preserves local tab tombstone when localTab.deletedAt > remoteClientTimestamp without resurrecting locally"`
+        2. `"propagates remote soft-deleted tab when remoteTab.deletedAt > localLastSyncedAt"`
+        3. `"preserves local Read Later tombstone when localItem.deletedAt > remoteClientTimestamp"`
+        4. `"cleanses duplicate URLs in remote readLater snapshot and prefers archived status"`
+    *   Test suite raised from 16 to **20 passed tests** in `diffEngine.test.ts`.
+    *   Full test suite raised to **572/572 passing tests across 52 test files** (100% pass rate).
+### Phase 43.8: Milestone 5 — Step 4: Cross-Context Web Lock Mutex in SyncEngine
+*   **Architectural Scope:** Implemented a cross-context Web Lock Mutex helper `withSyncLock` in `src/pro/sync/engine/syncEngine.ts` to prevent race conditions, concurrent cloud vault writes, and re-entrant sync loops between the sidepanel, background service worker, and popup.
+*   **Web Lock Mutex Algorithm (`withSyncLock`):**
+    *   **Primary Path (Web Locks API):** Checks `typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function'`. Requests lock `tabbellus_sync_vault` with `{ ifAvailable: true }`. If another extension context already holds the lock, logs `[SyncEngine] Skipping ${operationName}: lock held by another context` and immediately invokes `onContention()`. If granted, sets `this.isSyncing = true`, executes `action()`, and guarantees `this.isSyncing = false` in a `finally` block.
+    *   **Fallback Path (In-Memory Mutex):** If `navigator.locks` is unavailable (e.g. Node test environment), checks `this.isSyncing`. If already syncing, logs debug message and returns `onContention()`. Sets `this.isSyncing = true`, executes `action()`, and resets `this.isSyncing = false` in a `finally` block.
+*   **Protected Operations:**
+    *   `syncNow(options)`: Delegates core synchronization cycle to `executeSync` inside `withSyncLock`. On contention, returns `{ success: false, error: 'Sync already in progress.', timestamp: Date.now() }` cleanly without mutating sync status, firing erroneous error toasts, or altering Dexie state.
+    *   `setupEncryption(passphrase)`: Reconfigurations run under `withSyncLock('setupEncryption')` and call `executeSync({ forceFull: true })` without contention deadlock.
+    *   `resetCloudVault()`: Emergency reset wipes session keys and triggers an unencrypted sync upload under `withSyncLock('resetCloudVault')`.
+    *   `SyncProvider` Contract (`src/core/contracts/sync.ts`): Added optional `resetCloudVault?(): Promise<void>`.
+*   **Testing Infrastructure (`src/pro/sync/engine/__tests__/syncEngine.test.ts`):**
+    *   Added 3 new comprehensive test cases in `Cross-Context Web Lock Mutex`:
+        1. `"requests lock 'tabbellus_sync_vault' with { ifAvailable: true } and runs to completion when available"`
+        2. `"skips sync execution when navigator.locks.request yields null (simulating concurrent context)"` (asserts 0 Google Drive calls, 0 Dexie mutations, and idle status retention)
+        3. `"falls back to in-memory mutex when navigator.locks is undefined to prevent re-entrant calls"`
+    *   Test suite raised from 15 to **18 passed tests** in `syncEngine.test.ts`.
+    *   Full test suite raised to **575/575 passing tests across 52 test files** (100% pass rate).
+### Phase 43.9: Milestone 5 — Step 5: Google Drive Upload Bypass Fix & Dual Change Detection
+*   **Architectural Scope:** Resolved silent cloud upload bypass and number-vs-string JavaScript comparison failures during sync reconciliation across `src/pro/sync/engine/diffEngine.ts`, `src/pro/sync/engine/types.ts`, and `src/pro/sync/engine/syncEngine.ts`.
+*   **Safe Epoch Conversion (`toEpochMs`):**
+    *   Created and exported `toEpochMs(timestamp: string | number | undefined | null): number` in `diffEngine.ts`.
+    *   Eliminated silent `NaN` comparison bugs where JavaScript evaluates `number > string` as `false` when comparing Dexie timestamps (`1725372000000`) against ISO strings from Google Drive (`'2026-09-03T14:30:00.000Z'`).
+    *   Applied `toEpochMs` across all 4-case LWW comparisons in `reconcileSpaces`, `reconcileTabs`, and `reconcileReadLater`.
+*   **Dual Change Detection (`ReconciliationResult`):**
+    *   Extended `ReconciliationResult` in `src/pro/sync/engine/types.ts`:
+        *   `hasLocalChanges: boolean`: Set to `true` when `localUpdates.spaces.length > 0 || localUpdates.tabs.length > 0 || localUpdates.readLater.length > 0 || tabIdsToDelete.length > 0`.
+        *   `hasRemoteChanges: boolean`: Set to `true` when `mergedSnapshot` differs from `remoteSnapshot` in count, order, titles, URLs, or soft-delete tombstones (`mergedTab.deletedAt !== remoteTab.deletedAt`). Ensures local deletions are promptly uploaded to Google Drive even when local IndexedDB requires zero updates.
+        *   `hasChanges: boolean`: Disjunction `hasLocalChanges || hasRemoteChanges`.
+*   **Decoupled Step 6 and Step 7 in SyncEngine (`src/pro/sync/engine/syncEngine.ts`):**
+    *   Step 6: Applies incoming updates to local Dexie only `if (reconciliation.hasLocalChanges)`.
+    *   Step 7: Overwrites Google Drive vault file `if (reconciliation.hasRemoteChanges || options?.forceFull)`.
+*   **Testing Infrastructure (`src/pro/sync/engine/__tests__/diffEngine.test.ts`):**
+    *   Added 7 new unit test cases covering:
+        1. `toEpochMs` numeric direct pass-through.
+        2. `toEpochMs` ISO string parse and conversion.
+        3. `toEpochMs` comparison between `Date.now()` and ISO string.
+        4. `toEpochMs` fallback for null, undefined, empty, and invalid strings.
+        5. Local tab deletion sets `hasRemoteChanges: true` while `hasLocalChanges: false`.
+        6. Identical snapshots set all change flags to `false`.
+        7. Seamless handling of ISO string `clientTimestamp` in remote snapshot without comparison error.
+    *   Test suite raised from 20 to **27 passed tests** in `diffEngine.test.ts`.
+    *   Full test suite raised to **582/582 passing tests across 52 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (582/582 passing), production build (`npm run build` completed in 12.42s).
+
+<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 5: Google Drive Upload Bypass Fix & Dual Change Detection: 582 Unit Tests Passing across 52 Test Files) -->
+
+
+

@@ -47,18 +47,22 @@ export class SnapshotSerializer {
    * Applies reconciled local updates to the Dexie database inside an
    * atomic read-write transaction.
    *
-   * @param updates - Reconciled entities to upsert into Dexie.
+   * @param updates - Reconciled entities to upsert into Dexie and tab IDs to prune.
    */
   static async applyRemoteUpdates(
     updates: ReconciliationResult['localUpdates'],
   ): Promise<void> {
-    const { spaces, tabs, readLater } = updates;
+    const { spaces, tabs, readLater, tabIdsToDelete } = updates;
 
-    if (spaces.length === 0 && tabs.length === 0 && readLater.length === 0) {
+    const hasDeletes = Boolean(tabIdsToDelete && tabIdsToDelete.length > 0);
+    if (spaces.length === 0 && tabs.length === 0 && readLater.length === 0 && !hasDeletes) {
       return;
     }
 
     await db.transaction('rw', [db.spaces, db.tabs, db.readLater], async () => {
+      if (tabIdsToDelete && tabIdsToDelete.length > 0) {
+        await db.tabs.bulkDelete(tabIdsToDelete);
+      }
       if (spaces.length > 0) {
         await db.spaces.bulkPut(spaces);
       }

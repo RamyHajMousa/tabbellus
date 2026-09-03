@@ -1,4 +1,4 @@
-import { db, type Tab } from '@/lib/db';
+import { db } from '@/lib/db';
 import { isFuzzyMatch } from '@/lib/sessionUtils';
 import { spaceService } from '@/lib/spaceService';
 import { readLaterService } from '@/lib/readLaterService';
@@ -6,8 +6,11 @@ import { getReadLaterShortcutText } from '@/lib/platform';
 import { updateGlobalBadge } from './badgeService';
 import { runDiscardSweep } from './discardService';
 import { rulesDispatcher } from './rulesDispatcher';
+import { performSync } from './tabSyncService';
 import { contractRegistry } from '@/core/contracts/registry';
 import { rulesEngine } from '@/pro/headless';
+
+export { performSync };
 
 console.log('TabBellus Service Worker Initialized');
 
@@ -225,54 +228,6 @@ const triggerSync = async (windowId: number) => {
         console.log(`Alarm scheduled/reset for window ${windowId}`);
     } catch (err) {
         console.error('Background Sync: Failed to trigger sync', err);
-    }
-};
-
-const performSync = async (windowId: number) => {
-    try {
-        // 1. Check if window is tracked as an active space
-        const activeSpaces = await chrome.storage.session.get('activeSpaces').then(res => res.activeSpaces || {});
-        const spaceIdStr = Object.keys(activeSpaces).find(k => activeSpaces[parseInt(k, 10)] === windowId);
-
-        if (!spaceIdStr) return; // Not a tracked space window
-
-        const spaceId = parseInt(spaceIdStr, 10);
-
-        // 2. Fetch current tabs in that window
-        const windowTabs = await chrome.tabs.query({ windowId });
-
-        // Filter valid tabs (consistent with SpaceService capture logic)
-        const validTabs = windowTabs.filter(tab => {
-            const url = tab.url || '';
-            return (
-                url &&
-                !url.startsWith('chrome://') &&
-                !url.startsWith('chrome-extension://') &&
-                !url.startsWith('about:')
-            );
-        });
-
-        if (validTabs.length === 0) return; // Don't wipe space if empty/invalid state temporarily
-
-        // 3. Update the database
-        await db.transaction('rw', db.tabs, async () => {
-            // Clear old tabs for this space
-            await db.tabs.where({ spaceId }).delete();
-
-            // Create new tab records
-            const tabRecords: Tab[] = validTabs.map((tab, index) => ({
-                spaceId,
-                url: tab.url!,
-                title: tab.title || 'Untitled',
-                favicon: tab.favIconUrl || '',
-                order: index
-            }));
-
-            await db.tabs.bulkAdd(tabRecords);
-        });
-
-    } catch (error) {
-        console.error('Background Sync: Failed to sync space for window', windowId, error);
     }
 };
 

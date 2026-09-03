@@ -237,24 +237,60 @@ export class SyncEngine implements SyncProvider {
    * uploads the current snapshot as an encrypted vault.
    */
   async setupEncryption(passphrase: string): Promise<void> {
-    const saltBytes = WebCryptoEngine.generateSalt();
-    const saltBase64 = uint8ArrayToBase64(saltBytes);
-    const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+    return this.withSyncLock(
+      'setupEncryption',
+      async () => {
+        const saltBytes = WebCryptoEngine.generateSalt();
+        const saltBase64 = uint8ArrayToBase64(saltBytes);
+        const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
 
-    await sessionKeyStore.saveSession(key, saltBase64);
-    await this.saveStorageState({
-      isEncrypted: true,
-      vaultSalt: saltBase64,
-    });
+        await sessionKeyStore.saveSession(key, saltBase64);
+        await this.saveStorageState({
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        });
 
-    this.updateStatus({
-      telemetry: {
-        ...this.status.telemetry,
-        encrypted: true,
+        this.updateStatus({
+          telemetry: {
+            ...this.status.telemetry,
+            encrypted: true,
+          },
+        });
+
+        await this.executeSync({ forceFull: true });
       },
-    });
+      () => undefined,
+    );
+  }
 
-    await this.syncNow({ forceFull: true });
+  /**
+   * Resets the cloud vault to unencrypted state by clearing local keys,
+   * resetting storage state, and triggering a full unencrypted sync upload.
+   */
+  async resetCloudVault(): Promise<void> {
+    return this.withSyncLock(
+      'resetCloudVault',
+      async () => {
+        await sessionKeyStore.clearSession();
+        await this.saveStorageState({
+          isEncrypted: false,
+          vaultSalt: undefined,
+          lastError: undefined,
+        });
+
+        this.updateStatus({
+          state: 'idle',
+          telemetry: {
+            ...this.status.telemetry,
+            encrypted: false,
+            lastError: undefined,
+          },
+        });
+
+        await this.executeSync({ forceFull: true });
+      },
+      () => undefined,
+    );
   }
 
   /**
@@ -355,18 +391,77 @@ export class SyncEngine implements SyncProvider {
   }
 
   /**
-   * Executes a full synchronization cycle.
+   * Cross-Context Web Lock Mutex
+   *
+   * Coordinates access to cloud synchronization across multiple extension contexts
+   * (e.g. sidepanel, background worker, popup) using the Web Locks API ('tabbellus_sync_vault')
+   * with a re-entrant safe in-memory fallback.
    */
-  async syncNow(options?: { forceFull?: boolean }): Promise<SyncResult> {
+  private async withSyncLock<T>(
+    operationName: string,
+    action: () => Promise<T>,
+    onContention: () => T,
+  ): Promise<T> {
+    if (
+      typeof navigator !== 'undefined' &&
+      typeof navigator.locks?.request === 'function'
+    ) {
+      return await navigator.locks.request(
+        'tabbellus_sync_vault',
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            console.debug(
+              `[SyncEngine] Skipping ${operationName}: lock held by another context`,
+            );
+            return onContention();
+          }
+          this.isSyncing = true;
+          try {
+            return await action();
+          } finally {
+            this.isSyncing = false;
+          }
+        },
+      );
+    }
+
+    // Fallback Path (In-Memory Mutex)
     if (this.isSyncing) {
-      return {
-        success: false,
-        error: 'Sync already in progress.',
-        timestamp: Date.now(),
-      };
+      console.debug(
+        `[SyncEngine] Skipping ${operationName}: sync already in progress`,
+      );
+      return onContention();
     }
 
     this.isSyncing = true;
+    try {
+      return await action();
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Executes a full synchronization cycle.
+   */
+  async syncNow(options?: { forceFull?: boolean }): Promise<SyncResult> {
+    return this.withSyncLock(
+      'syncNow',
+      async () => this.executeSync(options),
+      () => ({
+        success: false,
+        error: 'Sync already in progress.',
+        timestamp: Date.now(),
+      }),
+    );
+  }
+
+  /**
+   * Internal execution body for synchronization cycle.
+   * Runs under withSyncLock to guarantee process-exclusive execution.
+   */
+  private async executeSync(options?: { forceFull?: boolean }): Promise<SyncResult> {
     this.updateStatus({ state: 'syncing' });
 
     try {
@@ -567,17 +662,21 @@ export class SyncEngine implements SyncProvider {
       const localSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
 
       // Step 5: Reconcile snapshots using Record-Level LWW DiffEngine
+      const currentStorageForSync = await this.loadStorageState();
       const reconciliation = DiffEngine.reconcile(
         localSnapshot,
         remoteSnapshot,
         deviceId,
+        currentStorageForSync.lastSyncedAt ?? 0,
       );
 
-      // Step 6: Apply incoming remote updates to Dexie
-      await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
+      // Step 6: Apply incoming remote updates to Dexie if local changes exist
+      if (reconciliation.hasLocalChanges) {
+        await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
+      }
 
-      // Step 7: Upload reconciled merged snapshot to Drive if changes exist
-      if (reconciliation.hasChanges || options?.forceFull) {
+      // Step 7: Upload reconciled merged snapshot to Drive if remote changes exist
+      if (reconciliation.hasRemoteChanges || options?.forceFull) {
         const currentStorage = await this.loadStorageState();
         const hasUnlockedSession = await sessionKeyStore.isUnlocked();
         const shouldEncrypt = Boolean(currentStorage.isEncrypted || hasUnlockedSession);

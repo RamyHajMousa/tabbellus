@@ -340,5 +340,91 @@ describe('DataService — Backup & Restore Integration', () => {
 
     expect(await db.spaces.count()).toBe(0);
   });
+
+  // ── Test Case 10: Backup Export Sanitization ───────────────────
+  it('should sanitize exports by filtering out soft-deleted spaces, tabs, and readLater items', async () => {
+    const spaceId = (await db.spaces.add({
+      name: 'Active Space',
+      createdAt: Date.now(),
+    })) as number;
+
+    const deletedSpaceId = (await db.spaces.add({
+      name: 'Deleted Space',
+      createdAt: Date.now(),
+      deletedAt: Date.now() - 1000,
+    })) as number;
+
+    // Active and soft-deleted tabs
+    await db.tabs.add({ spaceId, url: 'https://active-tab.com', title: 'Active Tab', order: 0 });
+    await db.tabs.add({
+      spaceId,
+      url: 'https://deleted-tab.com',
+      title: 'Deleted Tab',
+      order: 1,
+      deletedAt: Date.now() - 500,
+    });
+
+    // Active and soft-deleted read later
+    await db.readLater.add({ url: 'https://active-rl.com', title: 'Active RL', addedAt: Date.now(), status: 'unread' });
+    await db.readLater.add({
+      url: 'https://deleted-rl.com',
+      title: 'Deleted RL',
+      addedAt: Date.now(),
+      status: 'archived',
+      deletedAt: Date.now() - 500,
+    });
+
+    let exportedPayload: any = null;
+    const originalDocument = globalThis.document;
+    const originalBlob = globalThis.Blob;
+
+    const mockAnchor = { href: '', download: '', click: vi.fn() };
+    globalThis.document = {
+      body: { appendChild: vi.fn(), removeChild: vi.fn() },
+      createElement: vi.fn().mockReturnValue(mockAnchor),
+    } as any;
+    globalThis.URL = {
+      createObjectURL: vi.fn().mockReturnValue('blob:mock-url'),
+      revokeObjectURL: vi.fn(),
+    } as any;
+
+    class MockBlob extends originalBlob {
+      constructor(chunks: any[], options?: any) {
+        super(chunks, options);
+        exportedPayload = JSON.parse(chunks[0]);
+      }
+    }
+    globalThis.Blob = MockBlob as any;
+
+    try {
+      await dataService.exportData();
+
+      // Only active space exported
+      expect(exportedPayload.spaces).toHaveLength(1);
+      expect(exportedPayload.spaces[0].name).toBe('Active Space');
+
+      // Only active tab exported
+      expect(exportedPayload.tabs).toHaveLength(1);
+      expect(exportedPayload.tabs[0].url).toBe('https://active-tab.com');
+
+      // Only active readLater exported
+      expect(exportedPayload.readLater).toHaveLength(1);
+      expect(exportedPayload.readLater[0].url).toBe('https://active-rl.com');
+
+      // Also test exportSpaceAsJson sanitization
+      exportedPayload = null;
+      await dataService.exportSpaceAsJson(spaceId);
+      expect(exportedPayload.tabs).toHaveLength(1);
+      expect(exportedPayload.tabs[0].url).toBe('https://active-tab.com');
+
+      // Soft-deleted space cannot be exported
+      await expect(dataService.exportSpaceAsJson(deletedSpaceId)).rejects.toThrow(
+        `Space with ID ${deletedSpaceId} not found`
+      );
+    } finally {
+      globalThis.document = originalDocument;
+      globalThis.Blob = originalBlob;
+    }
+  });
 });
 

@@ -78,6 +78,7 @@ describe('SyncEngine', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.stubGlobal('navigator', {});
     Object.keys(mockStorage).forEach((k) => delete mockStorage[k]);
     Object.keys(mockSessionStorage).forEach((k) => delete mockSessionStorage[k]);
     await sessionKeyStore.clearSession();
@@ -314,6 +315,110 @@ describe('SyncEngine', () => {
       expect(res1.success).toBe(true);
       expect(res2.success).toBe(false);
       expect(res2.error).toContain('already in progress');
+    });
+
+    describe('Cross-Context Web Lock Mutex', () => {
+      it('requests lock "tabbellus_sync_vault" with { ifAvailable: true } and runs to completion when available', async () => {
+        const lockRequestSpy = vi.fn(
+          async (name: string, _options: unknown, callback: (lock: unknown) => Promise<unknown>) => {
+            return await callback({ name });
+          },
+        );
+
+        vi.stubGlobal('navigator', {
+          locks: {
+            request: lockRequestSpy,
+          },
+        });
+
+        mockedAuth.getAuthToken.mockResolvedValue({
+          success: true,
+          data: 'valid-token',
+        });
+        mockedDrive.findVaultFile.mockResolvedValue({
+          success: true,
+          data: { files: [] },
+        });
+        mockedDrive.uploadVaultFile.mockResolvedValue({
+          success: true,
+          data: { id: 'vault-1', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        });
+
+        const result = await engine.syncNow();
+
+        expect(lockRequestSpy).toHaveBeenCalledWith(
+          'tabbellus_sync_vault',
+          { ifAvailable: true },
+          expect.any(Function),
+        );
+        expect(result.success).toBe(true);
+
+        const status = await engine.getStatus();
+        expect(status.state).toBe('synced');
+      });
+
+      it('skips sync execution when navigator.locks.request yields null (simulating concurrent context)', async () => {
+        const lockRequestSpy = vi.fn(
+          async (_name: string, _options: unknown, callback: (lock: unknown) => Promise<unknown>) => {
+            return await callback(null); // lock unavailable: held by another tab or worker
+          },
+        );
+
+        vi.stubGlobal('navigator', {
+          locks: {
+            request: lockRequestSpy,
+          },
+        });
+
+        // Insert dummy tab in Dexie to verify it is NOT mutated or deleted
+        await db.spaces.add({ id: 1, name: 'Local Space', createdAt: 1000 });
+        await db.tabs.add({ id: 10, spaceId: 1, url: 'https://local.com', order: 0 });
+
+        const result = await engine.syncNow();
+
+        expect(lockRequestSpy).toHaveBeenCalled();
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('already in progress');
+
+        // Google Drive client must not have been called
+        expect(mockedDrive.findVaultFile).not.toHaveBeenCalled();
+        expect(mockedDrive.downloadVaultFile).not.toHaveBeenCalled();
+        expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
+
+        // Dexie database state must remain completely untouched
+        const tabs = await db.tabs.toArray();
+        expect(tabs).toHaveLength(1);
+        expect(tabs[0].url).toBe('https://local.com');
+
+        // Sync status remains idle without error mutation
+        const status = await engine.getStatus();
+        expect(status.state).toBe('idle');
+      });
+
+      it('falls back to in-memory mutex when navigator.locks is undefined to prevent re-entrant calls', async () => {
+        vi.stubGlobal('navigator', {}); // navigator.locks is undefined
+
+        mockedAuth.getAuthToken.mockImplementation(
+          () => new Promise((res) => setTimeout(() => res({ success: true, data: 'token' }), 50)),
+        );
+        mockedDrive.findVaultFile.mockResolvedValue({
+          success: true,
+          data: { files: [] },
+        });
+        mockedDrive.uploadVaultFile.mockResolvedValue({
+          success: true,
+          data: { id: 'new-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        });
+
+        const firstSync = engine.syncNow();
+        const secondSync = engine.syncNow();
+
+        const [res1, res2] = await Promise.all([firstSync, secondSync]);
+
+        expect(res1.success).toBe(true);
+        expect(res2.success).toBe(false);
+        expect(res2.error).toContain('already in progress');
+      });
     });
   });
 
