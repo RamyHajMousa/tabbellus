@@ -647,6 +647,53 @@ describe('DiffEngine', () => {
       expect(result.mergedSnapshot.readLater[0].id).toBe(5);
     });
 
+    it("preserves local 'unread' status when localItem.updatedAt > remoteClientTimestamp despite remote being 'archived'", () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [
+          {
+            id: 10,
+            url: 'https://readlater-lww.com',
+            title: 'Article',
+            addedAt: 1000,
+            status: 'unread',
+            updatedAt: 2500, // User moved to unread locally at 2500
+          },
+        ],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000, // Older remote snapshot where status was archived
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [
+          {
+            id: 100,
+            url: 'https://readlater-lww.com',
+            title: 'Article',
+            addedAt: 1000,
+            status: 'archived',
+            updatedAt: 1500, // Archived remotely at 1500
+          },
+        ],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId, 1500);
+
+      // Local unread status must NOT be reversed to archived
+      expect(result.localUpdates.readLater).toHaveLength(0);
+      expect(result.mergedSnapshot.readLater).toHaveLength(1);
+      expect(result.mergedSnapshot.readLater[0].status).toBe('unread');
+      expect(result.mergedSnapshot.readLater[0].updatedAt).toBe(2500);
+      expect(result.hasRemoteChanges).toBe(true);
+    });
+
     it('cleanses duplicate URLs in remote readLater snapshot and prefers archived status', () => {
       const local: SyncVaultSnapshot = {
         version: 1,

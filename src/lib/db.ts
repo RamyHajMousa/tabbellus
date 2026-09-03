@@ -27,6 +27,7 @@ export interface ReadLaterItem {
     addedAt: number;
     status: 'unread' | 'read' | 'archived';
     deletedAt?: number; // Soft delete timestamp
+    updatedAt?: number; // LWW status mutation timestamp
 }
 
 export interface SpaceWithTabs {

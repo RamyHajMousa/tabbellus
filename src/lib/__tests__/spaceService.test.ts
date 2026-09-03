@@ -376,6 +376,38 @@ describe('SpaceService — Dexie Integration', () => {
     await expect(spaceService.moveTabBetweenSpaces(tabToMove.id!, s2)).rejects.toThrow('DUPLICATE_TAB');
   });
 
+  it('moveTabBetweenSpaces soft-deletes the source tab with deletedAt timestamp and creates active tab in target space', async () => {
+    const s1 = await seedSpace('Source Space');
+    const s2 = await seedSpace('Target Space');
+
+    await seedTab(s1, 'https://move-tombstone-test.com', 0);
+    const s1ActiveTabs = await spaceService.getTabsForSpaceQuery(s1)();
+    const tabToMove = s1ActiveTabs[0];
+
+    const result = await spaceService.moveTabBetweenSpaces(tabToMove.id!, s2);
+
+    expect(result.sourceSpaceId).toBe(s1);
+    expect(result.originalOrder).toBe(0);
+
+    // Active tabs in s1 should now be 0
+    const s1ActiveAfter = await spaceService.getTabsForSpaceQuery(s1)();
+    expect(s1ActiveAfter).toHaveLength(0);
+
+    // Raw Dexie record for original tabId must still exist with deletedAt timestamp (tombstone)
+    const rawSourceTab = await db.tabs.get(tabToMove.id!);
+    expect(rawSourceTab).toBeDefined();
+    expect(rawSourceTab?.deletedAt).toBeDefined();
+    expect(typeof rawSourceTab?.deletedAt).toBe('number');
+    expect(rawSourceTab?.spaceId).toBe(s1);
+
+    // Target space must have an active tab with identical URL
+    const s2ActiveTabs = await spaceService.getTabsForSpaceQuery(s2)();
+    expect(s2ActiveTabs).toHaveLength(1);
+    expect(s2ActiveTabs[0].url).toBe('https://move-tombstone-test.com');
+    expect(s2ActiveTabs[0].spaceId).toBe(s2);
+    expect(s2ActiveTabs[0].deletedAt).toBeUndefined();
+  });
+
   // ── Copy Tab To Space ──────────────────────────────────────────
 
   it('should copy a tab to another space preserving the original tab', async () => {

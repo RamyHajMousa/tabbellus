@@ -470,14 +470,13 @@ export class DiffEngine {
   static reconcileReadLater(
     localReadLater: ReadLaterItem[],
     remoteReadLater: ReadLaterItem[],
-    localClientTimestamp: number | string,
+    _localClientTimestamp: number | string,
     remoteClientTimestamp: number | string,
     localLastSyncedAt: number | string = 0,
   ): {
     mergedReadLater: ReadLaterItem[];
     localReadLaterUpdates: ReadLaterItem[];
   } {
-    const normLocalClientTs = toEpochMs(localClientTimestamp);
     const normRemoteClientTs = toEpochMs(remoteClientTimestamp);
     const normLocalLastSyncedAt = toEpochMs(localLastSyncedAt);
 
@@ -558,32 +557,43 @@ export class DiffEngine {
           resolvedDeletedAt = undefined;
         }
 
-        // Status convergence for active items
-        let mergedStatus: 'unread' | 'read' | 'archived';
-        let remoteWins = false;
-
         const localAddedMs = toEpochMs(localItem.addedAt);
         const remoteAddedMs = toEpochMs(remoteItem.addedAt);
 
+        // Symmetric Last-Write-Wins based on timestamps (eliminates one-way status ratchet)
+        const localUpdated = toEpochMs(localItem.updatedAt ?? localItem.addedAt);
+        const remoteUpdated = toEpochMs(remoteItem.updatedAt ?? remoteClientTimestamp);
+
+        // Status resolution: Symmetric Last-Write-Wins (eliminates one-way status ratchet)
+        let remoteWins = false;
+        let mergedStatus: 'unread' | 'read' | 'archived';
+
         if (resolvedDeletedAt !== undefined) {
-          mergedStatus = remoteItem.status === 'archived' || localItem.status === 'archived' ? 'archived' : localItem.status;
-        } else {
-          // Both active: 'archived' state wins unless one is significantly newer
-          if (remoteAddedMs > localAddedMs) {
-            remoteWins = true;
-            mergedStatus = remoteItem.status;
-          } else if (localAddedMs > remoteAddedMs) {
+          if (localIsDeleted && !remoteIsDeleted && localDelMs > normRemoteClientTs) {
+            // Local tombstone is newer than remote snapshot -> local status wins
             remoteWins = false;
             mergedStatus = localItem.status;
+          } else if (!localIsDeleted && remoteIsDeleted && remoteDelMs > normLocalLastSyncedAt) {
+            // Remote tombstone is newer -> remote status wins
+            remoteWins = true;
+            mergedStatus = remoteItem.status;
+          } else if (localIsDeleted && remoteIsDeleted) {
+            // Both soft-deleted -> latest tombstone timestamp wins
+            remoteWins = remoteDelMs > localDelMs;
+            mergedStatus = remoteWins ? remoteItem.status : localItem.status;
           } else {
-            if (localItem.status === 'archived' || remoteItem.status === 'archived') {
-              mergedStatus = 'archived';
-            } else {
-              remoteWins = normRemoteClientTs > normLocalClientTs;
-              mergedStatus = remoteWins ? remoteItem.status : localItem.status;
-            }
+            remoteWins = remoteUpdated > localUpdated;
+            mergedStatus = remoteWins ? remoteItem.status : localItem.status;
           }
+        } else {
+          // Both active: newer timestamp wins, default to local on tie
+          remoteWins = remoteUpdated > localUpdated;
+          mergedStatus = remoteWins ? remoteItem.status : localItem.status;
         }
+
+        const maxUpdatedAt = (localItem.updatedAt !== undefined || remoteItem.updatedAt !== undefined)
+          ? Math.max(localUpdated, remoteUpdated)
+          : undefined;
 
         const mergedItem: ReadLaterItem = {
           id: localItemId,
@@ -592,6 +602,7 @@ export class DiffEngine {
           favicon: remoteWins ? (remoteItem.favicon ?? localItem.favicon) : (localItem.favicon ?? remoteItem.favicon),
           addedAt: Math.max(localAddedMs, remoteAddedMs),
           status: mergedStatus,
+          ...(maxUpdatedAt !== undefined ? { updatedAt: maxUpdatedAt } : {}),
           ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),
         };
 
@@ -600,7 +611,8 @@ export class DiffEngine {
           localItem.title !== mergedItem.title ||
           localItem.favicon !== mergedItem.favicon ||
           localItem.addedAt !== mergedItem.addedAt ||
-          localItem.deletedAt !== mergedItem.deletedAt
+          localItem.deletedAt !== mergedItem.deletedAt ||
+          localItem.updatedAt !== mergedItem.updatedAt
         ) {
           localReadLaterUpdates.push(mergedItem);
         }
@@ -618,6 +630,7 @@ export class DiffEngine {
           const incomingItem: ReadLaterItem = {
             ...remoteItem,
             id: newLocalItemId,
+            updatedAt: toEpochMs(remoteItem.updatedAt ?? remoteClientTimestamp),
           };
           localReadLaterUpdates.push(incomingItem);
           mergedReadLater.push(incomingItem);
@@ -629,7 +642,10 @@ export class DiffEngine {
     for (const localItem of localReadLater) {
       const normUrl = normalizeTabUrl(localItem.url);
       if (!matchedLocalUrls.has(normUrl)) {
-        mergedReadLater.push(localItem);
+        mergedReadLater.push({
+          ...localItem,
+          updatedAt: toEpochMs(localItem.updatedAt ?? localItem.addedAt),
+        });
       }
     }
 

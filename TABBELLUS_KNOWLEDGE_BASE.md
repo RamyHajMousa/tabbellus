@@ -1220,7 +1220,37 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **594/594 passing tests across 52 test files** (100% pass rate).
     *   Clean `npx tsc --noEmit` (0 errors), clean `npm run build` (built in 11.69s).
 
-<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 7: E2EE Teardown & Vault Reset to Standard Cloud Sync: 594 Unit Tests Passing across 52 Test Files) -->
+---
+
+### Phase 43.10: Fix 3-Second Auto-Sync Reversal in Read Later & Tab Duplication on Move
+*   **Root Cause Analysis:**
+    1.  *Read Later Status Ratchet:* `DiffEngine.reconcileReadLater` contained a one-way status ratchet (`localItem.status === 'archived' || remoteItem.status === 'archived' ? 'archived' : ...`). When a user marked an archived item as unread locally, the debounced auto-sync fired 3 seconds later, saw that the remote cloud snapshot was `'archived'`, and reversed the local status back to `'archived'`.
+    2.  *Tab Move Duplication:* `SpaceService.moveTabBetweenSpaces` mutated `sourceTab.spaceId = targetSpaceId` in-place without leaving a tombstone in the source space. When multi-master sync reconciled against the remote vault (which still held the tab in the source space), local had no tombstone record for the tab in the source space, causing the remote tab to be resurrected in the source space while also existing in the target space.
+*   **Implementation Details:**
+    *   **Read Later LWW Status Reconciliation (`src/lib/db.ts`, `readLaterService.ts`, `diffEngine.ts`):**
+        *   `src/lib/db.ts`: Extended `ReadLaterItem` interface with optional `updatedAt?: number`.
+        *   `src/lib/readLaterService.ts`: Injected `updatedAt: Date.now()` on `updateStatus`, `addFromTab` (both insert and revival), and `archiveAllUnread`.
+        *   `src/pro/sync/engine/diffEngine.ts`: Eliminated the one-way `'archived'` status ratchet in `reconcileReadLater`. Implemented symmetric timestamp-based Last-Write-Wins:
+            ```typescript
+            const localUpdated = toEpochMs(localItem.updatedAt ?? localItem.addedAt);
+            const remoteUpdated = toEpochMs(remoteItem.updatedAt ?? remoteClientTimestamp);
+            const remoteWins = remoteUpdated > localUpdated;
+            const mergedStatus = remoteWins ? remoteItem.status : localItem.status;
+            ```
+            Preserved `updatedAt = Math.max(localUpdated, remoteUpdated)` on `mergedItem` when present.
+    *   **Space Tab Move Tombstone Integrity (`src/lib/spaceService.ts`):**
+        *   Refactored `moveTabBetweenSpaces(tabId, targetSpaceId)` inside atomic Dexie transaction `db.transaction('rw', [db.tabs, db.spaces])`.
+        *   Soft-deletes the source tab (`await db.tabs.update(tabId, { deletedAt: Date.now() })`) to establish an authoritative tombstone preventing remote resurrection.
+        *   Calls `await this.addTabToSpace(targetSpaceId, ...)` to add or revive the tab in the target space.
+        *   Updated `restoreTabPosition` to clear `deletedAt: undefined` upon undo.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added test `"preserves local 'unread' status when localItem.updatedAt > remoteClientTimestamp despite remote being 'archived'"`. Suite raised to **28 tests**.
+    *   `src/lib/__tests__/spaceService.test.ts`: Added test `"moveTabBetweenSpaces soft-deletes the source tab with deletedAt timestamp and creates active tab in target space"`. Suite raised to **28 tests**.
+    *   Full test suite raised to **596/596 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 8.95s.
+
+<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 8: Fix 3-Second Auto-Sync Reversal in Read Later & Tab Duplication on Move: 596 Unit Tests Passing across 52 Test Files) -->
 
 
 

@@ -528,7 +528,10 @@ class SpaceService {
         }
     }
 
-    async addTabToSpace(spaceId: number, tab: { url?: string; title?: string; favIconUrl?: string | null }): Promise<void> {
+    async addTabToSpace(
+        spaceId: number,
+        tab: { url?: string; title?: string; favIconUrl?: string | null; favicon?: string | null },
+    ): Promise<void> {
         if (!tab.url) return;
 
         try {
@@ -588,7 +591,7 @@ class SpaceService {
                         spaceId,
                         url: tab.url!,
                         title: tab.title || 'Untitled',
-                        favicon: tab.favIconUrl || '',
+                        favicon: tab.favIconUrl || tab.favicon || '',
                         order: nextOrder,
                     });
                 }
@@ -651,15 +654,16 @@ class SpaceService {
 
     /**
      * Moves a tab from its current space to a target space.
-     * Checks for duplicate URLs in the target space and appends to the highest order index.
+     * Soft-deletes the tab in the source space to establish an authoritative tombstone
+     * and adds the tab to the target space via addTabToSpace.
      * Runs atomically inside a Dexie transaction and returns original space ID and order metadata for undo recovery.
      */
     async moveTabBetweenSpaces(tabId: number, targetSpaceId: number): Promise<{ sourceSpaceId: number; originalOrder: number }> {
         try {
-            const result = await db.transaction('rw', db.tabs, async () => {
+            const result = await db.transaction('rw', [db.tabs, db.spaces], async () => {
                 const sourceTab = await db.tabs.get(tabId);
                 if (!sourceTab) {
-                    throw new Error('Tab not found.');
+                    throw new Error('TAB_NOT_FOUND');
                 }
 
                 const sourceSpaceId = sourceTab.spaceId;
@@ -669,32 +673,14 @@ class SpaceService {
                     return { sourceSpaceId, originalOrder }; // Already in target space
                 }
 
-                // 1. Check for duplicate URL in target space among active tabs
-                const existing = await db.tabs
-                    .where('spaceId')
-                    .equals(targetSpaceId)
-                    .filter(t => t.url === sourceTab.url && !t.deletedAt)
-                    .first();
+                // 1. Soft-delete the tab in the source space so an authoritative tombstone remains
+                await db.tabs.update(tabId, { deletedAt: Date.now() });
 
-                if (existing) {
-                    throw new Error('DUPLICATE_TAB');
-                }
-
-                // 2. Get current max order in target space among active tabs
-                const lastTab = await db.tabs
-                    .where('spaceId')
-                    .equals(targetSpaceId)
-                    .filter(t => !t.deletedAt)
-                    .reverse()
-                    .sortBy('order')
-                    .then(tabs => tabs[0]);
-
-                const nextOrder = lastTab ? lastTab.order + 1 : 0;
-
-                // 3. Move tab to target space
-                await db.tabs.update(tabId, {
-                    spaceId: targetSpaceId,
-                    order: nextOrder,
+                // 2. Add the tab to the target space
+                await this.addTabToSpace(targetSpaceId, {
+                    url: sourceTab.url,
+                    title: sourceTab.title,
+                    favicon: sourceTab.favicon,
                 });
 
                 return { sourceSpaceId, originalOrder };
@@ -702,7 +688,7 @@ class SpaceService {
             contractRegistry.notifyLocalMutation();
             return result;
         } catch (e) {
-            if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
+            if (e instanceof Error && (e.message === 'DUPLICATE_TAB' || e.message === 'TAB_NOT_FOUND')) {
                 throw e;
             }
             console.error('SpaceService: Failed to move tab between spaces', e);
@@ -715,7 +701,8 @@ class SpaceService {
      */
     async restoreTabPosition(tabId: number, spaceId: number, order: number): Promise<void> {
         try {
-            await db.tabs.update(tabId, { spaceId, order });
+            await db.tabs.update(tabId, { spaceId, order, deletedAt: undefined });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to restore tab position', e);
             throw e;

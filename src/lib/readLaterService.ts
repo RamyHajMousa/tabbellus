@@ -137,6 +137,7 @@ class ReadLaterService {
                     addedAt: Date.now(),
                     status: 'unread',
                     deletedAt: undefined,
+                    updatedAt: Date.now(),
                 });
 
                 // Purge any redundant secondary tombstones with the same URL
@@ -160,6 +161,7 @@ class ReadLaterService {
                 favicon: tab.favIconUrl,
                 addedAt: Date.now(),
                 status: 'unread',
+                updatedAt: Date.now(),
             });
         });
         contractRegistry.notifyLocalMutation();
@@ -170,7 +172,7 @@ class ReadLaterService {
      * Updates the status of a Read Later item.
      */
     async updateStatus(id: number, status: ReadLaterItem['status']): Promise<void> {
-        await db.readLater.update(id, { status });
+        await db.readLater.update(id, { status, updatedAt: Date.now() });
         contractRegistry.notifyLocalMutation();
     }
 
@@ -184,9 +186,10 @@ class ReadLaterService {
             .filter(item => !item.deletedAt)
             .toArray();
         if (unreadItems.length === 0) return 0;
+        const now = Date.now();
         await db.transaction('rw', db.readLater, async () => {
             for (const item of unreadItems) {
-                if (item.id) await db.readLater.update(item.id, { status: 'archived' });
+                if (item.id) await db.readLater.update(item.id, { status: 'archived', updatedAt: now });
             }
         });
         contractRegistry.notifyLocalMutation();
