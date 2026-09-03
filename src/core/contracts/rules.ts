@@ -42,6 +42,7 @@ export interface TabRule {
   actions: RuleAction[];
   createdAt: number;
   updatedAt: number;
+  deletedAt?: number;
 }
 
 export interface RuleEvaluationResult {
@@ -53,7 +54,7 @@ export interface RuleEvaluationResult {
 
 export interface RulesContract {
   getRules(): Promise<TabRule[]>;
-  saveRules(rules: TabRule[]): Promise<void>;
+  saveRules(rules: TabRule[], options?: { skipMutationNotification?: boolean }): Promise<void>;
   evaluateTab(tab: { url?: string; title?: string }): Promise<RuleEvaluationResult>;
   executeActions(tabId: number, actions: RuleAction[], windowId?: number): Promise<void>;
   subscribe(callback: (rules: TabRule[]) => void): () => void;

@@ -1091,4 +1091,316 @@ describe('DiffEngine', () => {
       expect(result.mergedSnapshot.tabs[0].url).toBe('https://recently-modified-local.com');
     });
   });
+
+  describe('Milestone 6: E2EE Synchronization of Tab Rules & Behavioral Settings', () => {
+    it('active rule updated locally with newer updatedAt overrides remote rule', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 5000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [
+          {
+            id: 'rule-1',
+            name: 'Local Dev Rule',
+            enabled: true,
+            priority: 0,
+            matchAll: false,
+            conditions: [{ field: 'domain', operator: 'contains', value: 'github.com' }],
+            actions: [{ type: 'group', groupName: 'Dev Local', groupColor: 'blue' }],
+            createdAt: 1000,
+            updatedAt: 4000,
+          },
+        ],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [
+          {
+            id: 'rule-1',
+            name: 'Remote Dev Rule',
+            enabled: true,
+            priority: 0,
+            matchAll: false,
+            conditions: [{ field: 'domain', operator: 'contains', value: 'github.com' }],
+            actions: [{ type: 'group', groupName: 'Dev Remote', groupColor: 'purple' }],
+            createdAt: 1000,
+            updatedAt: 2500,
+          },
+        ],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.mergedSnapshot.rules).toHaveLength(1);
+      expect(result.mergedSnapshot.rules![0].name).toBe('Local Dev Rule');
+      expect(result.mergedSnapshot.rules![0].actions[0].groupName).toBe('Dev Local');
+      expect(result.localUpdates.rules).toBeUndefined(); // Local already has newer version
+      expect(result.hasRemoteChanges).toBe(true);
+    });
+
+    it('soft-deleted local rule (deletedAt > remoteClientTimestamp) is not resurrected by older remote snapshot', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 5000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [
+          {
+            id: 'rule-1',
+            name: 'Deleted Rule',
+            enabled: true,
+            priority: 0,
+            matchAll: false,
+            conditions: [{ field: 'title', operator: 'contains', value: 'Test' }],
+            actions: [{ type: 'pin' }],
+            createdAt: 1000,
+            updatedAt: 4500,
+            deletedAt: 4500,
+          },
+        ],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [
+          {
+            id: 'rule-1',
+            name: 'Deleted Rule',
+            enabled: true,
+            priority: 0,
+            matchAll: false,
+            conditions: [{ field: 'title', operator: 'contains', value: 'Test' }],
+            actions: [{ type: 'pin' }],
+            createdAt: 1000,
+            updatedAt: 2000,
+          },
+        ],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.mergedSnapshot.rules).toHaveLength(1);
+      expect(result.mergedSnapshot.rules![0].deletedAt).toBe(4500);
+      expect(result.localUpdates.rules).toBeUndefined();
+      expect(result.hasRemoteChanges).toBe(true);
+    });
+
+    it('remote soft-deleted rule propagates tombstone to local rules', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [
+          {
+            id: 'rule-1',
+            name: 'To Be Deleted',
+            enabled: true,
+            priority: 0,
+            matchAll: false,
+            conditions: [],
+            actions: [],
+            createdAt: 1000,
+            updatedAt: 1500,
+          },
+        ],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 4000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [
+          {
+            id: 'rule-1',
+            name: 'To Be Deleted',
+            enabled: true,
+            priority: 0,
+            matchAll: false,
+            conditions: [],
+            actions: [],
+            createdAt: 1000,
+            updatedAt: 3500,
+            deletedAt: 3500,
+          },
+        ],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId, 1000);
+
+      expect(result.localUpdates.rules).toHaveLength(1);
+      expect(result.localUpdates.rules![0].deletedAt).toBe(3500);
+      expect(result.hasLocalChanges).toBe(true);
+    });
+
+    it('deterministic rule priority re-normalization maps sequential indices (Requirement 1)', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 5000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [
+          {
+            id: 'r1',
+            name: 'Rule 1',
+            enabled: true,
+            priority: 5,
+            matchAll: false,
+            conditions: [],
+            actions: [],
+            createdAt: 1000,
+            updatedAt: 1000,
+          },
+          {
+            id: 'r2',
+            name: 'Rule 2',
+            enabled: true,
+            priority: 2,
+            matchAll: false,
+            conditions: [],
+            actions: [],
+            createdAt: 1000,
+            updatedAt: 2000,
+          },
+          {
+            id: 'r3',
+            name: 'Rule 3',
+            enabled: true,
+            priority: 2,
+            matchAll: false,
+            conditions: [],
+            actions: [],
+            createdAt: 1000,
+            updatedAt: 3000, // Newer than r2 -> wins tie break for priority 2
+          },
+        ],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 5000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      const active = result.mergedSnapshot.rules!.filter((r) => !r.deletedAt);
+      expect(active).toHaveLength(3);
+      // r3 (priority 2, updatedAt 3000) -> index 0
+      expect(active[0].id).toBe('r3');
+      expect(active[0].priority).toBe(0);
+      // r2 (priority 2, updatedAt 2000) -> index 1
+      expect(active[1].id).toBe('r2');
+      expect(active[1].priority).toBe(1);
+      // r1 (priority 5, updatedAt 1000) -> index 2
+      expect(active[2].id).toBe('r1');
+      expect(active[2].priority).toBe(2);
+    });
+
+    it('synced behavioral settings update locally when remote updatedAt is newer', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        settings: {
+          duplicateTabBehavior: 'focus-existing',
+          spaceRestoreTrigger: 'single',
+          readLaterOpenBehavior: 'foreground',
+          readLaterAutoArchive: true,
+          updatedAt: 1000,
+        },
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        settings: {
+          duplicateTabBehavior: 'allow',
+          spaceRestoreTrigger: 'double',
+          readLaterOpenBehavior: 'background',
+          readLaterAutoArchive: false,
+          updatedAt: 2500,
+        },
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.localUpdates.settings).toEqual({
+        duplicateTabBehavior: 'allow',
+        spaceRestoreTrigger: 'double',
+        readLaterOpenBehavior: 'background',
+        readLaterAutoArchive: false,
+        updatedAt: 2500,
+      });
+      expect(result.hasLocalChanges).toBe(true);
+    });
+
+    it('preserves local settings when remote snapshot lacks settings (backward compatibility)', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        settings: {
+          duplicateTabBehavior: 'focus-existing',
+          spaceRestoreTrigger: 'single',
+          readLaterOpenBehavior: 'foreground',
+          readLaterAutoArchive: true,
+          updatedAt: 1000,
+        },
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        // legacy snapshot: no settings
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.localUpdates.settings).toBeUndefined();
+      expect(result.mergedSnapshot.settings).toEqual(local.settings);
+      expect(result.hasRemoteChanges).toBe(true); // Remote needs to receive the settings
+    });
+  });
 });

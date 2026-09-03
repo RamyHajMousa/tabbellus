@@ -25,6 +25,7 @@ describe('useAppStore Settings Slice', () => {
             autoDiscardInterval: 0,
             spaceRestoreTrigger: 'single',
             duplicateTabBehavior: 'focus-existing',
+            settingsUpdatedAt: 0,
         });
         expect(state.theme).toBe('system');
         expect(state.showDomain).toBe(true);
@@ -106,10 +107,25 @@ describe('useAppStore Settings Slice', () => {
             autoDiscardInterval: 60,
             spaceRestoreTrigger: 'double',
             duplicateTabBehavior: 'allow',
+            settingsUpdatedAt: expect.any(Number),
         });
         expect(state.theme).toBe('light');
         expect(state.showDomain).toBe(false);
         expect(state.badgeMode).toBe('none');
+    });
+
+    it('should preserve explicitly passed settingsUpdatedAt and respect skipMutationNotification (Requirement 3)', () => {
+        const explicitTimestamp = 1234567890;
+        useAppStore.getState().updateSettings(
+            {
+                duplicateTabBehavior: 'allow',
+                settingsUpdatedAt: explicitTimestamp,
+            },
+            { skipMutationNotification: true },
+        );
+        const state = useAppStore.getState();
+        expect(state.settings.duplicateTabBehavior).toBe('allow');
+        expect(state.settings.settingsUpdatedAt).toBe(explicitTimestamp);
     });
 
     it('should handle persist merge fallback for legacy storage payload lacking settings object and new properties', () => {

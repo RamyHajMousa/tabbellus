@@ -1292,7 +1292,59 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 10.27s.
 
-<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 9: Dexie Version 5 Immutable UUIDs & Universal LWW Timestamps: 609 Unit Tests Passing across 52 Test Files) -->
+---
+
+### Phase 43.12: Milestone 6 — E2EE Synchronization of Tab Rules & Behavioral Settings
+*   **Architectural Scope:** Extended the Zero-Knowledge End-to-End Encrypted (E2EE) cloud sync subsystem to encompass Tab Automation Rules and user Behavioral Settings. Delivered deterministic priority re-normalization, tombstone isolation in UI actions, anti-echo mutation guards, and timestamp fidelity across multi-master synchronization cycles.
+*   **Core Contracts & Schemas:**
+    *   **Rules Contract (`src/core/contracts/rules.ts`):**
+        *   Extended `TabRule` interface with optional `deletedAt?: number`.
+        *   Updated `RulesContract.saveRules(rules: TabRule[], options?: { skipMutationNotification?: boolean }): Promise<void>`.
+    *   **Sync Engine Types (`src/pro/sync/engine/types.ts`):**
+        *   Exported `SyncedSettings` interface (`duplicateTabBehavior`, `spaceRestoreTrigger`, `readLaterOpenBehavior`, `readLaterAutoArchive`, `updatedAt: number`).
+        *   Extended `SyncVaultSnapshot` with optional `rules?: TabRule[]` and `settings?: SyncedSettings`.
+        *   Extended `ReconciliationResult['localUpdates']` with `rules?: TabRule[]` and `settings?: SyncedSettings`.
+*   **App Settings Store & Timestamp Fidelity (`src/store/appStore.ts`):**
+    *   Extended `AppSettings` with `settingsUpdatedAt: number`.
+    *   Defined `PORTABLE_SETTINGS_KEYS = ['duplicateTabBehavior', 'spaceRestoreTrigger', 'readLaterOpenBehavior', 'readLaterAutoArchive']`.
+    *   **Timestamp Fidelity (Mandatory Requirement 3):** In `updateSettings(partial, options)`, preserves explicitly passed `partial.settingsUpdatedAt` (e.g. from `SnapshotSerializer.applyRemoteUpdates`). Only falls back to `Date.now()` when mutating portable settings without a provided timestamp. Non-portable settings (`theme`, `autoDiscardInterval`, `showDomain`, `badgeMode`) do not bump timestamps.
+    *   **Anti-Echo Notification Guard:** Dispatches `contractRegistry.notifyLocalMutation()` when portable settings are mutated, unless `options?.skipMutationNotification` is `true`.
+    *   Updated portable setters (`setReadLaterOpenBehavior`, `setReadLaterAutoArchive`, `setSpaceRestoreTrigger`, `setDuplicateTabBehavior`) to set `settingsUpdatedAt: Date.now()` and dispatch auto-sync notification.
+    *   Updated persist `merge` handler to preserve `settingsUpdatedAt`.
+*   **Rules Components & Tombstone Isolation:**
+    *   **Rule List Actions (`src/pro/rules/components/ruleListActions.ts`):**
+        *   `removeRuleById`: Soft-deletes rules by setting `deletedAt: Date.now(), updatedAt: Date.now()` instead of permanently destroying objects.
+        *   `insertRule`: Clears `deletedAt: undefined` and sets `updatedAt: Date.now()`; calculates `maxPriority` ignoring tombstones.
+        *   **Tombstone Isolation in List Actions (Mandatory Requirement 2):** `moveRulePriority` filters active rules (`!r.deletedAt`), swaps positions and re-normalizes priorities strictly among active rules, and re-attaches tombstones intact.
+    *   **Template Actions (`src/pro/rules/components/templateActions.ts`):**
+        *   `instantiateTemplate`: Filters `existingRules.filter(r => !r.deletedAt)` when calculating `maxPriority`.
+    *   **Rule Manager Card (`src/pro/rules/components/RuleManagerCard.tsx`):**
+        *   Filters `sortedRules` with `rules.filter(r => !r.deletedAt)` so tombstones are hidden from the user interface.
+*   **Rules Engine (`src/pro/rules/engine/rulesEngine.ts`):**
+    *   `saveRules`: Calls `contractRegistry.notifyLocalMutation()` unless `options?.skipMutationNotification` is `true`.
+    *   `evaluateTab`: Checks `if (!rule.enabled || rule.deletedAt) continue;` to ensure soft-deleted rules are never executed.
+*   **DiffEngine & Reconciliation (`src/pro/sync/engine/diffEngine.ts`):**
+    *   **Deterministic Rule Priority Re-normalization (Mandatory Requirement 1):** In `reconcileRules`:
+        *   Applies symmetric 4-case LWW for rule tombstones.
+        *   Sorts active rules (`!r.deletedAt`) by `priority ASC`, tie-breaks by `toEpochMs(r.updatedAt) DESC`, and tie-breaks by `r.id ASC`.
+        *   Maps priorities sequentially to `0..n-1`.
+    *   **Reconcile Settings (`reconcileSettings`):** LWW comparison of `updatedAt` timestamps between local and remote settings.
+    *   **Dual Change Detection:** Evaluates `rulesDiffer` and `settingsDiffer`, incorporating them into `hasRemoteChanges` and `hasLocalChanges`.
+*   **Snapshot Serializer (`src/pro/sync/engine/snapshotSerializer.ts`):**
+    *   `createLocalSnapshot`: Packages rules and portable settings with `settingsUpdatedAt`.
+    *   `applyRemoteUpdates`: Applies incoming remote rules and settings with `{ skipMutationNotification: true }` to prevent circular sync loops.
+    *   `validateSnapshot`: Validates optional `rules` and `settings` with type guards.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added 6 test cases for rule LWW update, tombstone preservation, remote tombstone propagation, deterministic priority re-normalization, and settings reconciliation (40 tests).
+    *   `src/pro/sync/engine/__tests__/snapshotSerializer.test.ts`: Added 3 test cases for rules and settings serialization and anti-echo guard (10 tests).
+    *   `src/pro/rules/components/__tests__/TemplatePickerModal.test.tsx`: Added tombstone isolation test for `instantiateTemplate` (9 tests).
+    *   `src/pro/rules/components/__tests__/RuleManagerCard.test.tsx`: Added tombstone isolation test for `moveRulePriority` (13 tests).
+    *   `src/store/__tests__/appStore.test.ts`: Added tests for `settingsUpdatedAt` and Requirement 3 timestamp fidelity (13 tests).
+    *   Full test suite raised to **621/621 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 9.82s.
+
+<!-- Last Updated: 2026-09-03 (Milestone 6: E2EE Synchronization of Tab Rules & Behavioral Settings: 621 Unit Tests Passing across 52 Test Files) -->
 
 
 

@@ -170,13 +170,31 @@ describe('RuleManagerCard — priority reordering', () => {
     expect(moveRulePriority([a, b], 'a', 'up')).toEqual([a, b]);
     expect(moveRulePriority([a, b], 'b', 'down')).toEqual([a, b]);
   });
+
+  it('moveRulePriority swaps positions strictly among active rules and preserves tombstones (Requirement 2)', () => {
+    const a = makeRule({ id: 'a', priority: 0 });
+    const tombstone = makeRule({ id: 'tomb', priority: 1, deletedAt: 12345 });
+    const b = makeRule({ id: 'b', priority: 1 });
+
+    const result = moveRulePriority([a, tombstone, b], 'b', 'up');
+    const active = result.filter((r) => !r.deletedAt).sort((x, y) => x.priority - y.priority);
+
+    expect(active.map((r) => r.id)).toEqual(['b', 'a']);
+    expect(active[0].priority).toBe(0);
+    expect(active[1].priority).toBe(1);
+    expect(result.find((r) => r.id === 'tomb')?.deletedAt).toBe(12345);
+  });
 });
 
 describe('RuleManagerCard — deletion with undo restoration', () => {
-  it('removeRuleById removes only the targeted rule', () => {
+  it('removeRuleById soft-deletes the targeted rule with deletedAt timestamp', () => {
     const a = makeRule({ id: 'a' });
     const b = makeRule({ id: 'b' });
-    expect(removeRuleById([a, b], 'a')).toEqual([b]);
+    const result = removeRuleById([a, b], 'a');
+    expect(result).toHaveLength(2);
+    expect(result.find((r) => r.id === 'a')?.deletedAt).toBeDefined();
+    expect(result.find((r) => r.id === 'b')?.deletedAt).toBeUndefined();
+    expect(result.filter((r) => !r.deletedAt)).toEqual([b]);
   });
 
   it('insertRule (undo restore) appends the rule back with the lowest evaluation precedence', () => {

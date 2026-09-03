@@ -22,7 +22,9 @@ export function instantiateTemplate(
   existingRules: TabRule[],
 ): TabRule {
   const now = Date.now();
-  const maxPriority = existingRules.reduce((max, r) => Math.max(max, r.priority), -1);
+  const maxPriority = existingRules
+    .filter((r) => !r.deletedAt)
+    .reduce((max, r) => Math.max(max, r.priority), -1);
 
   return {
     ...template,

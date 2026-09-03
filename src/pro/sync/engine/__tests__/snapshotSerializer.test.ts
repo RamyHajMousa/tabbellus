@@ -7,10 +7,12 @@
  * - Applying remote updates to Dexie within atomic transactions
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { db } from '@/lib/db';
 import { SnapshotSerializer } from '../snapshotSerializer';
 import type { SyncVaultSnapshot } from '../types';
+import { useAppStore } from '@/store/appStore';
+import { contractRegistry } from '@/core/contracts/registry';
 
 describe('SnapshotSerializer', () => {
   beforeEach(async () => {
@@ -163,30 +165,111 @@ describe('SnapshotSerializer', () => {
       expect(SnapshotSerializer.validateSnapshot(valid)).toBe(true);
     });
 
-    it('rejects null, non-objects, or missing array fields', () => {
-      expect(SnapshotSerializer.validateSnapshot(null)).toBe(false);
-      expect(SnapshotSerializer.validateSnapshot('string')).toBe(false);
-      expect(SnapshotSerializer.validateSnapshot({})).toBe(false);
+    it('validates conforming snapshot objects with optional rules and settings', () => {
+      const valid: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: Date.now(),
+        deviceId: 'dev-1',
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [],
+        settings: {
+          duplicateTabBehavior: 'allow',
+          spaceRestoreTrigger: 'single',
+          readLaterOpenBehavior: 'foreground',
+          readLaterAutoArchive: true,
+          updatedAt: Date.now(),
+        },
+      };
+
+      expect(SnapshotSerializer.validateSnapshot(valid)).toBe(true);
+    });
+
+    it('rejects snapshots with malformed rules or settings', () => {
       expect(
         SnapshotSerializer.validateSnapshot({
           version: 1,
           clientTimestamp: Date.now(),
           deviceId: 'dev-1',
-          spaces: null,
+          spaces: [],
           tabs: [],
           readLater: [],
+          rules: 'invalid-not-an-array',
         }),
       ).toBe(false);
+
       expect(
         SnapshotSerializer.validateSnapshot({
-          version: '1', // string instead of number
+          version: 1,
           clientTimestamp: Date.now(),
           deviceId: 'dev-1',
           spaces: [],
           tabs: [],
           readLater: [],
+          settings: { updatedAt: 'not-a-number' },
         }),
       ).toBe(false);
+    });
+  });
+
+  describe('rules and settings synchronization', () => {
+    it('packages current rules and synced settings in createLocalSnapshot', async () => {
+      const snapshot = await SnapshotSerializer.createLocalSnapshot('device-settings-test');
+      expect(snapshot.rules).toBeDefined();
+      expect(Array.isArray(snapshot.rules)).toBe(true);
+      expect(snapshot.settings).toBeDefined();
+      expect(snapshot.settings!.duplicateTabBehavior).toBeDefined();
+      expect(snapshot.settings!.spaceRestoreTrigger).toBeDefined();
+      expect(snapshot.settings!.readLaterOpenBehavior).toBeDefined();
+      expect(snapshot.settings!.readLaterAutoArchive).toBeDefined();
+      expect(typeof snapshot.settings!.updatedAt).toBe('number');
+    });
+
+    it('applies remote rules and settings with Anti-Echo Guard (bypassing notifyLocalMutation)', async () => {
+      const mutationListener = vi.fn();
+      const unsub = contractRegistry.subscribeLocalMutation(mutationListener);
+
+      try {
+        await SnapshotSerializer.applyRemoteUpdates({
+          spaces: [],
+          tabs: [],
+          readLater: [],
+          rules: [
+            {
+              id: 'remote-test-rule',
+              name: 'Remote Injected Rule',
+              enabled: true,
+              priority: 0,
+              matchAll: false,
+              conditions: [],
+              actions: [],
+              createdAt: 1000,
+              updatedAt: 2000,
+            },
+          ],
+          settings: {
+            duplicateTabBehavior: 'allow',
+            spaceRestoreTrigger: 'double',
+            readLaterOpenBehavior: 'background',
+            readLaterAutoArchive: false,
+            updatedAt: 5555,
+          },
+        });
+
+        // 1. Check settings applied to store
+        const storeSettings = useAppStore.getState().settings;
+        expect(storeSettings.duplicateTabBehavior).toBe('allow');
+        expect(storeSettings.spaceRestoreTrigger).toBe('double');
+        expect(storeSettings.readLaterOpenBehavior).toBe('background');
+        expect(storeSettings.readLaterAutoArchive).toBe(false);
+        expect(storeSettings.settingsUpdatedAt).toBe(5555);
+
+        // 2. Anti-echo guard: mutationListener must NOT have been called!
+        expect(mutationListener).not.toHaveBeenCalled();
+      } finally {
+        unsub();
+      }
     });
   });
 });

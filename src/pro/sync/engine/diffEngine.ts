@@ -25,7 +25,8 @@
 
 import type { Space, Tab, ReadLaterItem } from '@/lib/db';
 import { normalizeTabUrl } from '@/lib/tabService';
-import type { SyncVaultSnapshot, ReconciliationResult } from './types';
+import type { SyncVaultSnapshot, ReconciliationResult, SyncedSettings } from './types';
+import type { TabRule } from '@/core/contracts/rules';
 
 export { normalizeTabUrl };
 
@@ -751,6 +752,229 @@ export class DiffEngine {
   }
 
   /**
+   * Reconciles tab automation rules between local and remote snapshots.
+   * Resolves deletions via symmetric 4-case LWW and normalizes active rules priority sequentially.
+   */
+  static reconcileRules(
+    localRules: TabRule[] = [],
+    remoteRules: TabRule[] = [],
+    localClientTimestamp?: number | string,
+    remoteClientTimestamp?: number | string,
+    localLastSyncedAt?: number | string,
+  ): {
+    mergedRules: TabRule[];
+    localRuleUpdates: TabRule[];
+  } {
+    const normLocalClientTs = toEpochMs(localClientTimestamp);
+    const normRemoteClientTs = toEpochMs(remoteClientTimestamp);
+    const normLocalLastSyncedAt = toEpochMs(localLastSyncedAt);
+
+    // 1. Pre-deduplicate remote rules by id, keeping latest updatedAt
+    const remoteRuleMap = new Map<string, TabRule>();
+    for (const r of remoteRules) {
+      const existing = remoteRuleMap.get(r.id);
+      if (!existing || toEpochMs(r.updatedAt) > toEpochMs(existing.updatedAt)) {
+        remoteRuleMap.set(r.id, r);
+      }
+    }
+
+    const localRuleMap = new Map<string, TabRule>();
+    for (const r of localRules) {
+      localRuleMap.set(r.id, r);
+    }
+
+    const mergedMap = new Map<string, TabRule>();
+    const localRuleUpdates: TabRule[] = [];
+
+    // 2. Process remote rules against local rules
+    for (const [id, remoteRule] of remoteRuleMap.entries()) {
+      const localRule = localRuleMap.get(id);
+
+      if (localRule) {
+        // Both exist: resolve deletion status via symmetric 4-case LWW
+        const localIsDeleted = localRule.deletedAt !== undefined;
+        const remoteIsDeleted = remoteRule.deletedAt !== undefined;
+        const localDelMs = toEpochMs(localRule.deletedAt);
+        const remoteDelMs = toEpochMs(remoteRule.deletedAt);
+
+        let resolvedDeletedAt: number | undefined;
+
+        if (localIsDeleted && !remoteIsDeleted) {
+          // Case 1: Local is soft-deleted, Remote is active
+          if (localDelMs > normRemoteClientTs) {
+            resolvedDeletedAt = localRule.deletedAt;
+          } else {
+            resolvedDeletedAt = undefined;
+          }
+        } else if (!localIsDeleted && remoteIsDeleted) {
+          // Case 2: Remote is soft-deleted, Local is active
+          if (remoteDelMs > normLocalLastSyncedAt) {
+            resolvedDeletedAt = remoteRule.deletedAt;
+          } else {
+            resolvedDeletedAt = undefined;
+          }
+        } else if (localIsDeleted && remoteIsDeleted) {
+          // Case 4: Both soft-deleted
+          resolvedDeletedAt = Math.max(localDelMs, remoteDelMs);
+        } else {
+          // Case 3: Both active
+          resolvedDeletedAt = undefined;
+        }
+
+        const localUpdatedMs = toEpochMs(localRule.updatedAt);
+        const remoteUpdatedMs = toEpochMs(remoteRule.updatedAt ?? remoteClientTimestamp);
+        const remoteWins =
+          remoteUpdatedMs > localUpdatedMs ||
+          (remoteUpdatedMs === localUpdatedMs && normRemoteClientTs >= normLocalClientTs);
+
+        const mergedCreatedAt = localRule.createdAt ?? remoteRule.createdAt;
+        const mergedUpdatedAt = Math.max(localUpdatedMs, remoteUpdatedMs);
+
+        const winner = remoteWins ? remoteRule : localRule;
+        const fallback = remoteWins ? localRule : remoteRule;
+
+        const mergedRule: TabRule = {
+          id: localRule.id,
+          name: winner.name ?? fallback.name,
+          enabled: winner.enabled !== undefined ? winner.enabled : fallback.enabled,
+          priority: winner.priority !== undefined ? winner.priority : fallback.priority,
+          matchAll: winner.matchAll !== undefined ? winner.matchAll : fallback.matchAll,
+          conditions: winner.conditions ?? fallback.conditions,
+          actions: winner.actions ?? fallback.actions,
+          createdAt: mergedCreatedAt,
+          updatedAt: mergedUpdatedAt,
+          ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),
+        };
+
+        // Determine if local needs update
+        const conditionsDiffer = JSON.stringify(localRule.conditions) !== JSON.stringify(mergedRule.conditions);
+        const actionsDiffer = JSON.stringify(localRule.actions) !== JSON.stringify(mergedRule.actions);
+        const localNeedsUpdate =
+          localRule.name !== mergedRule.name ||
+          localRule.enabled !== mergedRule.enabled ||
+          localRule.priority !== mergedRule.priority ||
+          localRule.matchAll !== mergedRule.matchAll ||
+          localRule.deletedAt !== mergedRule.deletedAt ||
+          toEpochMs(localRule.updatedAt) !== toEpochMs(mergedRule.updatedAt) ||
+          conditionsDiffer ||
+          actionsDiffer;
+
+        if (localNeedsUpdate) {
+          localRuleUpdates.push(mergedRule);
+        }
+
+        mergedMap.set(id, mergedRule);
+      } else {
+        // Remote rule does not exist locally
+        if (remoteRule.deletedAt !== undefined) {
+          // Remote tombstone for rule not present locally: preserve in merged for propagation, omit from local updates
+          mergedMap.set(id, { ...remoteRule });
+        } else {
+          // Remote active rule: add to local and merged
+          mergedMap.set(id, { ...remoteRule });
+          localRuleUpdates.push({ ...remoteRule });
+        }
+      }
+    }
+
+    // 3. Process local rules not present remotely
+    for (const [id, localRule] of localRuleMap.entries()) {
+      if (!mergedMap.has(id)) {
+        mergedMap.set(id, { ...localRule });
+      }
+    }
+
+    // 4. Re-normalize active rules priorities deterministically (Mandatory Requirement 1)
+    // "In reconcileRules, sort active rules by priority ASC, tie-break by toEpochMs(r.updatedAt) DESC, and tie-break by r.id ASC before mapping priorities to sequential indices 0..n-1."
+    const activeRules: TabRule[] = [];
+    const deletedRules: TabRule[] = [];
+
+    for (const rule of mergedMap.values()) {
+      if (rule.deletedAt !== undefined) {
+        deletedRules.push(rule);
+      } else {
+        activeRules.push(rule);
+      }
+    }
+
+    activeRules.sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
+      }
+      const aUpdated = toEpochMs(a.updatedAt);
+      const bUpdated = toEpochMs(b.updatedAt);
+      if (aUpdated !== bUpdated) {
+        return bUpdated - aUpdated; // DESC
+      }
+      return a.id.localeCompare(b.id); // ASC
+    });
+
+    const normalizedActiveRules = activeRules.map((rule, index) => {
+      if (rule.priority === index) {
+        return rule;
+      }
+      const updatedRule = { ...rule, priority: index };
+      const localIdx = localRuleUpdates.findIndex((r) => r.id === rule.id);
+      if (localIdx >= 0) {
+        localRuleUpdates[localIdx] = updatedRule;
+      } else {
+        const existingLocal = localRuleMap.get(rule.id);
+        if (existingLocal && existingLocal.priority !== index) {
+          localRuleUpdates.push(updatedRule);
+        }
+      }
+      return updatedRule;
+    });
+
+    const mergedRules = [...normalizedActiveRules, ...deletedRules];
+
+    return {
+      mergedRules,
+      localRuleUpdates,
+    };
+  }
+
+  /**
+   * Reconciles behavioral settings via LWW timestamp comparison.
+   */
+  static reconcileSettings(
+    localSettings?: SyncedSettings,
+    remoteSettings?: SyncedSettings,
+  ): {
+    mergedSettings?: SyncedSettings;
+    localSettingsUpdate?: SyncedSettings;
+  } {
+    if (!remoteSettings) {
+      return {
+        mergedSettings: localSettings,
+        localSettingsUpdate: undefined,
+      };
+    }
+
+    if (!localSettings) {
+      return {
+        mergedSettings: remoteSettings,
+        localSettingsUpdate: remoteSettings,
+      };
+    }
+
+    const localUpdated = toEpochMs(localSettings.updatedAt);
+    const remoteUpdated = toEpochMs(remoteSettings.updatedAt);
+
+    if (remoteUpdated > localUpdated) {
+      return {
+        mergedSettings: { ...remoteSettings },
+        localSettingsUpdate: { ...remoteSettings },
+      };
+    } else {
+      return {
+        mergedSettings: { ...localSettings },
+        localSettingsUpdate: undefined,
+      };
+    }
+  }
+
+  /**
    * Reconciles a local snapshot against an optional remote vault snapshot.
    *
    * @param local - The local client's snapshot of Dexie data.
@@ -782,6 +1006,8 @@ export class DiffEngine {
           spaces: [...local.spaces],
           tabs: [...local.tabs],
           readLater: [...local.readLater],
+          ...(local.rules !== undefined ? { rules: [...local.rules] } : {}),
+          ...(local.settings !== undefined ? { settings: { ...local.settings } } : {}),
         },
         hasLocalChanges: false,
         hasRemoteChanges: true,
@@ -832,14 +1058,41 @@ export class DiffEngine {
     localUpdates.readLater = readLaterResult.localReadLaterUpdates;
 
     // -----------------------------------------------------------------------
-    // 4. Dual Change Detection: HasLocalChanges & HasRemoteChanges Evaluation
+    // 4. Reconcile Rules
+    // -----------------------------------------------------------------------
+    const rulesResult = DiffEngine.reconcileRules(
+      local.rules,
+      remote.rules,
+      local.clientTimestamp,
+      remote.clientTimestamp,
+      localLastSyncedAt,
+    );
+    if (rulesResult.localRuleUpdates.length > 0) {
+      localUpdates.rules = rulesResult.localRuleUpdates;
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Reconcile Settings
+    // -----------------------------------------------------------------------
+    const settingsResult = DiffEngine.reconcileSettings(
+      local.settings,
+      remote.settings,
+    );
+    if (settingsResult.localSettingsUpdate) {
+      localUpdates.settings = settingsResult.localSettingsUpdate;
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. Dual Change Detection: HasLocalChanges & HasRemoteChanges Evaluation
     // -----------------------------------------------------------------------
     const hasLocalChanges =
       localUpdates.spaces.length > 0 ||
       localUpdates.tabs.length > 0 ||
       localUpdates.readLater.length > 0 ||
       (localUpdates.tabIdsToDelete !== undefined &&
-        localUpdates.tabIdsToDelete.length > 0);
+        localUpdates.tabIdsToDelete.length > 0) ||
+      (localUpdates.rules !== undefined && localUpdates.rules.length > 0) ||
+      localUpdates.settings !== undefined;
 
     // Check if merged spaces differ from remote spaces
     let spacesDiffer = spacesResult.mergedSpaces.length !== remote.spaces.length;
@@ -917,8 +1170,68 @@ export class DiffEngine {
       }
     }
 
-    const hasRemoteChanges = spacesDiffer || tabsDiffer || readLaterDiffer;
+    // Check if merged rules differ from remote rules
+    let rulesDiffer = false;
+    const remoteRules = remote.rules ?? [];
+    const mergedRules = rulesResult.mergedRules;
+    if (mergedRules.length !== remoteRules.length) {
+      rulesDiffer = true;
+    } else {
+      const remoteRuleMap = new Map<string, TabRule>();
+      for (const r of remoteRules) {
+        remoteRuleMap.set(r.id, r);
+      }
+      for (const mr of mergedRules) {
+        const rr = remoteRuleMap.get(mr.id);
+        if (
+          !rr ||
+          mr.name !== rr.name ||
+          mr.enabled !== rr.enabled ||
+          mr.priority !== rr.priority ||
+          mr.matchAll !== rr.matchAll ||
+          mr.deletedAt !== rr.deletedAt ||
+          toEpochMs(mr.updatedAt) !== toEpochMs(rr.updatedAt) ||
+          JSON.stringify(mr.conditions) !== JSON.stringify(rr.conditions) ||
+          JSON.stringify(mr.actions) !== JSON.stringify(rr.actions)
+        ) {
+          rulesDiffer = true;
+          break;
+        }
+      }
+    }
+
+    // Check if merged settings differ from remote settings
+    let settingsDiffer = false;
+    if (settingsResult.mergedSettings) {
+      if (!remote.settings) {
+        settingsDiffer = true;
+      } else {
+        const ms = settingsResult.mergedSettings;
+        const rs = remote.settings;
+        if (
+          ms.duplicateTabBehavior !== rs.duplicateTabBehavior ||
+          ms.spaceRestoreTrigger !== rs.spaceRestoreTrigger ||
+          ms.readLaterOpenBehavior !== rs.readLaterOpenBehavior ||
+          ms.readLaterAutoArchive !== rs.readLaterAutoArchive ||
+          toEpochMs(ms.updatedAt) !== toEpochMs(rs.updatedAt)
+        ) {
+          settingsDiffer = true;
+        }
+      }
+    }
+
+    const hasRemoteChanges =
+      spacesDiffer ||
+      tabsDiffer ||
+      readLaterDiffer ||
+      rulesDiffer ||
+      settingsDiffer;
     const hasChanges = hasLocalChanges || hasRemoteChanges;
+
+    const includeRules =
+      rulesResult.mergedRules.length > 0 ||
+      (local.rules !== undefined && local.rules.length > 0) ||
+      (remote.rules !== undefined && remote.rules.length > 0);
 
     return {
       localUpdates,
@@ -929,6 +1242,8 @@ export class DiffEngine {
         spaces: spacesResult.mergedSpaces,
         tabs: tabsResult.mergedTabs,
         readLater: readLaterResult.mergedReadLater,
+        ...(includeRules ? { rules: rulesResult.mergedRules } : {}),
+        ...(settingsResult.mergedSettings ? { settings: settingsResult.mergedSettings } : {}),
       },
       hasLocalChanges,
       hasRemoteChanges,

@@ -21,9 +21,12 @@ export function toggleRuleEnabled(rules: TabRule[], ruleId: string): TabRule[] {
  * Swaps a rule's evaluation order with its immediate neighbor and
  * re-normalizes priority to sequential indices (0..n-1) matching the new
  * sorted order. No-ops at the list boundaries.
+ * Strictly operates among active rules (omitting soft-deleted tombstones).
  */
 export function moveRulePriority(rules: TabRule[], ruleId: string, direction: 'up' | 'down'): TabRule[] {
-  const sorted = sortByPriority(rules);
+  const activeRules = rules.filter((r) => !r.deletedAt);
+  const tombstones = rules.filter((r) => Boolean(r.deletedAt));
+  const sorted = sortByPriority(activeRules);
   const index = sorted.findIndex((r) => r.id === ruleId);
   if (index === -1) return rules;
 
@@ -34,31 +37,45 @@ export function moveRulePriority(rules: TabRule[], ruleId: string, direction: 'u
   [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
 
   const now = Date.now();
-  return reordered.map((r, i) => ({
+  const updatedActive = reordered.map((r, i) => ({
     ...r,
     priority: i,
     updatedAt: i === index || i === targetIndex ? now : r.updatedAt,
   }));
+
+  return [...updatedActive, ...tombstones];
 }
 
+/**
+ * Marks a rule as soft-deleted by setting deletedAt and updatedAt timestamps
+ * rather than destroying the object, enabling tombstone propagation across devices.
+ */
 export function removeRuleById(rules: TabRule[], ruleId: string): TabRule[] {
-  return rules.filter((r) => r.id !== ruleId);
+  const now = Date.now();
+  return rules.map((r) => (r.id === ruleId ? { ...r, deletedAt: now, updatedAt: now } : r));
 }
 
 /**
  * Inserts (or replaces, if the id already exists — used by undo-restore) a
  * rule. New rules are appended with the lowest evaluation precedence
  * (highest `priority` value), so they never silently reorder ahead of a
- * user's existing custom rules.
+ * user's existing custom rules. Clears deletedAt if restoring a soft-deleted rule.
  */
 export function insertRule(rules: TabRule[], rule: TabRule): TabRule[] {
+  const restored: TabRule = {
+    ...rule,
+    deletedAt: undefined,
+    updatedAt: Date.now(),
+  };
   const withoutExisting = rules.filter((r) => r.id !== rule.id);
   const alreadyHadPriority = rules.some((r) => r.id === rule.id);
   if (alreadyHadPriority) {
-    return [...withoutExisting, rule];
+    return [...withoutExisting, restored];
   }
-  const maxPriority = withoutExisting.reduce((max, r) => Math.max(max, r.priority), -1);
-  return [...withoutExisting, { ...rule, priority: maxPriority + 1 }];
+  const maxPriority = withoutExisting
+    .filter((r) => !r.deletedAt)
+    .reduce((max, r) => Math.max(max, r.priority), -1);
+  return [...withoutExisting, { ...restored, priority: maxPriority + 1 }];
 }
 
 export interface RuleSummary {

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 import { spaceService } from '@/lib/spaceService';
 
+import { contractRegistry } from '@/core/contracts/registry';
+
 export interface AppSettings {
     theme: 'light' | 'dark' | 'system';
     badgeMode: 'none' | 'tabs' | 'read-later';
@@ -11,7 +13,15 @@ export interface AppSettings {
     autoDiscardInterval: 0 | 15 | 30 | 60 | 120;
     spaceRestoreTrigger: 'single' | 'double';
     duplicateTabBehavior: 'allow' | 'focus-existing';
+    settingsUpdatedAt: number;
 }
+
+export const PORTABLE_SETTINGS_KEYS: (keyof AppSettings)[] = [
+    'duplicateTabBehavior',
+    'spaceRestoreTrigger',
+    'readLaterOpenBehavior',
+    'readLaterAutoArchive',
+];
 
 export const DEFAULT_SETTINGS: AppSettings = {
     theme: 'system',
@@ -22,6 +32,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoDiscardInterval: 0,
     spaceRestoreTrigger: 'single',
     duplicateTabBehavior: 'focus-existing',
+    settingsUpdatedAt: 0,
 };
 
 // 1. Create a Custom Bridge for Chrome Storage
@@ -85,7 +96,7 @@ export interface AppState {
     recentSearches: string[];
 
     // Actions
-    updateSettings: (partial: Partial<AppSettings>) => void;
+    updateSettings: (partial: Partial<AppSettings>, options?: { skipMutationNotification?: boolean }) => void;
     setTheme: (theme: AppSettings['theme']) => void;
     setShowDomain: (showDomain: AppSettings['showDomain']) => void;
     setBadgeMode: (badgeMode: AppSettings['badgeMode']) => void;
@@ -114,15 +125,34 @@ export const useAppStore = create<AppState>()(
             activeSpaces: {},
             recentSearches: [],
 
-            updateSettings: (partial) => set((state) => {
-                const newSettings = { ...state.settings, ...partial };
-                return {
-                    settings: newSettings,
-                    theme: newSettings.theme,
-                    showDomain: newSettings.showDomain,
-                    badgeMode: newSettings.badgeMode,
-                };
-            }),
+            updateSettings: (partial, options) => {
+                const hasPortableChange = PORTABLE_SETTINGS_KEYS.some((key) => key in partial);
+                let newTimestamp: number | undefined;
+
+                if (typeof partial.settingsUpdatedAt === 'number') {
+                    newTimestamp = partial.settingsUpdatedAt;
+                } else if (hasPortableChange) {
+                    newTimestamp = Date.now();
+                }
+
+                set((state) => {
+                    const newSettings = {
+                        ...state.settings,
+                        ...partial,
+                        ...(newTimestamp !== undefined ? { settingsUpdatedAt: newTimestamp } : {}),
+                    };
+                    return {
+                        settings: newSettings,
+                        theme: newSettings.theme,
+                        showDomain: newSettings.showDomain,
+                        badgeMode: newSettings.badgeMode,
+                    };
+                });
+
+                if (hasPortableChange && !options?.skipMutationNotification) {
+                    contractRegistry.notifyLocalMutation();
+                }
+            },
             setTheme: (theme) => set((state) => {
                 const newSettings = { ...state.settings, theme };
                 return {
@@ -144,36 +174,40 @@ export const useAppStore = create<AppState>()(
                     badgeMode,
                 };
             }),
-            setReadLaterOpenBehavior: (readLaterOpenBehavior) => set((state) => {
-                const newSettings = { ...state.settings, readLaterOpenBehavior };
-                return {
-                    settings: newSettings,
-                };
-            }),
-            setReadLaterAutoArchive: (readLaterAutoArchive) => set((state) => {
-                const newSettings = { ...state.settings, readLaterAutoArchive };
-                return {
-                    settings: newSettings,
-                };
-            }),
+            setReadLaterOpenBehavior: (readLaterOpenBehavior) => {
+                const now = Date.now();
+                set((state) => ({
+                    settings: { ...state.settings, readLaterOpenBehavior, settingsUpdatedAt: now },
+                }));
+                contractRegistry.notifyLocalMutation();
+            },
+            setReadLaterAutoArchive: (readLaterAutoArchive) => {
+                const now = Date.now();
+                set((state) => ({
+                    settings: { ...state.settings, readLaterAutoArchive, settingsUpdatedAt: now },
+                }));
+                contractRegistry.notifyLocalMutation();
+            },
             setAutoDiscardInterval: (autoDiscardInterval) => set((state) => {
                 const newSettings = { ...state.settings, autoDiscardInterval };
                 return {
                     settings: newSettings,
                 };
             }),
-            setSpaceRestoreTrigger: (spaceRestoreTrigger) => set((state) => {
-                const newSettings = { ...state.settings, spaceRestoreTrigger };
-                return {
-                    settings: newSettings,
-                };
-            }),
-            setDuplicateTabBehavior: (duplicateTabBehavior) => set((state) => {
-                const newSettings = { ...state.settings, duplicateTabBehavior };
-                return {
-                    settings: newSettings,
-                };
-            }),
+            setSpaceRestoreTrigger: (spaceRestoreTrigger) => {
+                const now = Date.now();
+                set((state) => ({
+                    settings: { ...state.settings, spaceRestoreTrigger, settingsUpdatedAt: now },
+                }));
+                contractRegistry.notifyLocalMutation();
+            },
+            setDuplicateTabBehavior: (duplicateTabBehavior) => {
+                const now = Date.now();
+                set((state) => ({
+                    settings: { ...state.settings, duplicateTabBehavior, settingsUpdatedAt: now },
+                }));
+                contractRegistry.notifyLocalMutation();
+            },
             setHydrated: (isHydrated) => set({ isHydrated }),
             setActiveView: (view) => set({ activeView: view }),
             registerActiveSpace: (spaceId, windowId) => set((state) => {
@@ -234,6 +268,7 @@ export const useAppStore = create<AppState>()(
                     autoDiscardInterval: persisted.settings?.autoDiscardInterval ?? DEFAULT_SETTINGS.autoDiscardInterval,
                     spaceRestoreTrigger: persisted.settings?.spaceRestoreTrigger ?? DEFAULT_SETTINGS.spaceRestoreTrigger,
                     duplicateTabBehavior: persisted.settings?.duplicateTabBehavior ?? DEFAULT_SETTINGS.duplicateTabBehavior,
+                    settingsUpdatedAt: persisted.settings?.settingsUpdatedAt ?? DEFAULT_SETTINGS.settingsUpdatedAt,
                 };
                 return {
                     ...currentState,

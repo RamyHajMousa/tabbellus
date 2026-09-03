@@ -54,6 +54,16 @@ describe('instantiateTemplate', () => {
     expect(rule.priority).toBe(0);
   });
 
+  it('calculates maxPriority strictly from active rules, ignoring tombstones (Requirement 2)', () => {
+    const existing: TabRule[] = [
+      { id: 'a', name: 'A', enabled: true, priority: 1, matchAll: false, conditions: [], actions: [], createdAt: 0, updatedAt: 0 },
+      { id: 'tomb', name: 'Dead', enabled: false, priority: 99, matchAll: false, conditions: [], actions: [], createdAt: 0, updatedAt: 0, deletedAt: 5000 },
+    ];
+
+    const rule = instantiateTemplate(RULE_TEMPLATES[0], existing);
+    expect(rule.priority).toBe(2);
+  });
+
   it('generates distinct ids across successive instantiations', () => {
     const first = instantiateTemplate(RULE_TEMPLATES[0], []);
     const second = instantiateTemplate(RULE_TEMPLATES[0], [first]);

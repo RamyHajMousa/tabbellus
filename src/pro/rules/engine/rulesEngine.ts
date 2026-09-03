@@ -12,6 +12,7 @@
  */
 
 import type { RuleAction, RuleEvaluationResult, RulesContract, TabRule } from '@/core/contracts/rules';
+import { contractRegistry } from '@/core/contracts/registry';
 import { loadRules, saveRules as persistRules, RULES_STORAGE_KEY } from '../storage/ruleStorage';
 import { RuleMatcher } from './matcher';
 import { RuleExecutor } from './executor';
@@ -66,11 +67,14 @@ export class RulesEngine implements RulesContract {
     return [...this.rules];
   }
 
-  async saveRules(rules: TabRule[]): Promise<void> {
+  async saveRules(rules: TabRule[], options?: { skipMutationNotification?: boolean }): Promise<void> {
     const sorted = sortByPriority(rules);
     this.rules = sorted;
     await persistRules(sorted);
     this.notifyListeners();
+    if (!options?.skipMutationNotification) {
+      contractRegistry.notifyLocalMutation();
+    }
   }
 
   /**
@@ -81,7 +85,7 @@ export class RulesEngine implements RulesContract {
     await this.hydrated;
 
     for (const rule of this.rules) {
-      if (!rule.enabled) continue;
+      if (!rule.enabled || rule.deletedAt) continue;
       if (RuleMatcher.evaluateRule(tab, rule)) {
         return {
           matched: true,

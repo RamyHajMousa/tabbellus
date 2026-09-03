@@ -33,7 +33,7 @@ export const RuleManagerCard: React.FC = () => {
     const [templatesOpen, setTemplatesOpen] = useState(false);
     const [isApplying, setIsApplying] = useState(false);
 
-    const sortedRules = useMemo(() => sortByPriority(rules), [rules]);
+    const sortedRules = useMemo(() => sortByPriority(rules.filter((r) => !r.deletedAt)), [rules]);
 
     const { deleteWithUndo } = useUndoDelete<TabRule>({
         fetch: async (id: string) => rules.find((r) => r.id === id),

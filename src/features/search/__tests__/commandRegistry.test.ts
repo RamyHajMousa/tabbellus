@@ -26,6 +26,7 @@ describe('Command Registry & Filter Engine', () => {
                 autoDiscardInterval: 0,
                 spaceRestoreTrigger: 'single',
                 duplicateTabBehavior: 'focus-existing',
+                settingsUpdatedAt: 0,
             },
             theme: 'light',
             showDomain: true,

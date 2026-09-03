@@ -11,12 +11,15 @@
  */
 
 import { db } from '@/lib/db';
-import type { SyncVaultSnapshot, ReconciliationResult } from './types';
+import { loadRules } from '@/pro/rules/storage/ruleStorage';
+import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
+import { useAppStore } from '@/store/appStore';
+import type { SyncVaultSnapshot, ReconciliationResult, SyncedSettings } from './types';
 
 export class SnapshotSerializer {
   /**
-   * Reads all spaces, tabs, and readLater items from Dexie in a single
-   * atomic read transaction and packages them into a normalized snapshot.
+   * Reads all spaces, tabs, readLater items, rules, and synced settings in a
+   * single normalized snapshot.
    *
    * @param deviceId - The stable device instance UUID.
    */
@@ -33,6 +36,22 @@ export class SnapshotSerializer {
       },
     );
 
+    let rules: SyncVaultSnapshot['rules'];
+    try {
+      rules = await loadRules();
+    } catch {
+      rules = [];
+    }
+
+    const appSettings = useAppStore.getState().settings;
+    const settings: SyncedSettings = {
+      duplicateTabBehavior: appSettings.duplicateTabBehavior,
+      spaceRestoreTrigger: appSettings.spaceRestoreTrigger,
+      readLaterOpenBehavior: appSettings.readLaterOpenBehavior,
+      readLaterAutoArchive: appSettings.readLaterAutoArchive,
+      updatedAt: appSettings.settingsUpdatedAt || Date.now(),
+    };
+
     return {
       version: 1,
       clientTimestamp: Date.now(),
@@ -40,39 +59,58 @@ export class SnapshotSerializer {
       spaces,
       tabs,
       readLater,
+      rules,
+      settings,
     };
   }
 
   /**
-   * Applies reconciled local updates to the Dexie database inside an
-   * atomic read-write transaction.
+   * Applies reconciled local updates to the Dexie database and local state.
+   * Enforces Anti-Echo Guards on rules and settings to prevent mutation loops.
    *
-   * @param updates - Reconciled entities to upsert into Dexie and tab IDs to prune.
+   * @param updates - Reconciled entities to upsert into Dexie, rules, and settings.
    */
   static async applyRemoteUpdates(
     updates: ReconciliationResult['localUpdates'],
   ): Promise<void> {
-    const { spaces, tabs, readLater, tabIdsToDelete } = updates;
+    const { spaces, tabs, readLater, tabIdsToDelete, rules, settings } = updates;
 
     const hasDeletes = Boolean(tabIdsToDelete && tabIdsToDelete.length > 0);
-    if (spaces.length === 0 && tabs.length === 0 && readLater.length === 0 && !hasDeletes) {
-      return;
+    if (spaces.length > 0 || tabs.length > 0 || readLater.length > 0 || hasDeletes) {
+      await db.transaction('rw', [db.spaces, db.tabs, db.readLater], async () => {
+        if (tabIdsToDelete && tabIdsToDelete.length > 0) {
+          await db.tabs.bulkDelete(tabIdsToDelete);
+        }
+        if (spaces.length > 0) {
+          await db.spaces.bulkPut(spaces);
+        }
+        if (tabs.length > 0) {
+          await db.tabs.bulkPut(tabs);
+        }
+        if (readLater.length > 0) {
+          await db.readLater.bulkPut(readLater);
+        }
+      });
     }
 
-    await db.transaction('rw', [db.spaces, db.tabs, db.readLater], async () => {
-      if (tabIdsToDelete && tabIdsToDelete.length > 0) {
-        await db.tabs.bulkDelete(tabIdsToDelete);
-      }
-      if (spaces.length > 0) {
-        await db.spaces.bulkPut(spaces);
-      }
-      if (tabs.length > 0) {
-        await db.tabs.bulkPut(tabs);
-      }
-      if (readLater.length > 0) {
-        await db.readLater.bulkPut(readLater);
-      }
-    });
+    if (rules && rules.length > 0) {
+      // Anti-echo guard: bypass notifyLocalMutation()
+      await rulesEngine.saveRules(rules, { skipMutationNotification: true });
+    }
+
+    if (settings) {
+      // Anti-echo guard: bypass notifyLocalMutation()
+      useAppStore.getState().updateSettings(
+        {
+          duplicateTabBehavior: settings.duplicateTabBehavior,
+          spaceRestoreTrigger: settings.spaceRestoreTrigger,
+          readLaterOpenBehavior: settings.readLaterOpenBehavior,
+          readLaterAutoArchive: settings.readLaterAutoArchive,
+          settingsUpdatedAt: settings.updatedAt,
+        },
+        { skipMutationNotification: true },
+      );
+    }
   }
 
   /**
@@ -87,7 +125,7 @@ export class SnapshotSerializer {
 
     const candidate = data as Partial<SyncVaultSnapshot>;
 
-    return (
+    const baseValid = (
       typeof candidate.version === 'number' &&
       (typeof candidate.clientTimestamp === 'number' || typeof candidate.clientTimestamp === 'string') &&
       typeof candidate.deviceId === 'string' &&
@@ -95,5 +133,22 @@ export class SnapshotSerializer {
       Array.isArray(candidate.tabs) &&
       Array.isArray(candidate.readLater)
     );
+
+    if (!baseValid) return false;
+
+    if (candidate.rules !== undefined && !Array.isArray(candidate.rules)) {
+      return false;
+    }
+
+    if (
+      candidate.settings !== undefined &&
+      (typeof candidate.settings !== 'object' ||
+        candidate.settings === null ||
+        typeof (candidate.settings as SyncedSettings).updatedAt !== 'number')
+    ) {
+      return false;
+    }
+
+    return true;
   }
 }
