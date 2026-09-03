@@ -742,6 +742,100 @@ describe('SyncEngine', () => {
       expect(syncResult.error).toContain('locked');
       expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
     });
+
+    it('disableEncryption() purges session key, clears vaultSalt, and uploads unencrypted schemaVersion 1.0.0 payload', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [{ id: 'vault-file-123', name: 'tabbellus_vault.json', modifiedTime: '2026-09-03T10:00:00Z', mimeType: 'application/json' }] },
+      });
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-file-123', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      // Start with encrypted and unlocked vault
+      await engine.setupEncryption('disable-e2ee-passphrase');
+      expect(await sessionKeyStore.isUnlocked()).toBe(true);
+      expect((await engine.getStatus()).telemetry.encrypted).toBe(true);
+
+      mockedDrive.uploadVaultFile.mockClear();
+
+      // Disable encryption
+      await engine.disableEncryption();
+
+      // Verify session key purged
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+
+      // Verify status updated to synced and unencrypted
+      const status = await engine.getStatus();
+      expect(status.state).toBe('synced');
+      expect(status.telemetry.encrypted).toBe(false);
+
+      // Verify uploadVaultFile was called with unencrypted schemaVersion 1.0.0 payload
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+      const uploadedContent = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]);
+      expect(uploadedContent.schemaVersion).toBe('1.0.0');
+      expect(uploadedContent.isEncrypted).toBe(false);
+      expect(uploadedContent.iv).toBeUndefined();
+      expect(uploadedContent.salt).toBeUndefined();
+      expect(typeof uploadedContent.payload).toBe('string');
+      // Payload should be valid unencrypted snapshot JSON
+      const parsedSnapshot = JSON.parse(uploadedContent.payload);
+      expect(parsedSnapshot.spaces).toBeDefined();
+    });
+
+    it('resetCloudVault() overwrites locked remote vault with unencrypted snapshot and returns to synced state', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [{ id: 'remote-locked-vault-id', name: 'tabbellus_vault.json', modifiedTime: '2026-09-03T10:00:00Z', mimeType: 'application/json' }] },
+      });
+      // Remote payload is encrypted with unknown key
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          schemaVersion: '2.0.0-e2ee',
+          clientTimestamp: '2026-09-03T09:00:00Z',
+          payload: 'some-ciphertext-we-cannot-decrypt',
+          iv: 'fake-iv',
+          salt: 'fake-salt',
+          isEncrypted: true,
+        },
+      });
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'remote-locked-vault-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      // Local state is currently locked
+      await engine.connect();
+      await sessionKeyStore.clearSession();
+      mockedDrive.uploadVaultFile.mockClear();
+
+      // Reset cloud vault (user lost passphrase)
+      await engine.resetCloudVault();
+
+      // Verify keys cleared and state is synced and unencrypted
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      const status = await engine.getStatus();
+      expect(status.state).toBe('synced');
+      expect(status.telemetry.encrypted).toBe(false);
+
+      // Verify upload was forced and uploaded unencrypted snapshot
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+      const uploadedContent = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]);
+      expect(uploadedContent.schemaVersion).toBe('1.0.0');
+      expect(uploadedContent.isEncrypted).toBe(false);
+      expect(uploadedContent.iv).toBeUndefined();
+      expect(uploadedContent.salt).toBeUndefined();
+    });
   });
 
   // =========================================================================

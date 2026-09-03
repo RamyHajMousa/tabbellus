@@ -107,6 +107,14 @@ export class NullSyncProvider implements SyncProvider {
   async lockVault(): Promise<void> {
     // No-op for null provider
   }
+
+  async resetCloudVault(): Promise<void> {
+    // No-op for null provider
+  }
+
+  async disableEncryption(): Promise<void> {
+    // No-op for null provider
+  }
 }
 
 /**

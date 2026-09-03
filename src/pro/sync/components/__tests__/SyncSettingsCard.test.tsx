@@ -231,6 +231,7 @@ describe('SyncSettingsCard Component', () => {
 
     expect(html).toContain('E2E Encrypted');
     expect(html).toContain('Lock');
+    expect(html).toContain('Disable E2EE');
     expect(html).toContain('Zero-Knowledge E2EE active');
     expect(html).toContain('appDataFolder (E2EE)');
   });

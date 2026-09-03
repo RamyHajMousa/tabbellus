@@ -289,6 +289,54 @@ export class SyncEngine implements SyncProvider {
   }
 
   /**
+   * Disables end-to-end encryption, purging active session keys, reverting storage
+   * state to unencrypted, and forcing a full unencrypted sync upload.
+   */
+  async disableEncryption(): Promise<void> {
+    return this.withSyncLock(
+      'disableEncryption',
+      async () => {
+        if (!this.status.isConnected) {
+          return;
+        }
+
+        // 1. Purge active encryption keys
+        await sessionKeyStore.clearSession();
+
+        // 2. Reset storage state
+        await this.saveStorageState({
+          isEncrypted: false,
+          vaultSalt: undefined,
+          lastError: undefined,
+        });
+
+        // 3. Update in-memory telemetry immediately
+        this.updateStatus({
+          telemetry: {
+            ...this.status.telemetry,
+            encrypted: false,
+            lastError: undefined,
+          },
+        });
+
+        // 4. Force a full sync upload without encryption
+        await this.executeSync({ forceFull: true, forceUnencrypted: true });
+
+        // 5. Transition state to 'synced' and notify subscribers
+        this.updateStatus({
+          state: 'synced',
+          telemetry: {
+            ...this.status.telemetry,
+            encrypted: false,
+            lastError: undefined,
+          },
+        });
+      },
+      () => undefined,
+    );
+  }
+
+  /**
    * Resets the cloud vault to unencrypted state by clearing local keys,
    * resetting storage state, and triggering a full unencrypted sync upload.
    */
@@ -304,7 +352,6 @@ export class SyncEngine implements SyncProvider {
         });
 
         this.updateStatus({
-          state: 'idle',
           telemetry: {
             ...this.status.telemetry,
             encrypted: false,
@@ -312,7 +359,16 @@ export class SyncEngine implements SyncProvider {
           },
         });
 
-        await this.executeSync({ forceFull: true });
+        await this.executeSync({ forceFull: true, forceUnencrypted: true });
+
+        this.updateStatus({
+          state: 'synced',
+          telemetry: {
+            ...this.status.telemetry,
+            encrypted: false,
+            lastError: undefined,
+          },
+        });
       },
       () => undefined,
     );
@@ -513,7 +569,9 @@ export class SyncEngine implements SyncProvider {
    * Internal execution body for synchronization cycle.
    * Runs under withSyncLock to guarantee process-exclusive execution.
    */
-  private async executeSync(options?: SyncOptions): Promise<SyncResult> {
+  private async executeSync(
+    options?: SyncOptions & { forceUnencrypted?: boolean },
+  ): Promise<SyncResult> {
     this.updateStatus({ state: 'syncing' });
 
     try {
@@ -588,121 +646,123 @@ export class SyncEngine implements SyncProvider {
         const file = findResult.data.files[0];
         vaultFileId = file.id;
 
-        const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
-        if (downloadResult.success) {
-          const raw = downloadResult.data as unknown as Record<string, unknown> | null;
+        if (!options?.forceUnencrypted) {
+          const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
+          if (downloadResult.success) {
+            const raw = downloadResult.data as unknown as Record<string, unknown> | null;
 
-          let potentialPayload: VaultPayload | null = null;
-          if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
-            potentialPayload = raw as unknown as VaultPayload;
-          } else if (SnapshotSerializer.validateSnapshot(raw)) {
-            remoteSnapshot = raw as unknown as SyncVaultSnapshot;
-          }
+            let potentialPayload: VaultPayload | null = null;
+            if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
+              potentialPayload = raw as unknown as VaultPayload;
+            } else if (SnapshotSerializer.validateSnapshot(raw)) {
+              remoteSnapshot = raw as unknown as SyncVaultSnapshot;
+            }
 
-          if (potentialPayload) {
-            const isRemoteEncrypted = Boolean(
-              potentialPayload.isEncrypted ||
-              (potentialPayload.iv && potentialPayload.salt)
-            );
+            if (potentialPayload) {
+              const isRemoteEncrypted = Boolean(
+                potentialPayload.isEncrypted ||
+                (potentialPayload.iv && potentialPayload.salt)
+              );
 
-            if (isRemoteEncrypted) {
-              const salt = potentialPayload.salt;
-              await this.saveStorageState({
-                isEncrypted: true,
-                ...(salt ? { vaultSalt: salt } : {}),
-              });
-
-              const isUnlocked = await sessionKeyStore.isUnlocked();
-              if (!isUnlocked) {
-                this.updateStatus({
-                  state: 'locked',
-                  isConnected: true,
-                  telemetry: {
-                    ...this.status.telemetry,
-                    encrypted: true,
-                  },
+              if (isRemoteEncrypted) {
+                const salt = potentialPayload.salt;
+                await this.saveStorageState({
+                  isEncrypted: true,
+                  ...(salt ? { vaultSalt: salt } : {}),
                 });
-                return {
-                  success: false,
-                  error: 'Vault is locked. Passphrase required.',
-                  timestamp: Date.now(),
-                };
-              }
 
-              const session = await sessionKeyStore.loadSession();
-              if (!session) {
-                this.updateStatus({
-                  state: 'locked',
-                  isConnected: true,
-                  telemetry: {
-                    ...this.status.telemetry,
-                    encrypted: true,
-                  },
-                });
-                return {
-                  success: false,
-                  error: 'Vault is locked. Passphrase required.',
-                  timestamp: Date.now(),
-                };
-              }
-
-              try {
-                const decryptedStr = await WebCryptoEngine.decryptPayload(
-                  {
-                    version: 1,
-                    salt: potentialPayload.salt ?? session.salt,
-                    iv: potentialPayload.iv!,
-                    ciphertext: potentialPayload.payload,
-                    iterations: 600_000,
-                  },
-                  session.key
-                );
-                const parsed = JSON.parse(decryptedStr);
-                if (SnapshotSerializer.validateSnapshot(parsed)) {
-                  remoteSnapshot = parsed;
+                const isUnlocked = await sessionKeyStore.isUnlocked();
+                if (!isUnlocked) {
+                  this.updateStatus({
+                    state: 'locked',
+                    isConnected: true,
+                    telemetry: {
+                      ...this.status.telemetry,
+                      encrypted: true,
+                    },
+                  });
+                  return {
+                    success: false,
+                    error: 'Vault is locked. Passphrase required.',
+                    timestamp: Date.now(),
+                  };
                 }
-              } catch (err: unknown) {
-                if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
+
+                const session = await sessionKeyStore.loadSession();
+                if (!session) {
+                  this.updateStatus({
+                    state: 'locked',
+                    isConnected: true,
+                    telemetry: {
+                      ...this.status.telemetry,
+                      encrypted: true,
+                    },
+                  });
+                  return {
+                    success: false,
+                    error: 'Vault is locked. Passphrase required.',
+                    timestamp: Date.now(),
+                  };
+                }
+
+                try {
+                  const decryptedStr = await WebCryptoEngine.decryptPayload(
+                    {
+                      version: 1,
+                      salt: potentialPayload.salt ?? session.salt,
+                      iv: potentialPayload.iv!,
+                      ciphertext: potentialPayload.payload,
+                      iterations: 600_000,
+                    },
+                    session.key
+                  );
+                  const parsed = JSON.parse(decryptedStr);
+                  if (SnapshotSerializer.validateSnapshot(parsed)) {
+                    remoteSnapshot = parsed;
+                  }
+                } catch (err: unknown) {
+                  if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
+                    this.updateStatus({
+                      state: 'error',
+                      telemetry: {
+                        ...this.status.telemetry,
+                        encrypted: true,
+                        lastError: 'INVALID_PASSPHRASE',
+                      },
+                    });
+                    await this.saveStorageState({ lastError: 'INVALID_PASSPHRASE' });
+                    return {
+                      success: false,
+                      error: 'INVALID_PASSPHRASE',
+                      timestamp: Date.now(),
+                    };
+                  }
+                  const msg = err instanceof Error ? err.message : 'Decryption failed';
                   this.updateStatus({
                     state: 'error',
                     telemetry: {
                       ...this.status.telemetry,
                       encrypted: true,
-                      lastError: 'INVALID_PASSPHRASE',
+                      lastError: msg,
                     },
                   });
-                  await this.saveStorageState({ lastError: 'INVALID_PASSPHRASE' });
+                  await this.saveStorageState({ lastError: msg });
                   return {
                     success: false,
-                    error: 'INVALID_PASSPHRASE',
+                    error: msg,
                     timestamp: Date.now(),
                   };
                 }
-                const msg = err instanceof Error ? err.message : 'Decryption failed';
-                this.updateStatus({
-                  state: 'error',
-                  telemetry: {
-                    ...this.status.telemetry,
-                    encrypted: true,
-                    lastError: msg,
-                  },
-                });
-                await this.saveStorageState({ lastError: msg });
-                return {
-                  success: false,
-                  error: msg,
-                  timestamp: Date.now(),
-                };
-              }
-            } else {
-              // Legacy unencrypted payload
-              try {
-                const parsed = JSON.parse(potentialPayload.payload);
-                if (SnapshotSerializer.validateSnapshot(parsed)) {
-                  remoteSnapshot = parsed;
+              } else {
+                // Legacy unencrypted payload
+                try {
+                  const parsed = JSON.parse(potentialPayload.payload);
+                  if (SnapshotSerializer.validateSnapshot(parsed)) {
+                    remoteSnapshot = parsed;
+                  }
+                } catch {
+                  // Ignore corrupt payload
                 }
-              } catch {
-                // Ignore corrupt payload
               }
             }
           }
@@ -731,7 +791,9 @@ export class SyncEngine implements SyncProvider {
       if (reconciliation.hasRemoteChanges || options?.forceFull) {
         const currentStorage = await this.loadStorageState();
         const hasUnlockedSession = await sessionKeyStore.isUnlocked();
-        const shouldEncrypt = Boolean(currentStorage.isEncrypted || hasUnlockedSession);
+        const shouldEncrypt = Boolean(
+          !options?.forceUnencrypted && (currentStorage.isEncrypted || hasUnlockedSession)
+        );
 
         let uploadContent: string;
 

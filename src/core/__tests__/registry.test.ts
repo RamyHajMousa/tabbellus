@@ -103,6 +103,8 @@ describe('NullSyncProvider', () => {
     await expect(provider.setupEncryption('passphrase')).resolves.toBeUndefined();
     await expect(provider.unlockVault('passphrase')).resolves.toBe(false);
     await expect(provider.lockVault()).resolves.toBeUndefined();
+    await expect(provider.resetCloudVault()).resolves.toBeUndefined();
+    await expect(provider.disableEncryption()).resolves.toBeUndefined();
   });
 });
 

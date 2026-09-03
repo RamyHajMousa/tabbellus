@@ -45,5 +45,6 @@ export interface SyncProvider {
   unlockVault?(passphrase: string): Promise<boolean>;
   lockVault?(): Promise<void>;
   resetCloudVault?(): Promise<void>;
+  disableEncryption?(): Promise<void>;
   dispose?(): void;
 }

@@ -1187,7 +1187,40 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **592/592 passing tests across 52 test files** (100% pass rate).
 *   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (592/592 passing), production build (`npm run build` completed in 9.19s).
 
-<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 6: Debounced Auto-Sync on Local Mutations & Sidepanel Mount Sync: 592 Unit Tests Passing across 52 Test Files) -->
+### Phase 43.11: E2EE Teardown & Vault Reset to Standard Cloud Sync
+*   **Free Core Extension Contracts (`src/core/contracts/`):**
+    *   `src/core/contracts/sync.ts`: Extended `SyncProvider` contract interface with optional `disableEncryption?(): Promise<void>;` and documented `resetCloudVault?(): Promise<void>;`.
+    *   `src/core/contracts/registry.ts`: Added no-op fallback methods `async disableEncryption(): Promise<void> {}` and `async resetCloudVault(): Promise<void> {}` to `NullSyncProvider`.
+*   **SyncEngine Teardown & Overwrite Architecture (`src/pro/sync/engine/syncEngine.ts`):**
+    *   **`disableEncryption(): Promise<void>`:**
+        *   Guarded with `withSyncLock('disableEncryption')` to ensure atomic, non-overlapping execution.
+        *   Fails fast if not connected (`!status.isConnected`).
+        *   Step 1: Purges active ephemeral session keys (`await sessionKeyStore.clearSession()`).
+        *   Step 2: Resets storage state (`await this.saveStorageState({ isEncrypted: false, vaultSalt: undefined, lastError: undefined })`).
+        *   Step 3: Updates in-memory telemetry immediately (`telemetry.encrypted = false`).
+        *   Step 4: Dispatches `executeSync({ forceFull: true, forceUnencrypted: true })` — Step 3 bypasses remote decryption checks while preserving existing `vaultFileId`, and Step 7 serializes unencrypted plaintext JSON with `schemaVersion: '1.0.0'` and `isEncrypted: false` (no `iv` or `salt`), replacing the remote Drive vault.
+        *   Step 5: Transitions state to `'synced'`, updates `telemetry.encrypted = false`, and notifies subscribers.
+    *   **`resetCloudVault(): Promise<void>`:**
+        *   Refined emergency reset flow when a user has forgotten their passphrase on a locked device.
+        *   Clears `sessionKeyStore`, resets `storageState.isEncrypted = false` and `vaultSalt = undefined`, and calls `executeSync({ forceFull: true, forceUnencrypted: true })`.
+        *   Overwrites the remote encrypted vault file with the current device's local unencrypted data snapshot, and transitions state to `'synced'`.
+*   **UI Controls & Confirmation Surfaces (`src/pro/sync/components/`):**
+    *   **`SyncSettingsCard.tsx`:**
+        *   When vault is connected, encrypted, and unlocked (`telemetry.encrypted && status.state !== 'locked'`), renders `"Disable E2EE"` secondary action button with `ShieldOff` icon next to `"Lock"`.
+        *   Clicking `"Disable E2EE"` opens a controlled Radix `Dialog` ("Disable End-to-End Encryption?") explaining that the cloud vault will be replaced with standard unencrypted JSON.
+        *   Confirmation triggers `syncEngine.disableEncryption()`, displays loading spinner, closes dialog, and fires toast `"E2E Encryption Disabled: Cloud vault reverted to standard sync."`.
+    *   **`VaultUnlockModal.tsx`:**
+        *   Enhanced the expandable "Lost your passphrase?" drawer with clear zero-knowledge notice: *"Resetting will overwrite your remote Google Drive vault with the unencrypted data currently stored on this device."*
+        *   Action button `"Reset Cloud Vault"` triggers double-confirmation with warning prompt text *"Are you sure? This cannot be undone."*.
+        *   Confirmation calls `syncEngine.resetCloudVault()`, closes modal, and displays toast `"Cloud Vault Reset: Encryption removed and local data synchronized."`.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Added unit tests for `disableEncryption()` (key purge, `vaultSalt` clear, and unencrypted `schemaVersion: '1.0.0'` upload) and `resetCloudVault()` (overwriting locked remote vault with unencrypted snapshot and transitioning to synced). Suite raised to **25 tests**.
+    *   `src/pro/sync/components/__tests__/SyncSettingsCard.test.tsx`: Verified `"Disable E2EE"` button renders in active E2EE state. Suite maintains **7 tests**.
+    *   `src/core/__tests__/registry.test.ts`: Verified `NullSyncProvider.disableEncryption()` and `resetCloudVault()` resolve safely. Suite maintains **42 tests**.
+    *   Full test suite raised to **594/594 passing tests across 52 test files** (100% pass rate).
+    *   Clean `npx tsc --noEmit` (0 errors), clean `npm run build` (built in 11.69s).
+
+<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 7: E2EE Teardown & Vault Reset to Standard Cloud Sync: 594 Unit Tests Passing across 52 Test Files) -->
 
 
 

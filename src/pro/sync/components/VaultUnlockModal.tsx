@@ -95,16 +95,27 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
     }
   }, [isSubmitting, passphrase, onOpenChange, toast]);
 
-  const handleEmergencyReset = useCallback(() => {
+  const handleEmergencyReset = useCallback(async () => {
     if (!confirmReset) {
       setConfirmReset(true);
       return;
     }
 
     // Double confirmation received
-    onOpenChange(false);
-    onResetVault?.();
-  }, [confirmReset, onOpenChange, onResetVault]);
+    setIsSubmitting(true);
+    try {
+      await syncEngine.resetCloudVault();
+      toast('Cloud Vault Reset: Encryption removed and local data synchronized.');
+      onOpenChange(false);
+      onResetVault?.();
+    } catch {
+      toast('Failed to reset cloud vault', {
+        description: 'An unexpected error occurred. Please try again.',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [confirmReset, onOpenChange, onResetVault, toast]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -215,21 +226,25 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
             <div className="mt-2 p-2.5 rounded bg-destructive/5 border border-destructive/20 text-xxs space-y-2">
               <p className="text-muted-foreground leading-normal">
                 Because encryption is zero-knowledge, TabBellus cannot recover your passphrase.
-                Resetting will overwrite your cloud vault with the data currently saved on this device.
+                Resetting will overwrite your remote Google Drive vault with the unencrypted data currently stored on this device.
               </p>
+              {confirmReset && (
+                <p className="text-destructive font-medium">
+                  Are you sure? This cannot be undone.
+                </p>
+              )}
               <div className="pt-1">
                 <button
                   type="button"
                   onClick={handleEmergencyReset}
+                  disabled={isSubmitting}
                   className={`px-2.5 py-1 text-xxs font-medium rounded transition-colors border ${
                     confirmReset
                       ? 'bg-destructive text-destructive-foreground border-destructive'
                       : 'text-destructive border-destructive/30 hover:bg-destructive/10'
                   }`}
                 >
-                  {confirmReset
-                    ? 'Confirm: Click again to reset and overwrite cloud vault'
-                    : 'Reset Cloud Vault'}
+                  {isSubmitting ? 'Resetting Vault…' : 'Reset Cloud Vault'}
                 </button>
               </div>
             </div>

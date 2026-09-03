@@ -28,9 +28,19 @@ import {
   WifiOff,
   Shield,
   ShieldCheck,
+  ShieldAlert,
+  ShieldOff,
   Lock,
   LockOpen,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/Dialog';
 import { useSyncStatus } from '@/core/hooks/useSyncStatus';
 import { syncEngine } from '../engine/syncEngine';
 import { useToast } from '@/components/ui/Toaster';
@@ -45,6 +55,8 @@ export const SyncSettingsCard: React.FC = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+  const [disableDialogOpen, setDisableDialogOpen] = useState(false);
+  const [isDisabling, setIsDisabling] = useState(false);
 
   const handleConnect = useCallback(async () => {
     if (isConnecting) return;
@@ -118,6 +130,22 @@ export const SyncSettingsCard: React.FC = () => {
       });
     }
   }, [toast]);
+
+  const handleConfirmDisable = useCallback(async () => {
+    if (isDisabling) return;
+    setIsDisabling(true);
+    try {
+      await syncEngine.disableEncryption();
+      setDisableDialogOpen(false);
+      toast('E2E Encryption Disabled: Cloud vault reverted to standard sync.');
+    } catch {
+      toast('Failed to disable encryption', {
+        description: 'An unexpected error occurred. Please try again.',
+      });
+    } finally {
+      setIsDisabling(false);
+    }
+  }, [isDisabling, toast]);
 
   const handleResetFromUnlock = useCallback(() => {
     setUnlockModalOpen(false);
@@ -372,17 +400,32 @@ export const SyncSettingsCard: React.FC = () => {
             {/* E2EE Actions */}
             {isConnected && !isLocked && (
               telemetry.encrypted ? (
-                <TooltipSimple content="Lock vault and purge decryption keys from active session" side="top">
-                  <button
-                    type="button"
-                    onClick={handleLockVault}
-                    className="flex items-center justify-center gap-1 px-2.5 py-1.5 border border-border bg-background hover:bg-accent text-xs font-medium text-muted-foreground hover:text-foreground rounded-md transition-colors"
-                    aria-label="Lock vault"
-                  >
-                    <Lock className="w-3.5 h-3.5 shrink-0" />
-                    <span>Lock</span>
-                  </button>
-                </TooltipSimple>
+                <>
+                  <TooltipSimple content="Lock vault and purge decryption keys from active session" side="top">
+                    <button
+                      type="button"
+                      onClick={handleLockVault}
+                      className="flex items-center justify-center gap-1 px-2.5 py-1.5 border border-border bg-background hover:bg-accent text-xs font-medium text-muted-foreground hover:text-foreground rounded-md transition-colors"
+                      aria-label="Lock vault"
+                    >
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <span>Lock</span>
+                    </button>
+                  </TooltipSimple>
+
+                  <TooltipSimple content="Revert cloud vault to standard unencrypted synchronization" side="top">
+                    <button
+                      type="button"
+                      onClick={() => setDisableDialogOpen(true)}
+                      disabled={isDisabling || isSyncing}
+                      className="flex items-center justify-center gap-1 px-2.5 py-1.5 border border-border bg-background hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 text-xs font-medium text-muted-foreground rounded-md transition-colors"
+                      aria-label="Disable E2EE"
+                    >
+                      <ShieldOff className="w-3.5 h-3.5 shrink-0" />
+                      <span>Disable E2EE</span>
+                    </button>
+                  </TooltipSimple>
+                </>
               ) : (
                 <TooltipSimple content="Enable client-side Zero-Knowledge End-to-End Encryption" side="top">
                   <button
@@ -417,6 +460,47 @@ export const SyncSettingsCard: React.FC = () => {
         onOpenChange={setUnlockModalOpen}
         onResetVault={handleResetFromUnlock}
       />
+
+      {/* Disable E2EE Confirmation Dialog */}
+      <Dialog open={disableDialogOpen} onOpenChange={setDisableDialogOpen}>
+        <DialogContent className="max-w-md bg-popover border border-border p-5 gap-3.5 sm:rounded-lg">
+          <DialogHeader className="space-y-1 text-left">
+            <DialogTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+              <span>Disable End-to-End Encryption?</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Your cloud vault on Google Drive will be replaced with standard unencrypted JSON. Your spaces and tabs will remain synced across devices.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="pt-2 flex items-center justify-end gap-2 sm:space-x-0">
+            <button
+              type="button"
+              onClick={() => setDisableDialogOpen(false)}
+              disabled={isDisabling}
+              className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-md"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDisable}
+              disabled={isDisabling}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-destructive text-destructive-foreground hover:opacity-90 active:scale-[0.98] text-xs font-medium rounded-md transition-all disabled:opacity-50"
+            >
+              {isDisabling ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span>Disabling…</span>
+                </>
+              ) : (
+                <span>Disable Encryption</span>
+              )}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
