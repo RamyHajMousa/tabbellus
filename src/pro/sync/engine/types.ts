@@ -47,4 +47,6 @@ export interface SyncStorageState {
   lastVaultFileId?: string;
   syncEnabled: boolean;
   lastError?: string;
+  isEncrypted?: boolean;
+  vaultSalt?: string;
 }

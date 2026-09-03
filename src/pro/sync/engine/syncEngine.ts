@@ -2,13 +2,17 @@
  * Google Drive Sync Engine
  *
  * Implements `SyncProvider` to orchestrate cloud synchronization between
- * local Dexie IndexedDB and Google Drive appDataFolder.
+ * local Dexie IndexedDB and Google Drive appDataFolder with client-side
+ * Zero-Knowledge End-to-End Encryption (E2EE) support.
  *
  * LIFECYCLE:
  * 1. `connect()`: Requests OAuth2 token and enables cloud sync.
  * 2. `disconnect()`: Revokes OAuth2 token and disables cloud sync.
- * 3. `syncNow()`: Orchestrates download -> LWW diff -> local write -> upload -> status update.
+ * 3. `syncNow()`: Orchestrates download -> decrypt -> LWW diff -> local write -> encrypt -> upload -> status update.
  * 4. `subscribe()`: Dispatches reactive telemetry and state updates.
+ * 5. `setupEncryption(passphrase)`: Derives key, saves session, and triggers full encrypted upload.
+ * 6. `unlockVault(passphrase)`: Derives key, verifies decryption, saves session, and triggers sync.
+ * 7. `lockVault()`: Clears active session key, pauses sync, and transitions state to 'locked'.
  *
  * ZERO-CONTAMINATION BOUNDARY:
  * - Implements `@/core/contracts/sync.ts` interface.
@@ -22,6 +26,14 @@ import type {
 } from '@/core/contracts/sync';
 import { googleAuthClient } from '../api/googleAuthClient';
 import { googleDriveClient } from '../api/googleDriveClient';
+import type { VaultPayload } from '../api/types';
+import {
+  WebCryptoEngine,
+  sessionKeyStore,
+  CryptoEngineError,
+  base64ToUint8Array,
+  uint8ArrayToBase64,
+} from '../crypto';
 import { SnapshotSerializer } from './snapshotSerializer';
 import { DiffEngine } from './diffEngine';
 import type { SyncStorageState, SyncVaultSnapshot } from './types';
@@ -48,7 +60,7 @@ export class SyncEngine implements SyncProvider {
   }
 
   /**
-   * Initializes sync state from local storage.
+   * Initializes sync state and encryption lock state from local storage.
    */
   private async initFromStorage(): Promise<void> {
     try {
@@ -57,6 +69,13 @@ export class SyncEngine implements SyncProvider {
         this.status.isConnected = true;
         this.status.telemetry.lastSyncedAt = state.lastSyncedAt;
         this.status.telemetry.lastError = state.lastError;
+      }
+      if (state.isEncrypted) {
+        this.status.telemetry.encrypted = true;
+        const isUnlocked = await sessionKeyStore.isUnlocked();
+        if (!isUnlocked) {
+          this.status.state = 'locked';
+        }
       }
       this.notifyListeners();
     } catch {
@@ -74,6 +93,8 @@ export class SyncEngine implements SyncProvider {
           lastSyncedAt: typeof raw.lastSyncedAt === 'number' ? raw.lastSyncedAt : undefined,
           lastVaultFileId: typeof raw.lastVaultFileId === 'string' ? raw.lastVaultFileId : undefined,
           lastError: typeof raw.lastError === 'string' ? raw.lastError : undefined,
+          isEncrypted: typeof raw.isEncrypted === 'boolean' ? raw.isEncrypted : undefined,
+          vaultSalt: typeof raw.vaultSalt === 'string' ? raw.vaultSalt : undefined,
         };
       }
     } catch {
@@ -212,6 +233,128 @@ export class SyncEngine implements SyncProvider {
   }
 
   /**
+   * Sets up end-to-end encryption with the provided passphrase and immediately
+   * uploads the current snapshot as an encrypted vault.
+   */
+  async setupEncryption(passphrase: string): Promise<void> {
+    const saltBytes = WebCryptoEngine.generateSalt();
+    const saltBase64 = uint8ArrayToBase64(saltBytes);
+    const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+
+    await sessionKeyStore.saveSession(key, saltBase64);
+    await this.saveStorageState({
+      isEncrypted: true,
+      vaultSalt: saltBase64,
+    });
+
+    this.updateStatus({
+      telemetry: {
+        ...this.status.telemetry,
+        encrypted: true,
+      },
+    });
+
+    await this.syncNow({ forceFull: true });
+  }
+
+  /**
+   * Unlocks an encrypted vault using the provided passphrase.
+   * Verifies against remote ciphertext if available, caches key, and resumes sync.
+   */
+  async unlockVault(passphrase: string): Promise<boolean> {
+    let saltBase64 = (await this.loadStorageState()).vaultSalt;
+    let remoteEncryptedPayload: VaultPayload | null = null;
+
+    // Check remote vault file to obtain or verify salt
+    try {
+      const findResult = await googleDriveClient.findVaultFile(VAULT_FILE_NAME);
+      if (findResult.success && findResult.data.files.length > 0) {
+        const fileId = findResult.data.files[0].id;
+        const downloadResult = await googleDriveClient.downloadVaultFile(fileId);
+        if (downloadResult.success) {
+          const raw = downloadResult.data as VaultPayload;
+          if (raw && typeof raw.payload === 'string') {
+            remoteEncryptedPayload = raw;
+            if (raw.salt) {
+              saltBase64 = raw.salt;
+              await this.saveStorageState({ vaultSalt: saltBase64, isEncrypted: true });
+            }
+          }
+        }
+      }
+    } catch {
+      // Best effort remote check
+    }
+
+    if (!saltBase64) {
+      return false;
+    }
+
+    let candidateKey: CryptoKey;
+    try {
+      const saltBytes = base64ToUint8Array(saltBase64);
+      candidateKey = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+    } catch {
+      return false;
+    }
+
+    // Verify passphrase correctness against remote payload if available
+    if (remoteEncryptedPayload?.iv && remoteEncryptedPayload?.payload) {
+      try {
+        await WebCryptoEngine.decryptPayload(
+          {
+            version: 1,
+            salt: remoteEncryptedPayload.salt ?? saltBase64,
+            iv: remoteEncryptedPayload.iv,
+            ciphertext: remoteEncryptedPayload.payload,
+            iterations: 600_000,
+          },
+          candidateKey
+        );
+      } catch (err: unknown) {
+        if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
+          return false;
+        }
+        return false;
+      }
+    }
+
+    // Passphrase is valid: save session, update state, and trigger sync
+    await sessionKeyStore.saveSession(candidateKey, saltBase64);
+    await this.saveStorageState({
+      isEncrypted: true,
+      vaultSalt: saltBase64,
+      lastError: undefined,
+    });
+
+    this.updateStatus({
+      state: 'idle',
+      telemetry: {
+        ...this.status.telemetry,
+        encrypted: true,
+        lastError: undefined,
+      },
+    });
+
+    await this.syncNow();
+    return true;
+  }
+
+  /**
+   * Locks the active vault by wiping session keys and entering 'locked' state.
+   */
+  async lockVault(): Promise<void> {
+    await sessionKeyStore.clearSession();
+    this.updateStatus({
+      state: 'locked',
+      telemetry: {
+        ...this.status.telemetry,
+        encrypted: true,
+      },
+    });
+  }
+
+  /**
    * Executes a full synchronization cycle.
    */
   async syncNow(options?: { forceFull?: boolean }): Promise<SyncResult> {
@@ -227,6 +370,23 @@ export class SyncEngine implements SyncProvider {
     this.updateStatus({ state: 'syncing' });
 
     try {
+      // Fast-fail if local vault is known to be encrypted and currently locked
+      const initialStorage = await this.loadStorageState();
+      const isInitiallyUnlocked = await sessionKeyStore.isUnlocked();
+      if (initialStorage.isEncrypted && !isInitiallyUnlocked) {
+        this.updateStatus({
+          state: 'locked',
+          telemetry: {
+            ...this.status.telemetry,
+            encrypted: true,
+          },
+        });
+        return {
+          success: false,
+          error: 'Vault is locked. Passphrase required.',
+          timestamp: Date.now(),
+        };
+      }
       // Step 1: Verify auth token silently
       const authResult = await googleAuthClient.getAuthToken(false);
       if (!authResult.success) {
@@ -276,25 +436,127 @@ export class SyncEngine implements SyncProvider {
       let remoteSnapshot: SyncVaultSnapshot | null = null;
       let vaultFileId: string | undefined = undefined;
 
-      // Step 3: Download remote snapshot if it exists
+      // Step 3: Download and decrypt remote snapshot if it exists
       if (findResult.data.files.length > 0) {
         const file = findResult.data.files[0];
         vaultFileId = file.id;
 
         const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
         if (downloadResult.success) {
-          const raw = downloadResult.data;
-          // Handle both direct snapshot objects and VaultPayload envelope
-          if (SnapshotSerializer.validateSnapshot(raw)) {
-            remoteSnapshot = raw;
-          } else if (raw && typeof (raw as { payload?: string }).payload === 'string') {
-            try {
-              const parsed = JSON.parse((raw as { payload: string }).payload);
-              if (SnapshotSerializer.validateSnapshot(parsed)) {
-                remoteSnapshot = parsed;
+          const raw = downloadResult.data as unknown as Record<string, unknown> | null;
+
+          let potentialPayload: VaultPayload | null = null;
+          if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
+            potentialPayload = raw as unknown as VaultPayload;
+          } else if (SnapshotSerializer.validateSnapshot(raw)) {
+            remoteSnapshot = raw as unknown as SyncVaultSnapshot;
+          }
+
+          if (potentialPayload) {
+            const isRemoteEncrypted = Boolean(
+              potentialPayload.isEncrypted ||
+              (potentialPayload.iv && potentialPayload.salt)
+            );
+
+            if (isRemoteEncrypted) {
+              const salt = potentialPayload.salt;
+              await this.saveStorageState({
+                isEncrypted: true,
+                ...(salt ? { vaultSalt: salt } : {}),
+              });
+
+              const isUnlocked = await sessionKeyStore.isUnlocked();
+              if (!isUnlocked) {
+                this.updateStatus({
+                  state: 'locked',
+                  isConnected: true,
+                  telemetry: {
+                    ...this.status.telemetry,
+                    encrypted: true,
+                  },
+                });
+                return {
+                  success: false,
+                  error: 'Vault is locked. Passphrase required.',
+                  timestamp: Date.now(),
+                };
               }
-            } catch {
-              // Ignore corrupt payload and proceed with initial upload
+
+              const session = await sessionKeyStore.loadSession();
+              if (!session) {
+                this.updateStatus({
+                  state: 'locked',
+                  isConnected: true,
+                  telemetry: {
+                    ...this.status.telemetry,
+                    encrypted: true,
+                  },
+                });
+                return {
+                  success: false,
+                  error: 'Vault is locked. Passphrase required.',
+                  timestamp: Date.now(),
+                };
+              }
+
+              try {
+                const decryptedStr = await WebCryptoEngine.decryptPayload(
+                  {
+                    version: 1,
+                    salt: potentialPayload.salt ?? session.salt,
+                    iv: potentialPayload.iv!,
+                    ciphertext: potentialPayload.payload,
+                    iterations: 600_000,
+                  },
+                  session.key
+                );
+                const parsed = JSON.parse(decryptedStr);
+                if (SnapshotSerializer.validateSnapshot(parsed)) {
+                  remoteSnapshot = parsed;
+                }
+              } catch (err: unknown) {
+                if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
+                  this.updateStatus({
+                    state: 'error',
+                    telemetry: {
+                      ...this.status.telemetry,
+                      encrypted: true,
+                      lastError: 'INVALID_PASSPHRASE',
+                    },
+                  });
+                  await this.saveStorageState({ lastError: 'INVALID_PASSPHRASE' });
+                  return {
+                    success: false,
+                    error: 'INVALID_PASSPHRASE',
+                    timestamp: Date.now(),
+                  };
+                }
+                const msg = err instanceof Error ? err.message : 'Decryption failed';
+                this.updateStatus({
+                  state: 'error',
+                  telemetry: {
+                    ...this.status.telemetry,
+                    encrypted: true,
+                    lastError: msg,
+                  },
+                });
+                await this.saveStorageState({ lastError: msg });
+                return {
+                  success: false,
+                  error: msg,
+                  timestamp: Date.now(),
+                };
+              }
+            } else {
+              // Legacy unencrypted payload
+              try {
+                const parsed = JSON.parse(potentialPayload.payload);
+                if (SnapshotSerializer.validateSnapshot(parsed)) {
+                  remoteSnapshot = parsed;
+                }
+              } catch {
+                // Ignore corrupt payload
+              }
             }
           }
         }
@@ -316,9 +578,55 @@ export class SyncEngine implements SyncProvider {
 
       // Step 7: Upload reconciled merged snapshot to Drive if changes exist
       if (reconciliation.hasChanges || options?.forceFull) {
-        const payloadString = JSON.stringify(reconciliation.mergedSnapshot);
+        const currentStorage = await this.loadStorageState();
+        const hasUnlockedSession = await sessionKeyStore.isUnlocked();
+        const shouldEncrypt = Boolean(currentStorage.isEncrypted || hasUnlockedSession);
+
+        let uploadContent: string;
+
+        if (shouldEncrypt) {
+          const session = await sessionKeyStore.loadSession();
+          if (!session) {
+            this.updateStatus({
+              state: 'locked',
+              telemetry: {
+                ...this.status.telemetry,
+                encrypted: true,
+              },
+            });
+            return {
+              success: false,
+              error: 'Vault is locked. Cannot encrypt changes without unlocked session.',
+              timestamp: Date.now(),
+            };
+          }
+
+          const jsonStr = JSON.stringify(reconciliation.mergedSnapshot);
+          const saltBytes = base64ToUint8Array(session.salt);
+          const envelope = await WebCryptoEngine.encryptPayload(jsonStr, session.key, saltBytes);
+
+          const vaultContent: VaultPayload = {
+            schemaVersion: '2.0.0-e2ee',
+            clientTimestamp: new Date().toISOString(),
+            payload: envelope.ciphertext,
+            iv: envelope.iv,
+            salt: envelope.salt,
+            isEncrypted: true,
+          };
+          uploadContent = JSON.stringify(vaultContent);
+        } else {
+          const jsonStr = JSON.stringify(reconciliation.mergedSnapshot);
+          const vaultContent: VaultPayload = {
+            schemaVersion: '1.0.0',
+            clientTimestamp: new Date().toISOString(),
+            payload: jsonStr,
+            isEncrypted: false,
+          };
+          uploadContent = JSON.stringify(vaultContent);
+        }
+
         const uploadResult = await googleDriveClient.uploadVaultFile(
-          payloadString,
+          uploadContent,
           vaultFileId,
           VAULT_FILE_NAME,
         );
@@ -345,6 +653,9 @@ export class SyncEngine implements SyncProvider {
 
       // Step 8: Update state to synced
       const now = Date.now();
+      const finalStorage = await this.loadStorageState();
+      const isEncrypted = Boolean(finalStorage.isEncrypted || (await sessionKeyStore.isUnlocked()));
+
       this.updateStatus({
         state: 'synced',
         isConnected: true,
@@ -352,7 +663,7 @@ export class SyncEngine implements SyncProvider {
           lastSyncedAt: now,
           pendingMutations: 0,
           lastError: undefined,
-          encrypted: false,
+          encrypted: isEncrypted,
         },
       });
 
@@ -361,6 +672,7 @@ export class SyncEngine implements SyncProvider {
         lastSyncedAt: now,
         lastVaultFileId: vaultFileId,
         lastError: undefined,
+        isEncrypted,
       });
 
       return {

@@ -68,6 +68,12 @@ tabbellus/
     │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, storage state
     │   │   │   ├── index.ts    # Barrel re-export
     │   │   │   └── __tests__/  # snapshotSerializer.test.ts (6 tests), diffEngine.test.ts (9 tests), syncEngine.test.ts (9 tests)
+    │   │   ├── crypto/         # Pure WebCrypto E2EE primitives & ephemeral session key store
+    │   │   │   ├── types.ts    # EncryptedVaultEnvelope, KeyStoreRecord, CryptoErrorCode, CryptoEngineError
+    │   │   │   ├── webCrypto.ts # WebCryptoEngine (PBKDF2 600k, AES-GCM 256, chunked Base64, auth tag validation)
+    │   │   │   ├── keyStore.ts  # SessionKeyStore (chrome.storage.session key lifecycle & in-memory caching)
+    │   │   │   ├── index.ts    # Barrel re-export
+    │   │   │   └── __tests__/  # webCrypto.test.ts (17 tests), keyStore.test.ts (7 tests)
     │   │   ├── components/     # UI cards and slot components
     │   │   │   ├── SyncSettingsCard.tsx # Google Drive sync management card for Data tab
     │   │   │   ├── index.ts             # Barrel re-export
@@ -929,6 +935,88 @@ The project has completed major refactoring phases to optimize performance, clea
     *   *React 19 Snapshot Stability (Pass):* `useRules` uses `useSyncExternalStore` with stable `EMPTY_RULES` snapshot and memoized callbacks. Dialog dismissals are fully guarded on toast interactions.
 *   **Verification:** `501/501` unit tests passing across `47` test files (100% pass rate), 0 TypeScript errors (`tsc --noEmit`), and clean production build (`npm run build`).
 
-<!-- Last Updated: 2026-09-01T22:45:00+02:00 -->
+### Phase 43.1: Milestone 4 — Part 1: Pure WebCrypto Engine & Key Store
+*   **Architectural Scope:** Established the client-side Zero-Knowledge End-to-End Encryption (E2EE) foundation for Pro Cloud Sync within `src/pro/sync/crypto/`.
+*   **Components & Implementations:**
+    *   **Cryptographic Type Definitions (`src/pro/sync/crypto/types.ts`):** Defined `EncryptedVaultEnvelope` (version: 1, Base64 salt, Base64 12-byte IV, Base64 ciphertext with 16-byte auth tag, iterations: 600,000), `KeyDerivationOptions`, `KeyStoreRecord` (rawKey, salt, unlockedAt), `CryptoErrorCode` (`'INVALID_PASSPHRASE' | 'DECRYPTION_FAILED' | 'KEY_DERIVATION_FAILED' | 'SESSION_LOCKED'`), and custom error class `CryptoEngineError`.
+    *   **Pure WebCrypto Implementation (`src/pro/sync/crypto/webCrypto.ts`):** `WebCryptoEngine` implements:
+        *   `PBKDF2_ITERATIONS = 600_000`, `SALT_BYTE_LENGTH = 16`, `IV_BYTE_LENGTH = 12`, `KEY_BIT_LENGTH = 256`.
+        *   `generateSalt()` via `crypto.getRandomValues`.
+        *   `deriveKeyFromPassphrase(passphrase, salt, iterations)` using PBKDF2-HMAC-SHA256 deriving extractable 256-bit AES-GCM key.
+        *   `encryptPayload(plaintext, key, salt, iterations)` using AES-GCM with fresh 12-byte IV per encryption, returning `EncryptedVaultEnvelope`.
+        *   `decryptPayload(envelope, key)` using AES-GCM; catches `OperationError` (GCM auth tag verification failure / wrong key / bit flips) and maps directly to `CryptoEngineError('INVALID_PASSPHRASE')`.
+        *   Deterministic, chunk-safe `uint8ArrayToBase64` and `base64ToUint8Array` running cleanly in Browser, Service Worker, and Node.js without Node `Buffer`.
+    *   **Ephemeral Session Key Store (`src/pro/sync/crypto/keyStore.ts`):** `SessionKeyStore` singleton manages unlocked vault key lifecycle:
+        *   Storage Key: `tabbellus_vault_session` in `chrome.storage.session`.
+        *   In-memory caching (`cachedKey`, `cachedSalt`) for low-latency queries during active sidepanel operations.
+        *   `saveSession(key, salt)` exports raw key to `chrome.storage.session` and populates cache.
+        *   `loadSession()` returns from memory cache or re-imports raw key from `chrome.storage.session`.
+        *   `clearSession()` purges both in-memory cache and session storage.
+        *   `isUnlocked()` verifies unlock state.
+        *   Fail-open guards: gracefully degrades to in-memory only storage if `chrome.storage.session` is undefined.
+    *   **Barrel Exports (`src/pro/sync/crypto/index.ts`, `src/pro/sync/index.ts`):** Re-exported `WebCryptoEngine`, `SessionKeyStore`, `sessionKeyStore`, `CryptoEngineError`, and all types. Free Core boundary remains zero-contaminated.
+*   **Testing Infrastructure:**
+    *   `src/pro/sync/crypto/__tests__/webCrypto.test.ts` (17 tests): PBKDF2 key determinism, JSON roundtrip, bit tampering detection on ciphertext, auth tag mutation detection, IV tampering detection, wrong passphrase rejection, multiple encryptions producing distinct IVs, chunked Base64 binary roundtrips.
+    *   `src/pro/sync/crypto/__tests__/keyStore.test.ts` (7 tests): Save/load lifecycle, raw key export/re-import decryption verification, cache invalidation on clear, unlock state check, fallback on missing `chrome.storage.session`, malformed storage handling.
+    *   Test coverage increased from 501 to **525 passing tests across 49 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (525/525 passing), clean production build (`npm run build` completed in 8.80s).
 
+### Phase 43.2: Milestone 4 — Part 2: Vault Payload Serialization & E2EE Sync Engine Integration
+*   **Architectural Scope:** Integrated Zero-Knowledge End-to-End Encryption (E2EE) seamlessly into the Google Drive `SyncEngine` orchestration pipeline with zero Free Core contamination.
+*   **Contracts & Schema Upgrades:**
+    *   **Sync State & Provider Interface (`src/core/contracts/sync.ts`, `src/core/contracts/registry.ts`):**
+        *   Extended `SyncState` with `'locked'`.
+        *   Added optional encryption lifecycle methods to `SyncProvider`: `setupEncryption?(passphrase: string): Promise<void>`, `unlockVault?(passphrase: string): Promise<boolean>`, `lockVault?(): Promise<void>`.
+        *   Updated `NullSyncProvider` in Free Core with safe no-op fallbacks (`unlockVault` returns `false`, `setupEncryption` and `lockVault` resolve cleanly).
+    *   **Storage & API Models (`src/pro/sync/engine/types.ts`, `src/pro/sync/api/types.ts`):**
+        *   Extended `SyncStorageState` with `isEncrypted?: boolean` and `vaultSalt?: string`.
+        *   Extended `VaultPayload` with `isEncrypted?: boolean` alongside existing `iv` and `salt`.
+*   **Sync Engine Pipeline Integration (`src/pro/sync/engine/syncEngine.ts`):**
+    *   **State & Storage Initialization:** On startup, reads `isEncrypted` from storage; if encrypted and `sessionKeyStore.isUnlocked()` is false, sets initial state to `'locked'` with `telemetry.encrypted = true`.
+    *   **Race Condition Prevention:** Sets `this.isSyncing = true` synchronously at the top of `syncNow()` prior to any `await` calls, preventing concurrent overlapping sync executions.
+    *   **Decryption Interceptor (Step 3):**
+        *   Detects encrypted remote envelopes (`isEncrypted || (iv && salt)`), records `isEncrypted = true` and `vaultSalt` into local storage.
+        *   If session key is missing, halts sync cleanly, transitions state to `'locked'`, and notifies subscribers.
+        *   If unlocked, loads session and decrypts ciphertext via `WebCryptoEngine.decryptPayload`. On `INVALID_PASSPHRASE`, marks status as `'error'`, records telemetry, and exits early without mutating Dexie.
+        *   Provides 100% backward compatibility for unencrypted `VaultPayload` and raw legacy snapshots.
+    *   **Encryption Interceptor (Step 7):**
+        *   If encryption is active, encrypts merged snapshot JSON with session key, uploads envelope with `schemaVersion: '2.0.0-e2ee'`, `isEncrypted: true`, random IV, and salt.
+        *   If unencrypted, uploads standard payload with `schemaVersion: '1.0.0'` and `isEncrypted: false`.
+    *   **Passphrase & Key Lifecycle Operations:**
+        *   `setupEncryption(passphrase)`: Generates cryptographic salt, derives AES-GCM key with PBKDF2 (600,000 iterations), persists session, and triggers full encrypted sync upload (`forceFull: true`).
+        *   `unlockVault(passphrase)`: Resolves salt from storage or remote envelope, derives key, verifies decryptability against remote ciphertext, caches session, sets state to `'idle'`, and triggers reconciliation.
+        *   `lockVault()`: Purges session key from `chrome.storage.session` and memory cache, sets state to `'locked'`, and halts background sync cycles.
+*   **Testing Infrastructure:**
+    *   `src/core/__tests__/registry.test.ts` (37 tests): Verified `NullSyncProvider` safe no-op handling for encryption methods.
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts` (15 tests): Added 6 comprehensive E2EE tests:
+        1. Encrypted remote download pauses sync and enters `'locked'` state with intact Dexie when session key is missing.
+        2. `unlockVault` with valid passphrase unlocks session and completes full reconciliation.
+        3. `unlockVault` with invalid passphrase returns `false` without corrupting local Dexie.
+        4. `setupEncryption` converts unencrypted state into encrypted upload payload with valid `iv` and `salt`.
+        5. Seamless backward-compatible download and reconciliation of legacy unencrypted `VaultPayload`.
+        6. `lockVault()` purges session key and prevents subsequent background sync flushes until unlocked.
+    *   Full test suite raised to **532/532 passing tests across 49 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (532/532 passing), production build (`npm run build` completed in 8.51s).
 
+### Phase 43.3: Milestone 4 — Part 3: UI Integration, Passphrase Setup Modal & Vault Unlock Dialogs
+*   **Architectural Scope:** Delivered high-density, accessible UI surfaces for Zero-Knowledge End-to-End Encryption (E2EE) management in the Settings Data tab.
+*   **Component Implementations:**
+    *   **Pure Logic Helpers (`src/pro/sync/components/encryptionModalLogic.ts` & `unlockModalLogic.ts`):**
+        *   `calculatePassphraseStrength(passphrase)`: Pure evaluator calculating strength score from 0 to 4 based on length ($\ge 8$, $\ge 12$), uppercase, lowercase, numbers, and symbols. Returns score, human-readable labels (`'Too Weak'`, `'Weak'`, `'Fair'`, `'Strong'`, `'Very Strong'`), and progressive color classes.
+        *   `validateSetupDraft(passphrase, confirm)`: Enforces non-empty, minimum 8 characters, and exact confirmation match.
+        *   `validateUnlockDraft(passphrase)`: Enforces non-empty passphrase string.
+    *   **Passphrase Setup Dialog (`src/pro/sync/components/EncryptionSetupModal.tsx`):** Controlled Radix `<Dialog>` featuring zero-knowledge disclaimer box (warning that TabBellus holds no master recovery keys), show/hide passphrase toggles, live 4-segment strength bar, confirmation match checks, and async `syncEngine.setupEncryption` trigger with loading spinner and toast notifications.
+    *   **Vault Unlock Dialog (`src/pro/sync/components/VaultUnlockModal.tsx`):** Controlled Radix `<Dialog>` prompting for passphrase on locked devices with auto-focus, show/hide toggle, inline validation errors, and an expandable emergency "Forgot Passphrase?" section with a double-confirmation cloud reset flow.
+    *   **Sync Settings Card Upgrades (`src/pro/sync/components/SyncSettingsCard.tsx`):**
+        *   Reactive status pills: amber `"Vault Locked"` (`Lock`), emerald `"E2E Encrypted"` (`ShieldCheck`), and muted `"Standard Sync"` (`Shield`).
+        *   Action trays: Primary `"Unlock Vault"` button opening `<VaultUnlockModal>` when locked; `"Enable E2EE"` trigger opening `<EncryptionSetupModal>` when connected and unencrypted; subtle `"Lock"` button purging session key and entering locked state when active.
+        *   Telemetry tile displaying `appDataFolder (E2EE)` when encrypted.
+    *   **Barrel Exports (`src/pro/sync/components/index.ts`):** Re-exported `EncryptionSetupModal`, `VaultUnlockModal`, `SyncSettingsCard`, and all logic helpers.
+*   **Testing Infrastructure:**
+    *   `src/pro/sync/components/__tests__/encryptionModalLogic.test.ts` (11 tests): Tested strength scoring across empty, short, low-variety, medium, strong, and long/complex passphrases; tested validation for empty, short, mismatching, and valid drafts.
+    *   `src/pro/sync/components/__tests__/unlockModalLogic.test.ts` (3 tests): Tested rejection of empty and whitespace passphrases, and acceptance of valid passphrases.
+    *   `src/pro/sync/components/__tests__/SyncSettingsCard.test.tsx` (7 tests): Added tests verifying locked state with "Vault Locked" badge and "Unlock Vault" CTA, active E2EE state with "E2E Encrypted" badge and "Lock" action, and standard unencrypted state with "Standard Sync" badge and "Enable E2EE" action.
+    *   Full test suite raised to **549/549 passing tests across 51 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (549/549 passing), production build (`npm run build` completed in 9.13s).
+
+<!-- Last Updated: 2026-09-02 (Milestone 4 — Part 3: UI Integration, Passphrase Setup Modal & Vault Unlock Dialogs Complete: 549 Unit Tests Passing across 51 Test Files) -->

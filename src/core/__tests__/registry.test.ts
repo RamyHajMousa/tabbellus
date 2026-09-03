@@ -94,6 +94,14 @@ describe('NullSyncProvider', () => {
     });
     expect(typeof unsubscribe).toBe('function');
   });
+
+  it('should handle encryption lifecycle methods safely without throwing', async () => {
+    const provider = new NullSyncProvider();
+
+    await expect(provider.setupEncryption('passphrase')).resolves.toBeUndefined();
+    await expect(provider.unlockVault('passphrase')).resolves.toBe(false);
+    await expect(provider.lockVault()).resolves.toBeUndefined();
+  });
 });
 
 describe('NullRulesEngine', () => {

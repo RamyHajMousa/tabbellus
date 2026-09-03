@@ -15,6 +15,9 @@ export * from './api';
 // --- Sync Reconciliation Engine Layer ---
 export * from './engine';
 
+// --- Sync Cryptographic Engine Layer ---
+export * from './crypto';
+
 // --- Sync UI Components Layer ---
 export * from './components';
 

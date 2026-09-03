@@ -71,4 +71,5 @@ export interface VaultPayload {
   payload: string;
   iv?: string;
   salt?: string;
+  isEncrypted?: boolean;
 }

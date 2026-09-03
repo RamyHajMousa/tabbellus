@@ -94,6 +94,18 @@ export class NullSyncProvider implements SyncProvider {
     });
     return () => {};
   }
+
+  async setupEncryption(_passphrase: string): Promise<void> {
+    // No-op for null provider
+  }
+
+  async unlockVault(_passphrase: string): Promise<boolean> {
+    return false;
+  }
+
+  async lockVault(): Promise<void> {
+    // No-op for null provider
+  }
 }
 
 /**

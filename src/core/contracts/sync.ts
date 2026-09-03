@@ -9,7 +9,7 @@
  * - This module MUST NOT import anything from `src/pro/`.
  */
 
-export type SyncState = 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
+export type SyncState = 'idle' | 'syncing' | 'synced' | 'error' | 'offline' | 'locked';
 
 export interface SyncTelemetry {
   lastSyncedAt?: number;
@@ -36,4 +36,7 @@ export interface SyncProvider {
   disconnect(): Promise<void>;
   syncNow(options?: { forceFull?: boolean }): Promise<SyncResult>;
   subscribe(callback: (status: SyncStatus) => void): () => void;
+  setupEncryption?(passphrase: string): Promise<void>;
+  unlockVault?(passphrase: string): Promise<boolean>;
+  lockVault?(): Promise<void>;
 }
