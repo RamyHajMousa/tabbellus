@@ -1,5 +1,6 @@
 import { db, type Tab, type Space, type SpaceWithTabs, type SavedTabResult } from './db';
 import { tabService } from './tabService';
+import { contractRegistry } from '@/core/contracts/registry';
 
 export type SpaceRestoreListener = (spaceId: number, windowId: number) => void;
 
@@ -45,6 +46,7 @@ class SpaceService {
      */
     async deleteTab(tabId: number): Promise<void> {
         await db.tabs.update(tabId, { deletedAt: Date.now() });
+        contractRegistry.notifyLocalMutation();
     }
 
     /**
@@ -56,6 +58,7 @@ class SpaceService {
         } else {
             await db.tabs.put({ ...tabOrId, deletedAt: undefined });
         }
+        contractRegistry.notifyLocalMutation();
     }
 
     /**
@@ -205,6 +208,7 @@ class SpaceService {
             });
 
             console.log(`Empty space "${spaceName}" created successfully with ID: ${spaceId}${sanitizedColor ? ` and color: ${sanitizedColor}` : ''}`);
+            contractRegistry.notifyLocalMutation();
             return spaceId as number;
         } catch (error) {
             console.error('SpaceService: Failed to create empty space', error);
@@ -260,6 +264,7 @@ class SpaceService {
             });
 
             console.log(`Space "${spaceName}" captured successfully with ${validTabs.length} tabs.`);
+            contractRegistry.notifyLocalMutation();
 
         } catch (error) {
             console.error('SpaceService: Transaction failed', error);
@@ -276,6 +281,7 @@ class SpaceService {
             if (!space) return;
 
             await db.spaces.update(spaceId, { isPinned: !space.isPinned });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to toggle space pin', e);
         }
@@ -292,21 +298,27 @@ class SpaceService {
      * Soft deletes a space.
      */
     async softDeleteSpace(spaceId: number) {
-        return db.softDeleteSpace(spaceId);
+        const result = await db.softDeleteSpace(spaceId);
+        contractRegistry.notifyLocalMutation();
+        return result;
     }
 
     /**
      * Restores a soft-deleted space.
      */
     async undoDeleteSpace(spaceId: number) {
-        return db.undoDeleteSpace(spaceId);
+        const result = await db.undoDeleteSpace(spaceId);
+        contractRegistry.notifyLocalMutation();
+        return result;
     }
 
     /**
      * Hard deletes a space and its tabs.
      */
     async hardDeleteSpace(spaceId: number) {
-        return db.hardDeleteSpace(spaceId);
+        const result = await db.hardDeleteSpace(spaceId);
+        contractRegistry.notifyLocalMutation();
+        return result;
     }
 
     /**
@@ -319,6 +331,7 @@ class SpaceService {
         }
         try {
             await db.spaces.update(spaceId, { name: trimmedName, color });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to update space details', e);
             throw e instanceof Error ? e : new Error('Failed to update space details.');
@@ -332,6 +345,7 @@ class SpaceService {
         if (!newName.trim()) return;
         try {
             await db.spaces.update(spaceId, { name: newName.trim() });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to update space name', e);
         }
@@ -343,6 +357,7 @@ class SpaceService {
     async updateSpaceColor(spaceId: number, color: string | undefined): Promise<void> {
         try {
             await db.spaces.update(spaceId, { color });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to update space color', e);
             throw e instanceof Error ? e : new Error('Failed to update space color.');
@@ -578,6 +593,7 @@ class SpaceService {
                     });
                 }
             });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
                 throw e;
@@ -626,6 +642,7 @@ class SpaceService {
 
                 await db.tabs.bulkAdd(tabRecords);
             });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to create space from tabs', e);
             throw e;
@@ -639,7 +656,7 @@ class SpaceService {
      */
     async moveTabBetweenSpaces(tabId: number, targetSpaceId: number): Promise<{ sourceSpaceId: number; originalOrder: number }> {
         try {
-            return await db.transaction('rw', db.tabs, async () => {
+            const result = await db.transaction('rw', db.tabs, async () => {
                 const sourceTab = await db.tabs.get(tabId);
                 if (!sourceTab) {
                     throw new Error('Tab not found.');
@@ -682,6 +699,8 @@ class SpaceService {
 
                 return { sourceSpaceId, originalOrder };
             });
+            contractRegistry.notifyLocalMutation();
+            return result;
         } catch (e) {
             if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
                 throw e;
@@ -747,6 +766,7 @@ class SpaceService {
                     order: nextOrder,
                 });
             });
+            contractRegistry.notifyLocalMutation();
         } catch (e) {
             if (e instanceof Error && e.message === 'DUPLICATE_TAB') {
                 throw e;

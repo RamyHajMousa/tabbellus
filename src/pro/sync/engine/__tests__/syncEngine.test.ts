@@ -10,8 +10,9 @@
  * - Concurrent sync invocation prevention
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyncEngine } from '../syncEngine';
+import { contractRegistry } from '@/core/contracts/registry';
 import { googleAuthClient } from '../../api/googleAuthClient';
 import { googleDriveClient } from '../../api/googleDriveClient';
 import { db } from '@/lib/db';
@@ -740,6 +741,140 @@ describe('SyncEngine', () => {
       expect(syncResult.success).toBe(false);
       expect(syncResult.error).toContain('locked');
       expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // Debounced Auto-Sync on Local Mutations
+  // =========================================================================
+
+  describe('Debounced Auto-Sync', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('triggers debounced syncNow({ silent: true }) 3000ms after a local mutation', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [] },
+      });
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'auto-vault-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      await engine.connect();
+      const syncNowSpy = vi.spyOn(engine, 'syncNow');
+
+      // Dispatch local mutation
+      contractRegistry.notifyLocalMutation();
+
+      // Before timer expires, syncNow should NOT have been called
+      vi.advanceTimersByTime(2999);
+      expect(syncNowSpy).not.toHaveBeenCalled();
+
+      // Advance past debounce threshold
+      await vi.advanceTimersByTimeAsync(1);
+      expect(syncNowSpy).toHaveBeenCalledTimes(1);
+      expect(syncNowSpy).toHaveBeenCalledWith({ silent: true });
+    });
+
+    it('resets debounce timer on rapid consecutive mutations and syncs exactly once', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [] },
+      });
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'auto-vault-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      await engine.connect();
+      const syncNowSpy = vi.spyOn(engine, 'syncNow');
+
+      // 3 rapid consecutive mutations
+      contractRegistry.notifyLocalMutation();
+      vi.advanceTimersByTime(1000);
+      contractRegistry.notifyLocalMutation();
+      vi.advanceTimersByTime(1500);
+      contractRegistry.notifyLocalMutation();
+
+      // 2500ms since last mutation - should not fire yet
+      vi.advanceTimersByTime(2500);
+      expect(syncNowSpy).not.toHaveBeenCalled();
+
+      // Reach 3000ms from the third mutation
+      await vi.advanceTimersByTimeAsync(500);
+      expect(syncNowSpy).toHaveBeenCalledTimes(1);
+      expect(syncNowSpy).toHaveBeenCalledWith({ silent: true });
+    });
+
+    it('ignores local mutations when disconnected', async () => {
+      const syncNowSpy = vi.spyOn(engine, 'syncNow');
+
+      expect((await engine.getStatus()).isConnected).toBe(false);
+
+      contractRegistry.notifyLocalMutation();
+      await vi.advanceTimersByTimeAsync(4000);
+
+      expect(syncNowSpy).not.toHaveBeenCalled();
+    });
+
+    it('ignores local mutations when vault is locked', async () => {
+      await engine.connect();
+      await engine.lockVault();
+
+      expect((await engine.getStatus()).state).toBe('locked');
+
+      const syncNowSpy = vi.spyOn(engine, 'syncNow');
+
+      contractRegistry.notifyLocalMutation();
+      await vi.advanceTimersByTimeAsync(4000);
+
+      expect(syncNowSpy).not.toHaveBeenCalled();
+    });
+
+    it('cancels pending debounce timer when disconnecting or locking vault', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+
+      await engine.connect();
+      const syncNowSpy = vi.spyOn(engine, 'syncNow');
+
+      // Test 1: Disconnect cancels timer
+      contractRegistry.notifyLocalMutation();
+      vi.advanceTimersByTime(1500);
+
+      await engine.disconnect();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(syncNowSpy).not.toHaveBeenCalled();
+
+      // Reconnect
+      await engine.connect();
+
+      // Test 2: Lock vault cancels timer
+      contractRegistry.notifyLocalMutation();
+      vi.advanceTimersByTime(1500);
+
+      await engine.lockVault();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(syncNowSpy).not.toHaveBeenCalled();
     });
   });
 });

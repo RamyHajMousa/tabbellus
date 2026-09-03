@@ -30,14 +30,20 @@ export interface SyncResult {
   timestamp: number;
 }
 
+export interface SyncOptions {
+  forceFull?: boolean;
+  silent?: boolean; // Suppresses UI toasts/alerts when auto-syncing
+}
+
 export interface SyncProvider {
   getStatus(): Promise<SyncStatus>;
   connect(): Promise<{ success: boolean; error?: string }>;
   disconnect(): Promise<void>;
-  syncNow(options?: { forceFull?: boolean }): Promise<SyncResult>;
+  syncNow(options?: SyncOptions): Promise<SyncResult>;
   subscribe(callback: (status: SyncStatus) => void): () => void;
   setupEncryption?(passphrase: string): Promise<void>;
   unlockVault?(passphrase: string): Promise<boolean>;
   lockVault?(): Promise<void>;
   resetCloudVault?(): Promise<void>;
+  dispose?(): void;
 }

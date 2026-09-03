@@ -1156,7 +1156,39 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **582/582 passing tests across 52 test files** (100% pass rate).
 *   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (582/582 passing), production build (`npm run build` completed in 12.42s).
 
-<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 5: Google Drive Upload Bypass Fix & Dual Change Detection: 582 Unit Tests Passing across 52 Test Files) -->
+### Phase 43.10: Milestone 5 — Step 6: Debounced Auto-Sync on Local Mutations & Sidepanel Mount Sync
+*   **Architectural Scope:** Implemented reactive auto-sync orchestration, connecting Free Core user mutations to the Pro Google Drive sync engine without violating the Zero-Contamination Boundary, along with sidepanel mount synchronization.
+*   **Free Core Event Bus (`src/core/contracts/registry.ts`, `src/core/contracts/sync.ts`):**
+    *   Added `SyncOptions` interface with `forceFull?: boolean` and `silent?: boolean` (suppresses UI toast noise during background auto-sync).
+    *   Extended `SyncProvider` contract with `syncNow(options?: SyncOptions): Promise<SyncResult>` and optional `dispose?(): void`.
+    *   Implemented `localMutationListeners = new Set<() => void>()`, `notifyLocalMutation(): void`, and `subscribeLocalMutation(callback: () => void): () => void` in `ContractRegistry`.
+    *   Isolated listener execution with `try / catch` so individual subscriber errors never disrupt other listeners.
+    *   Reset `localMutationListeners.clear()` in `ContractRegistry.reset()`.
+    *   Exported standalone helpers `notifyLocalMutation` and `subscribeLocalMutation` from `src/core/contracts/registry.ts` and `src/core/index.ts`.
+*   **Domain Service Instrumentation (Free Core):**
+    *   Injected `contractRegistry.notifyLocalMutation()` at the conclusion of all user mutation operations:
+        *   `src/lib/spaceService.ts` (15 methods): `createEmptySpace`, `captureCurrentWindow`, `createSpaceFromTabs`, `softDeleteSpace`, `undoDeleteSpace`, `hardDeleteSpace`, `updateSpaceName`, `updateSpaceColor`, `updateSpaceDetails`, `toggleSpacePin`, `addTabToSpace`, `deleteTab`, `restoreTab`, `moveTabBetweenSpaces`, `copyTabToSpace`.
+        *   `src/lib/readLaterService.ts` (7 methods): `deleteItem`, `restoreItem`, `restoreItems`, `addFromTab`, `updateStatus`, `archiveAllUnread`, `clearAllArchived`.
+    *   **Anti-Echo Guard Maintained:** `src/pro/sync/engine/snapshotSerializer.ts` does NOT emit `notifyLocalMutation()`, guaranteeing remote downloads and IndexedDB writes never trigger ping-pong sync loops.
+*   **Debounced Auto-Sync Engine (`src/pro/sync/engine/syncEngine.ts`):**
+    *   Subscribed to `contractRegistry.subscribeLocalMutation()` in `SyncEngine` constructor.
+    *   Implemented `handleLocalMutation()` with a 3000ms debounce timer (`AUTO_SYNC_DEBOUNCE_MS = 3000`).
+    *   Rapid consecutive mutations cancel any in-flight debounce timer and reschedule, coalescing bursts of edits into a single sync operation.
+    *   Fails fast and skips scheduling when disconnected (`!status.isConnected`) or vault is locked (`status.state === 'locked'`).
+    *   Cancels active debounce timers on `disconnect()`, `lockVault()`, and `dispose()`.
+    *   Executes `this.syncNow({ silent: true })` inside `withSyncLock`, ensuring re-entrant safety and zero collision with manual user syncs.
+*   **Sidepanel Mount Synchronization (`src/sidepanel/index.tsx`):**
+    *   In the root `useEffect`, after dynamic Pro bootstrap completes, queued a 500ms mount sync check.
+    *   Queries `syncProvider.getStatus()`; if `status.isConnected && status.state !== 'locked'`, dispatches `syncProvider.syncNow({ silent: true })`.
+    *   Includes unmount cleanup cancelling pending mount timers.
+*   **Testing Infrastructure:**
+    *   `src/core/__tests__/registry.test.ts`: Added 5 unit tests for `Local Mutation Event Bus` (notification dispatch, unsubscription, `reset()` purging, error isolation, standalone helper exports). Test suite raised from 37 to **42 tests**.
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Added 5 unit tests for `Debounced Auto-Sync` (3000ms debounce trigger with `{ silent: true }`, rapid consecutive mutation timer reset, disconnected state ignore, locked vault state ignore, timer cancellation on disconnect/lock). Test suite raised from 18 to **23 tests**.
+    *   Full test suite raised to **592/592 passing tests across 52 test files** (100% pass rate).
+*   **Verification:** Clean `tsc --noEmit` (0 errors), `npm test` (592/592 passing), production build (`npm run build` completed in 9.19s).
+
+<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 6: Debounced Auto-Sync on Local Mutations & Sidepanel Mount Sync: 592 Unit Tests Passing across 52 Test Files) -->
+
 
 
 

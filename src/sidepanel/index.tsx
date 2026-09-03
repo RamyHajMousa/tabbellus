@@ -31,6 +31,7 @@ import { HistoryDialog } from '@/features/history/HistoryDialog';
 import { SettingsDialog } from '@/features/settings';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { initUsageTracking } from '@/lib/usageTracker';
+import { contractRegistry } from '@/core/contracts/registry';
 
 // ...
 
@@ -51,9 +52,32 @@ const SidePanel = () => {
     // Bootstrap Pro subsystem via dynamic import (zero-contamination boundary).
     // If src/pro/ is absent, the import fails silently — Free Core is unaffected.
     React.useEffect(() => {
-        import('@/pro').catch(() => {
-            // Pro subsystem not available — silent fallback to free tier
-        });
+        let isMounted = true;
+        let mountTimer: ReturnType<typeof setTimeout> | null = null;
+
+        import('@/pro')
+            .then(async () => {
+                if (!isMounted) return;
+                mountTimer = setTimeout(async () => {
+                    try {
+                        const syncProvider = contractRegistry.getSyncProvider();
+                        const status = await syncProvider.getStatus();
+                        if (status.isConnected && status.state !== 'locked') {
+                            syncProvider.syncNow({ silent: true }).catch(() => {});
+                        }
+                    } catch {
+                        // Safe fallback
+                    }
+                }, 500);
+            })
+            .catch(() => {
+                // Pro subsystem not available — silent fallback to free tier
+            });
+
+        return () => {
+            isMounted = false;
+            if (mountTimer) clearTimeout(mountTimer);
+        };
     }, []);
 
     // Theme synchronization

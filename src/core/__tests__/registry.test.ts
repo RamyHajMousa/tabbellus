@@ -5,6 +5,8 @@ import {
   NullRulesEngine,
   NullSyncProvider,
   contractRegistry,
+  notifyLocalMutation,
+  subscribeLocalMutation,
 } from '../contracts/registry';
 import type {
   FeatureSlotRegistration,
@@ -539,6 +541,71 @@ describe('ContractRegistry', () => {
     });
   });
 
+  describe('Local Mutation Event Bus', () => {
+    it('notifies registered listeners when notifyLocalMutation is invoked', () => {
+      const listener = vi.fn();
+      const unsubscribe = registry.subscribeLocalMutation(listener);
+
+      expect(listener).not.toHaveBeenCalled();
+
+      registry.notifyLocalMutation();
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      registry.notifyLocalMutation();
+      expect(listener).toHaveBeenCalledTimes(2);
+
+      unsubscribe();
+    });
+
+    it('unsubscribes listener when cleanup function is called', () => {
+      const listener = vi.fn();
+      const unsubscribe = registry.subscribeLocalMutation(listener);
+
+      registry.notifyLocalMutation();
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
+      registry.notifyLocalMutation();
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('wipes mutation listeners on reset()', () => {
+      const listener = vi.fn();
+      registry.subscribeLocalMutation(listener);
+
+      registry.reset();
+      registry.notifyLocalMutation();
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('safely isolates errors in individual mutation listeners without breaking notification loop', () => {
+      const faultyListener = vi.fn(() => {
+        throw new Error('Listener crash');
+      });
+      const goodListener = vi.fn();
+
+      registry.subscribeLocalMutation(faultyListener);
+      registry.subscribeLocalMutation(goodListener);
+
+      expect(() => registry.notifyLocalMutation()).not.toThrow();
+      expect(faultyListener).toHaveBeenCalledTimes(1);
+      expect(goodListener).toHaveBeenCalledTimes(1);
+    });
+
+    it('handles standalone exported helpers notifyLocalMutation and subscribeLocalMutation', () => {
+      contractRegistry.reset();
+      const listener = vi.fn();
+      const unsubscribe = subscribeLocalMutation(listener);
+
+      notifyLocalMutation();
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
+      notifyLocalMutation();
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Reset', () => {
     it('should wipe modules, slots, and restore NullLicensingEngine, NullSyncProvider, and NullRulesEngine on reset', () => {
       registry.registerModule({
@@ -558,4 +625,5 @@ describe('ContractRegistry', () => {
     });
   });
 });
+
 

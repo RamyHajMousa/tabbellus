@@ -1,4 +1,5 @@
 import { db, type ReadLaterItem } from './db';
+import { contractRegistry } from '@/core/contracts/registry';
 
 class ReadLaterService {
     /**
@@ -13,6 +14,7 @@ class ReadLaterService {
      */
     async deleteItem(itemId: number): Promise<void> {
         await db.readLater.update(itemId, { deletedAt: Date.now() });
+        contractRegistry.notifyLocalMutation();
     }
 
     /**
@@ -24,6 +26,7 @@ class ReadLaterService {
         } else {
             await db.readLater.put({ ...itemOrId, deletedAt: undefined });
         }
+        contractRegistry.notifyLocalMutation();
     }
 
     /**
@@ -39,6 +42,7 @@ class ReadLaterService {
                 }
             }
         });
+        contractRegistry.notifyLocalMutation();
     }
 
     /**
@@ -105,7 +109,7 @@ class ReadLaterService {
         const url = tab.url;
         if (!url) throw new Error('Cannot save a tab without a URL to Read Later.');
 
-        return await db.transaction('rw', db.readLater, async () => {
+        const result = await db.transaction('rw', db.readLater, async () => {
             // 1. Check for existing active non-archived entries with the same URL
             const existingActive = await db.readLater
                 .where('url')
@@ -158,6 +162,8 @@ class ReadLaterService {
                 status: 'unread',
             });
         });
+        contractRegistry.notifyLocalMutation();
+        return result;
     }
 
     /**
@@ -165,6 +171,7 @@ class ReadLaterService {
      */
     async updateStatus(id: number, status: ReadLaterItem['status']): Promise<void> {
         await db.readLater.update(id, { status });
+        contractRegistry.notifyLocalMutation();
     }
 
     /**
@@ -182,6 +189,7 @@ class ReadLaterService {
                 if (item.id) await db.readLater.update(item.id, { status: 'archived' });
             }
         });
+        contractRegistry.notifyLocalMutation();
         return unreadItems.length;
     }
 
@@ -214,6 +222,7 @@ class ReadLaterService {
                 }
             }
         });
+        contractRegistry.notifyLocalMutation();
         return archivedItems;
     }
 

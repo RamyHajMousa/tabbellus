@@ -17,6 +17,7 @@ import type {
   ProModule,
   RuleEvaluationResult,
   RulesContract,
+  SyncOptions,
   SyncProvider,
   SyncResult,
   SyncStatus,
@@ -75,7 +76,7 @@ export class NullSyncProvider implements SyncProvider {
     // No-op for null provider
   }
 
-  async syncNow(_options?: { forceFull?: boolean }): Promise<SyncResult> {
+  async syncNow(_options?: SyncOptions): Promise<SyncResult> {
     return {
       success: false,
       error: 'Sync subsystem not loaded',
@@ -157,6 +158,7 @@ export class ContractRegistry {
   private listeners: Set<(snapshot: EntitlementSnapshot) => void> = new Set();
   private syncListeners: Set<(status: SyncStatus) => void> = new Set();
   private ruleListeners: Set<(rules: TabRule[]) => void> = new Set();
+  private localMutationListeners: Set<() => void> = new Set();
   private providerUnsubscribe: (() => void) | null = null;
   private syncProviderUnsubscribe: (() => void) | null = null;
   private rulesProviderUnsubscribe: (() => void) | null = null;
@@ -492,6 +494,33 @@ export class ContractRegistry {
     return this.slots.get(slotId) ? [...this.slots.get(slotId)!] : [];
   }
 
+  // --- Local Mutation Event Bus ---
+
+  /**
+   * Dispatches a local mutation event to all registered listeners (e.g. debounced auto-sync).
+   * Safe execution: isolates individual listener errors so other listeners are not blocked.
+   */
+  notifyLocalMutation(): void {
+    this.localMutationListeners.forEach((listener) => {
+      try {
+        listener();
+      } catch (err) {
+        console.debug('[ContractRegistry] Error in local mutation listener:', err);
+      }
+    });
+  }
+
+  /**
+   * Subscribes to local domain mutations (spaces, tabs, read-later changes).
+   * @returns Unsubscribe cleanup callback.
+   */
+  subscribeLocalMutation(callback: () => void): () => void {
+    this.localMutationListeners.add(callback);
+    return () => {
+      this.localMutationListeners.delete(callback);
+    };
+  }
+
   // --- Testing & Reset Helper ---
 
   reset(): void {
@@ -525,6 +554,7 @@ export class ContractRegistry {
     this.listeners.clear();
     this.syncListeners.clear();
     this.ruleListeners.clear();
+    this.localMutationListeners.clear();
     this.bindProviderSubscription(this.licensingProvider);
     this.bindSyncProviderSubscription(this.syncProvider);
     this.bindRulesProviderSubscription(this.rulesProvider);
@@ -532,4 +562,9 @@ export class ContractRegistry {
 }
 
 export const contractRegistry = new ContractRegistry();
+
+export const notifyLocalMutation = (): void => contractRegistry.notifyLocalMutation();
+export const subscribeLocalMutation = (callback: () => void): (() => void) =>
+  contractRegistry.subscribeLocalMutation(callback);
+
 

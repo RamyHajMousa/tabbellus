@@ -23,7 +23,9 @@ import type {
   SyncProvider,
   SyncStatus,
   SyncResult,
+  SyncOptions,
 } from '@/core/contracts/sync';
+import { contractRegistry } from '@/core/contracts/registry';
 import { googleAuthClient } from '../api/googleAuthClient';
 import { googleDriveClient } from '../api/googleDriveClient';
 import type { VaultPayload } from '../api/types';
@@ -54,9 +56,13 @@ export class SyncEngine implements SyncProvider {
 
   private listeners = new Set<(status: SyncStatus) => void>();
   private isSyncing = false;
+  private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly AUTO_SYNC_DEBOUNCE_MS = 3000;
+  private mutationUnsubscribe: (() => void) | null = null;
 
   constructor() {
     this.initFromStorage();
+    this.mutationUnsubscribe = contractRegistry.subscribeLocalMutation(() => this.handleLocalMutation());
   }
 
   /**
@@ -217,6 +223,11 @@ export class SyncEngine implements SyncProvider {
       // Best-effort revocation
     }
 
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+      this.autoSyncTimer = null;
+    }
+
     this.updateStatus({
       state: 'idle',
       isConnected: false,
@@ -230,6 +241,20 @@ export class SyncEngine implements SyncProvider {
       syncEnabled: false,
       lastError: undefined,
     });
+  }
+
+  /**
+   * Disposes the sync engine, cancelling active timers and unregistering mutation listeners.
+   */
+  dispose(): void {
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+      this.autoSyncTimer = null;
+    }
+    if (this.mutationUnsubscribe) {
+      this.mutationUnsubscribe();
+      this.mutationUnsubscribe = null;
+    }
   }
 
   /**
@@ -380,6 +405,10 @@ export class SyncEngine implements SyncProvider {
    * Locks the active vault by wiping session keys and entering 'locked' state.
    */
   async lockVault(): Promise<void> {
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+      this.autoSyncTimer = null;
+    }
     await sessionKeyStore.clearSession();
     this.updateStatus({
       state: 'locked',
@@ -443,9 +472,32 @@ export class SyncEngine implements SyncProvider {
   }
 
   /**
+   * Handles local domain mutations by debouncing an automatic synchronization cycle.
+   */
+  private handleLocalMutation(): void {
+    if (!this.status.isConnected || this.status.state === 'locked') {
+      return;
+    }
+
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+      this.autoSyncTimer = null;
+    }
+
+    this.autoSyncTimer = setTimeout(async () => {
+      this.autoSyncTimer = null;
+      try {
+        await this.syncNow({ silent: true });
+      } catch (err) {
+        console.debug('[SyncEngine] Background auto-sync skipped:', err);
+      }
+    }, this.AUTO_SYNC_DEBOUNCE_MS);
+  }
+
+  /**
    * Executes a full synchronization cycle.
    */
-  async syncNow(options?: { forceFull?: boolean }): Promise<SyncResult> {
+  async syncNow(options?: SyncOptions): Promise<SyncResult> {
     return this.withSyncLock(
       'syncNow',
       async () => this.executeSync(options),
@@ -461,7 +513,7 @@ export class SyncEngine implements SyncProvider {
    * Internal execution body for synchronization cycle.
    * Runs under withSyncLock to guarantee process-exclusive execution.
    */
-  private async executeSync(options?: { forceFull?: boolean }): Promise<SyncResult> {
+  private async executeSync(options?: SyncOptions): Promise<SyncResult> {
     this.updateStatus({ state: 'syncing' });
 
     try {

@@ -89,7 +89,7 @@ export class SnapshotSerializer {
 
     return (
       typeof candidate.version === 'number' &&
-      typeof candidate.clientTimestamp === 'number' &&
+      (typeof candidate.clientTimestamp === 'number' || typeof candidate.clientTimestamp === 'string') &&
       typeof candidate.deviceId === 'string' &&
       Array.isArray(candidate.spaces) &&
       Array.isArray(candidate.tabs) &&
