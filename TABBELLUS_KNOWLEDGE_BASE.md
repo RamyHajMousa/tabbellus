@@ -1250,7 +1250,49 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 8.95s.
 
-<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 8: Fix 3-Second Auto-Sync Reversal in Read Later & Tab Duplication on Move: 596 Unit Tests Passing across 52 Test Files) -->
+---
+
+### Phase 43.11: Dexie Version 5 (Immutable UUIDs & Universal LWW Timestamps)
+*   **Root Cause Analysis:**
+    1.  *Space Duplication on Rename/Recolor:* Pre-V5 spaces were identified across devices by mutable creation metadata fingerprint (`createdAt + "_" + name.trim()`). Renaming or recoloring a space broke fingerprint equality, causing the remote space to fail matching and resulting in unwanted space duplication.
+    2.  *Locally-Added Tab Pruning by Stale Remote Snapshot:* Tabs lacked creation and modification timestamps (`createdAt`, `updatedAt`). If a user added or edited a tab locally and a remote device uploaded an older snapshot before seeing that tab, the reconciliation engine had no deterministic proof that the local tab was born *after* the remote snapshot was taken, risking improper pruning.
+*   **Implementation Details:**
+    *   **Dexie Version 5 Schema & Migration (`src/lib/db.ts`):**
+        *   `Space` interface extended with `uuid?: string` and `updatedAt?: number`.
+        *   `Tab` interface extended with `createdAt?: number` and `updatedAt?: number`.
+        *   Stores definition:
+            `spaces: '++id, &uuid, name, createdAt, updatedAt, deletedAt'`
+            `tabs: '++id, spaceId, url, order, deletedAt, [spaceId+order]'`
+            `readLater: '++id, url, title, addedAt, status, deletedAt'`
+        *   Non-destructive `.upgrade()` callback populates missing `uuid` via `crypto.randomUUID()`, `updatedAt: space.createdAt || Date.now()`, and `createdAt/updatedAt: Date.now()` for legacy tabs.
+        *   Soft delete helpers `softDeleteSpace`, `undoDeleteSpace`, `softDeleteTab`, `undoDeleteTab` updated to bump `updatedAt: Date.now()`.
+    *   **Background Tab Sync Instrumentation (`src/background/tabSyncService.ts`):**
+        *   Constraint 1: `performSync` assigns `createdAt: Date.now(), updatedAt: Date.now()` on fresh tab insertions.
+        *   In-place delta updates bump `updatedAt: Date.now()` while preserving existing `createdAt` and auto-increment `id`.
+        *   Tombstoning closed tabs bumps `updatedAt: Date.now()`.
+    *   **Backup Import Unique Index Protection (`src/lib/dataService.ts`):**
+        *   Constraint 5: `importData()` generates fresh `crypto.randomUUID()` for all imported spaces to prevent unique index collisions on `&uuid`.
+        *   Sets `createdAt` and `updatedAt` on imported spaces and tabs.
+    *   **Space Service Lifecycle Instrumentation (`src/lib/spaceService.ts`):**
+        *   `createEmptySpace`, `captureCurrentWindow`, `createSpaceFromTabs`, `duplicateSpace` assign `uuid: crypto.randomUUID()`, `createdAt: now`, `updatedAt: now`.
+        *   `updateSpaceDetails`, `updateSpaceName`, `updateSpaceColor`, `toggleSpacePin` bump `updatedAt: Date.now()`.
+        *   `addTabToSpace`, `copyTabToSpace`, `restoreTabPosition` set `createdAt` and bump `updatedAt`.
+    *   **DiffEngine Overhaul (`src/pro/sync/engine/diffEngine.ts`):**
+        *   *UUID-First Matching:* Matches remote spaces against local spaces by `uuid` first; falls back to `getSpaceFingerprint` for backward compatibility with legacy snapshots.
+        *   *Constraint 2 (UUID Convergence in Adoption):* When an active local empty space adopts an incoming remote space, assigns the remote space's `uuid` to the local space record (`localSpace.uuid = remoteSpace.uuid`) so UUIDs converge across devices.
+        *   *Metadata LWW:* Compares `updatedAt` timestamps between local and remote spaces to determine the winner for `name`, `color`, and `isPinned`.
+        *   *Absolute Pruning Guard in `reconcileTabs`:* Evaluates `localTabActivity = Math.max(toEpochMs(localTab.updatedAt), toEpochMs(localTab.createdAt))`. If `localTabActivity > remoteClientTimestamp`, the tab was born or edited locally after the remote snapshot was taken; pruning is skipped!
+        *   *Constraint 3 (Metadata Change Detection):* `hasRemoteChanges` evaluates to `true` if any space in `mergedSnapshot` differs from `remoteSnapshot` in `name`, `color`, `isPinned`, `deletedAt`, `updatedAt`, or `uuid`.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added 6 test cases for UUID matching across renames, fingerprint fallback, empty space adoption UUID convergence, updatedAt LWW color resolution, and absolute pruning guards for both `createdAt` and `updatedAt`. Suite raised to **34 tests**.
+    *   `src/lib/__tests__/spaceService.test.ts`: Added 5 test cases for UUID and updatedAt tracking across `createEmptySpace`, `updateSpaceName`, `updateSpaceColor`, `toggleSpacePin`, and `copyTabToSpace`. Suite raised to **33 tests**.
+    *   `src/lib/__tests__/dataService.test.ts`: Added test case verifying fresh UUID generation on backup import preventing unique index collision. Suite raised to **11 tests**.
+    *   `src/background/__tests__/tabSyncService.test.ts`: Added test case verifying `createdAt` and `updatedAt` tracking in `performSync`. Suite raised to **6 tests**.
+    *   Full test suite raised to **609/609 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 10.27s.
+
+<!-- Last Updated: 2026-09-03 (Milestone 5 — Phase 9: Dexie Version 5 Immutable UUIDs & Universal LWW Timestamps: 609 Unit Tests Passing across 52 Test Files) -->
 
 
 

@@ -74,8 +74,12 @@ export class DiffEngine {
       );
     }
 
+    const localSpacesByUuid = new Map<string, Space>();
     const localSpacesByFingerprint = new Map<string, Space>();
     for (const space of local.spaces) {
+      if (space.uuid) {
+        localSpacesByUuid.set(space.uuid, space);
+      }
       localSpacesByFingerprint.set(getSpaceFingerprint(space), space);
     }
 
@@ -86,12 +90,23 @@ export class DiffEngine {
     const matchedLocalSpaceIds = new Set<number>();
     const processedSpaceFps = new Set<string>();
 
-    // 1. Match remote spaces against local spaces by stable fingerprint
+    // 1. Match remote spaces against local spaces: UUID first, then fingerprint fallback
     for (const remoteSpace of remote.spaces) {
       const remoteFp = getSpaceFingerprint(remoteSpace);
       processedSpaceFps.add(remoteFp);
 
-      const localSpace = localSpacesByFingerprint.get(remoteFp);
+      let localSpace: Space | undefined;
+      // Primary matching: Match by immutable UUID when present
+      if (remoteSpace.uuid) {
+        localSpace = localSpacesByUuid.get(remoteSpace.uuid);
+      }
+      // Backward-Compatibility Fallback: If remote lacks UUID or no UUID match, match by fingerprint
+      if (!localSpace) {
+        const fpCandidate = localSpacesByFingerprint.get(remoteFp);
+        if (fpCandidate && (fpCandidate.id === undefined || !matchedLocalSpaceIds.has(fpCandidate.id))) {
+          localSpace = fpCandidate;
+        }
+      }
 
       if (localSpace) {
         if (localSpace.id !== undefined) {
@@ -104,39 +119,59 @@ export class DiffEngine {
         }
         matchedSpacePairs.set(localSpaceId, { localSpace, remoteSpace });
 
+        const resolvedUuid = remoteSpace.uuid || localSpace.uuid || crypto.randomUUID();
+
         const localCreatedMs = toEpochMs(localSpace.createdAt);
         const remoteCreatedMs = toEpochMs(remoteSpace.createdAt);
-        const localDeletedMs = toEpochMs(localSpace.deletedAt);
-        const remoteDeletedMs = toEpochMs(remoteSpace.deletedAt);
+        const localHasUpdated = localSpace.updatedAt !== undefined;
+        const remoteHasUpdated = remoteSpace.updatedAt !== undefined;
+        const localUpdatedMs = toEpochMs(localSpace.updatedAt);
+        const remoteUpdatedMs = toEpochMs(remoteSpace.updatedAt);
 
-        const localMutationTime = Math.max(localDeletedMs, localCreatedMs);
-        const remoteMutationTime = Math.max(remoteDeletedMs, remoteCreatedMs);
+        const localDelMs = toEpochMs(localSpace.deletedAt);
+        const remoteDelMs = toEpochMs(remoteSpace.deletedAt);
+
+        const localMutationTime = Math.max(localDelMs, localUpdatedMs, localCreatedMs);
+        const remoteMutationTime = Math.max(remoteDelMs, remoteUpdatedMs, remoteCreatedMs);
 
         const localClientTs = toEpochMs(local.clientTimestamp);
         const remoteClientTs = toEpochMs(remote.clientTimestamp);
 
-        // Tombstone preservation & LWW determination
+        // LWW determination for metadata (name, color, isPinned):
+        // If both sides have explicit updatedAt timestamps, compare them directly.
+        // Otherwise, fall back to mutation time comparison (and clientTimestamp on tie).
         const remoteWins =
-          remoteMutationTime > localMutationTime ||
-          (remoteMutationTime === localMutationTime &&
-            remoteClientTs >= localClientTs);
+          localHasUpdated && remoteHasUpdated
+            ? remoteUpdatedMs > localUpdatedMs ||
+              (remoteUpdatedMs === localUpdatedMs && remoteClientTs >= localClientTs)
+            : remoteMutationTime > localMutationTime ||
+              (remoteMutationTime === localMutationTime && remoteClientTs >= localClientTs);
+
+        const mergedUpdatedAt =
+          localHasUpdated && remoteHasUpdated
+            ? Math.max(localUpdatedMs, remoteUpdatedMs)
+            : localHasUpdated
+              ? localUpdatedMs
+              : remoteHasUpdated
+                ? remoteUpdatedMs
+                : (remoteWins ? remoteMutationTime : localMutationTime);
 
         // Soft deletion tombstone rule: if either side is deleted after creation, tombstone wins
         const mergedDeletedAt =
           localSpace.deletedAt !== undefined && remoteSpace.deletedAt !== undefined
-            ? Math.max(localDeletedMs, remoteDeletedMs)
-            : remoteSpace.deletedAt !== undefined &&
-                (remoteDeletedMs >= localCreatedMs || remoteWins)
+            ? Math.max(localDelMs, remoteDelMs)
+            : remoteSpace.deletedAt !== undefined && (remoteDelMs >= localMutationTime || remoteWins)
               ? remoteSpace.deletedAt
-              : localSpace.deletedAt !== undefined &&
-                  (localDeletedMs >= remoteCreatedMs || !remoteWins)
+              : localSpace.deletedAt !== undefined && (localDelMs >= remoteMutationTime || !remoteWins)
                 ? localSpace.deletedAt
                 : undefined;
 
         const mergedSpace: Space = {
           id: localSpaceId,
+          uuid: resolvedUuid,
           name: remoteWins ? remoteSpace.name : localSpace.name,
           createdAt: Math.min(localCreatedMs, remoteCreatedMs),
+          updatedAt: mergedUpdatedAt,
           deletedAt: mergedDeletedAt,
           isPinned: remoteWins
             ? (remoteSpace.isPinned ?? localSpace.isPinned)
@@ -152,7 +187,9 @@ export class DiffEngine {
           localSpace.name !== mergedSpace.name ||
           localSpace.color !== mergedSpace.color ||
           localSpace.isPinned !== mergedSpace.isPinned ||
-          localSpace.createdAt !== mergedSpace.createdAt
+          localSpace.createdAt !== mergedSpace.createdAt ||
+          (localSpace.updatedAt !== undefined && toEpochMs(localSpace.updatedAt) !== toEpochMs(mergedSpace.updatedAt)) ||
+          (localSpace.uuid !== undefined && localSpace.uuid !== mergedSpace.uuid)
         ) {
           localSpaceUpdates.push(mergedSpace);
         }
@@ -160,7 +197,7 @@ export class DiffEngine {
         mergedSpaces.push(mergedSpace);
       } else {
         // Empty Placeholder Adoption Fallback:
-        // If an incoming remote space does not match any local space by fingerprint,
+        // If an incoming remote space does not match any local space by UUID or fingerprint,
         // check if there is an active (non-deleted) local space with the exact same name
         // and 0 associated local tabs.
         const emptyPlaceholder = local.spaces.find(
@@ -184,11 +221,15 @@ export class DiffEngine {
             remoteSpace,
           });
 
-          // Bind remote space to local space id, updating metadata to match authoritative remote space
+          // Constraint 2: Assign remote space's UUID to local space so UUIDs match across devices
+          const adoptedUuid = remoteSpace.uuid || emptyPlaceholder.uuid || crypto.randomUUID();
+
           const adoptedSpace: Space = {
             id: localSpaceId,
+            uuid: adoptedUuid,
             name: remoteSpace.name,
             createdAt: remoteSpace.createdAt,
+            updatedAt: Math.max(toEpochMs(emptyPlaceholder.updatedAt ?? 0), toEpochMs(remoteSpace.updatedAt ?? remote.clientTimestamp)),
             color: remoteSpace.color,
             deletedAt: remoteSpace.deletedAt,
             isPinned: remoteSpace.isPinned ?? emptyPlaceholder.isPinned,
@@ -206,6 +247,8 @@ export class DiffEngine {
           const incomingSpace: Space = {
             ...remoteSpace,
             id: newLocalSpaceId,
+            uuid: remoteSpace.uuid || crypto.randomUUID(),
+            updatedAt: toEpochMs(remoteSpace.updatedAt ?? remote.clientTimestamp),
           };
 
           localSpaceUpdates.push(incomingSpace);
@@ -221,7 +264,11 @@ export class DiffEngine {
       }
       const fp = getSpaceFingerprint(localSpace);
       if (!processedSpaceFps.has(fp)) {
-        mergedSpaces.push(localSpace);
+        mergedSpaces.push({
+          ...localSpace,
+          uuid: localSpace.uuid || crypto.randomUUID(),
+          updatedAt: toEpochMs(localSpace.updatedAt ?? localSpace.createdAt),
+        });
       }
     }
 
@@ -320,6 +367,17 @@ export class DiffEngine {
         for (const localTab of localTabsInSpace) {
           const normLocalUrl = normalizeTabUrl(localTab.url);
           if (!remoteUrls.has(normLocalUrl)) {
+            // Absolute Pruning Guard:
+            // Compute local tab birth/edit activity time
+            const localTabActivity = Math.max(
+              toEpochMs(localTab.updatedAt),
+              toEpochMs(localTab.createdAt),
+            );
+            // If localTab was created or modified locally after the remote snapshot was taken, DO NOT PRUNE!
+            if (localTabActivity > normRemoteClientTs) {
+              continue;
+            }
+
             // If localTab is already tombstoned and localTab.deletedAt > remoteClientTimestamp,
             // local deletion happened after remote snapshot; preserve local tombstone!
             if (localTab.deletedAt !== undefined && toEpochMs(localTab.deletedAt) > normRemoteClientTs) {
@@ -388,7 +446,33 @@ export class DiffEngine {
           resolvedDeletedAt = undefined;
         }
 
-        const remoteWins = normRemoteClientTs >= normLocalClientTs;
+        const localHasTabUpdated = existingLocalTab.updatedAt !== undefined;
+        const remoteHasTabUpdated = remoteTab.updatedAt !== undefined;
+        const localTabUpdatedMs = toEpochMs(existingLocalTab.updatedAt);
+        const remoteTabUpdatedMs = toEpochMs(remoteTab.updatedAt);
+
+        const localTabDelMs = toEpochMs(existingLocalTab.deletedAt);
+        const remoteTabDelMs = toEpochMs(remoteTab.deletedAt);
+
+        const localTabMutation = Math.max(localTabDelMs, localTabUpdatedMs, toEpochMs(existingLocalTab.createdAt));
+        const remoteTabMutation = Math.max(remoteTabDelMs, remoteTabUpdatedMs, toEpochMs(remoteTab.createdAt));
+
+        const remoteWins =
+          localHasTabUpdated && remoteHasTabUpdated
+            ? remoteTabUpdatedMs > localTabUpdatedMs ||
+              (remoteTabUpdatedMs === localTabUpdatedMs && normRemoteClientTs >= normLocalClientTs)
+            : remoteTabMutation > localTabMutation ||
+              (remoteTabMutation === localTabMutation && normRemoteClientTs >= normLocalClientTs);
+
+        const tabCreatedAt = existingLocalTab.createdAt ?? remoteTab.createdAt;
+        const tabUpdatedAt =
+          localHasTabUpdated && remoteHasTabUpdated
+            ? Math.max(localTabUpdatedMs, remoteTabUpdatedMs)
+            : localHasTabUpdated
+              ? localTabUpdatedMs
+              : remoteHasTabUpdated
+                ? remoteTabUpdatedMs
+                : (remoteWins ? remoteTabMutation : localTabMutation);
 
         // Set tabToUpsert.id = existingLocalTab.id to preserve Dexie primary key
         const tabToUpsert: Tab = {
@@ -402,6 +486,8 @@ export class DiffEngine {
             ? (remoteTab.favicon ?? existingLocalTab.favicon)
             : (existingLocalTab.favicon ?? remoteTab.favicon),
           order: remoteWins ? remoteTab.order : existingLocalTab.order,
+          ...(tabCreatedAt !== undefined ? { createdAt: tabCreatedAt } : {}),
+          ...(tabUpdatedAt > 0 ? { updatedAt: tabUpdatedAt } : {}),
           ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),
         };
 
@@ -410,7 +496,8 @@ export class DiffEngine {
           existingLocalTab.favicon !== tabToUpsert.favicon ||
           existingLocalTab.order !== tabToUpsert.order ||
           existingLocalTab.url !== tabToUpsert.url ||
-          existingLocalTab.deletedAt !== tabToUpsert.deletedAt
+          existingLocalTab.deletedAt !== tabToUpsert.deletedAt ||
+          (existingLocalTab.updatedAt !== undefined && toEpochMs(existingLocalTab.updatedAt) !== toEpochMs(tabToUpsert.updatedAt))
         ) {
           localTabUpdates.push(tabToUpsert);
         }
@@ -427,6 +514,8 @@ export class DiffEngine {
             title: remoteTab.title,
             favicon: remoteTab.favicon,
             order: remoteTab.order,
+            createdAt: remoteTab.createdAt ?? toEpochMs(remoteClientTimestamp),
+            updatedAt: toEpochMs(remoteTab.updatedAt ?? remoteTab.createdAt ?? remoteClientTimestamp),
             deletedAt: remoteTab.deletedAt,
           };
           mergedTabs.push(remoteTombstone);
@@ -438,6 +527,8 @@ export class DiffEngine {
             title: remoteTab.title,
             favicon: remoteTab.favicon,
             order: remoteTab.order,
+            createdAt: remoteTab.createdAt ?? toEpochMs(remoteClientTimestamp),
+            updatedAt: toEpochMs(remoteTab.updatedAt ?? remoteTab.createdAt ?? remoteClientTimestamp),
           };
           localTabUpdates.push(incomingTab);
           mergedTabs.push(incomingTab);
@@ -452,7 +543,11 @@ export class DiffEngine {
           continue;
         }
       }
-      mergedTabs.push(localTab);
+      mergedTabs.push({
+        ...localTab,
+        createdAt: localTab.createdAt ?? toEpochMs(localClientTimestamp),
+        updatedAt: toEpochMs(localTab.updatedAt ?? localTab.createdAt ?? localClientTimestamp),
+      });
     }
 
     return {
@@ -751,16 +846,21 @@ export class DiffEngine {
     if (!spacesDiffer) {
       const remoteSpaceMap = new Map<string, Space>();
       for (const s of remote.spaces) {
+        if (s.uuid) {
+          remoteSpaceMap.set(s.uuid, s);
+        }
         remoteSpaceMap.set(getSpaceFingerprint(s), s);
       }
       for (const ms of spacesResult.mergedSpaces) {
-        const rs = remoteSpaceMap.get(getSpaceFingerprint(ms));
+        const rs = (ms.uuid ? remoteSpaceMap.get(ms.uuid) : undefined) ?? remoteSpaceMap.get(getSpaceFingerprint(ms));
         if (
           !rs ||
           ms.name !== rs.name ||
           ms.color !== rs.color ||
           ms.isPinned !== rs.isPinned ||
-          ms.deletedAt !== rs.deletedAt
+          ms.deletedAt !== rs.deletedAt ||
+          (ms.updatedAt !== undefined && rs.updatedAt !== undefined && toEpochMs(ms.updatedAt) !== toEpochMs(rs.updatedAt)) ||
+          (ms.uuid && rs.uuid && ms.uuid !== rs.uuid)
         ) {
           spacesDiffer = true;
           break;
@@ -785,7 +885,8 @@ export class DiffEngine {
           mt.order !== rt.order ||
           mt.title !== rt.title ||
           mt.favicon !== rt.favicon ||
-          mt.deletedAt !== rt.deletedAt
+          mt.deletedAt !== rt.deletedAt ||
+          (mt.updatedAt !== undefined && rt.updatedAt !== undefined && toEpochMs(mt.updatedAt) !== toEpochMs(rt.updatedAt))
         ) {
           tabsDiffer = true;
           break;
@@ -807,7 +908,8 @@ export class DiffEngine {
           mr.status !== rr.status ||
           mr.title !== rr.title ||
           mr.favicon !== rr.favicon ||
-          mr.deletedAt !== rr.deletedAt
+          mr.deletedAt !== rr.deletedAt ||
+          (mr.updatedAt !== undefined && rr.updatedAt !== undefined && toEpochMs(mr.updatedAt) !== toEpochMs(rr.updatedAt))
         ) {
           readLaterDiffer = true;
           break;

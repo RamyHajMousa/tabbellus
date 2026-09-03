@@ -426,5 +426,51 @@ describe('DataService — Backup & Restore Integration', () => {
       globalThis.Blob = originalBlob;
     }
   });
+
+  // ── Test Case: Fresh UUID generation on import (Constraint 5) ───
+  it('generates fresh crypto.randomUUID() for imported spaces to avoid unique index collisions', async () => {
+    const existingUuid = '11111111-1111-4111-8111-111111111111';
+    await db.spaces.add({
+      uuid: existingUuid,
+      name: 'Existing Pre-Import Space',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    // Backup payload with the same UUID (e.g. from an export of another device or earlier backup)
+    const backupPayload = {
+      version: 1,
+      spaces: [
+        { id: 1, uuid: existingUuid, name: 'Imported Collision Space', createdAt: 1000 },
+        { id: 2, name: 'Imported No-UUID Space', createdAt: 2000 },
+      ],
+      tabs: [
+        { id: 10, spaceId: 1, url: 'https://tab1.com', title: 'Tab 1', order: 0 },
+      ],
+      readLater: [],
+    };
+
+    const file = {
+      name: 'backup.json',
+      text: vi.fn().mockResolvedValue(JSON.stringify(backupPayload)),
+    } as any;
+
+    const result = await dataService.importData(file);
+    expect(result.spacesImported).toBe(2);
+
+    const allSpaces = await db.spaces.toArray();
+    expect(allSpaces).toHaveLength(3);
+
+    // Verify all 3 spaces have unique UUIDs (no duplicate key collision)
+    const uuids = allSpaces.map(s => s.uuid);
+    const uniqueUuids = new Set(uuids);
+    expect(uniqueUuids.size).toBe(3);
+
+    // Verify the imported spaces got fresh UUIDs different from existingUuid
+    const importedSpaces = allSpaces.filter(s => s.name.startsWith('Imported'));
+    expect(importedSpaces).toHaveLength(2);
+    expect(importedSpaces[0].uuid).not.toBe(existingUuid);
+    expect(importedSpaces[1].uuid).toBeDefined();
+  });
 });
 

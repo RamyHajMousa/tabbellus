@@ -576,5 +576,89 @@ describe('SpaceService Performance Stress Tests', () => {
     
     console.log(`\x1b[32m[PERF] Successfully processed 500 database tabs in: ${duration.toFixed(2)}ms\x1b[0m`);
   });
+
+  // ── Version 5: Immutable UUID & Universal LWW Timestamps ────────
+
+  describe('Version 5 Schema: UUID & LWW Timestamps', () => {
+    it('createEmptySpace sets uuid and updatedAt on new space', async () => {
+      const spaceId = await spaceService.createEmptySpace('V5 Space');
+      const space = await spaceService.getSpaceById(spaceId);
+
+      expect(space).toBeDefined();
+      expect(space!.uuid).toBeDefined();
+      expect(typeof space!.uuid).toBe('string');
+      expect(space!.uuid!.length).toBeGreaterThan(0);
+      expect(space!.updatedAt).toBeDefined();
+      expect(space!.updatedAt).toBeGreaterThan(0);
+      expect(space!.createdAt).toBeGreaterThan(0);
+    });
+
+    it('updateSpaceName bumps updatedAt', async () => {
+      const spaceId = await spaceService.createEmptySpace('Initial Name');
+      const spaceBefore = await spaceService.getSpaceById(spaceId);
+      const initialUpdatedAt = spaceBefore!.updatedAt!;
+
+      // Wait 5ms to ensure timestamp advance
+      await new Promise(r => setTimeout(r, 10));
+
+      await spaceService.updateSpaceName(spaceId, 'Updated Name');
+      const spaceAfter = await spaceService.getSpaceById(spaceId);
+
+      expect(spaceAfter!.name).toBe('Updated Name');
+      expect(spaceAfter!.updatedAt).toBeGreaterThan(initialUpdatedAt);
+    });
+
+    it('updateSpaceColor bumps updatedAt', async () => {
+      const spaceId = await spaceService.createEmptySpace('Color Space');
+      const spaceBefore = await spaceService.getSpaceById(spaceId);
+      const initialUpdatedAt = spaceBefore!.updatedAt!;
+
+      await new Promise(r => setTimeout(r, 10));
+
+      await spaceService.updateSpaceColor(spaceId, 'blue');
+      const spaceAfter = await spaceService.getSpaceById(spaceId);
+
+      expect(spaceAfter!.color).toBe('blue');
+      expect(spaceAfter!.updatedAt).toBeGreaterThan(initialUpdatedAt);
+    });
+
+    it('toggleSpacePin bumps updatedAt', async () => {
+      const spaceId = await spaceService.createEmptySpace('Pinnable Space');
+      const spaceBefore = await spaceService.getSpaceById(spaceId);
+      const initialUpdatedAt = spaceBefore!.updatedAt!;
+
+      await new Promise(r => setTimeout(r, 10));
+
+      await spaceService.toggleSpacePin(spaceId);
+      const spaceAfter = await spaceService.getSpaceById(spaceId);
+
+      expect(spaceAfter!.isPinned).toBe(true);
+      expect(spaceAfter!.updatedAt).toBeGreaterThan(initialUpdatedAt);
+    });
+
+    it('copyTabToSpace sets createdAt and updatedAt on the copied tab', async () => {
+      const sourceSpaceId = await spaceService.createEmptySpace('Source');
+      const targetSpaceId = await spaceService.createEmptySpace('Target');
+
+      await spaceService.addTabToSpace(sourceSpaceId, {
+        url: 'https://example.com/source-tab',
+        title: 'Source Tab',
+      });
+
+      const sourceTabs = await spaceService.getTabsForSpace(sourceSpaceId);
+      expect(sourceTabs).toHaveLength(1);
+      const sourceTab = sourceTabs[0];
+
+      await spaceService.copyTabToSpace(sourceTab.id!, targetSpaceId);
+
+      const targetTabs = await spaceService.getTabsForSpace(targetSpaceId);
+      expect(targetTabs).toHaveLength(1);
+      expect(targetTabs[0].url).toBe('https://example.com/source-tab');
+      expect(targetTabs[0].createdAt).toBeDefined();
+      expect(targetTabs[0].createdAt).toBeGreaterThan(0);
+      expect(targetTabs[0].updatedAt).toBeDefined();
+      expect(targetTabs[0].updatedAt).toBeGreaterThan(0);
+    });
+  });
 });
 

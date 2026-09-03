@@ -45,7 +45,7 @@ class SpaceService {
      * Soft deletes a tab by its ID by setting deletedAt timestamp.
      */
     async deleteTab(tabId: number): Promise<void> {
-        await db.tabs.update(tabId, { deletedAt: Date.now() });
+        await db.tabs.update(tabId, { deletedAt: Date.now(), updatedAt: Date.now() });
         contractRegistry.notifyLocalMutation();
     }
 
@@ -53,10 +53,11 @@ class SpaceService {
      * Restores (un-deletes) a tab record.
      */
     async restoreTab(tabOrId: Tab | number): Promise<void> {
+        const now = Date.now();
         if (typeof tabOrId === 'number') {
-            await db.tabs.update(tabOrId, { deletedAt: undefined });
+            await db.tabs.update(tabOrId, { deletedAt: undefined, updatedAt: now });
         } else {
-            await db.tabs.put({ ...tabOrId, deletedAt: undefined });
+            await db.tabs.put({ ...tabOrId, deletedAt: undefined, updatedAt: now });
         }
         contractRegistry.notifyLocalMutation();
     }
@@ -201,9 +202,12 @@ class SpaceService {
 
         try {
             const sanitizedColor = color && color !== 'none' ? color : undefined;
+            const now = Date.now();
             const spaceId = await db.spaces.add({
+                uuid: crypto.randomUUID(),
                 name: spaceName.trim(),
-                createdAt: Date.now(),
+                createdAt: now,
+                updatedAt: now,
                 color: sanitizedColor,
             });
 
@@ -245,10 +249,13 @@ class SpaceService {
 
             // 4. Atomic Transaction
             await db.transaction('rw', db.spaces, db.tabs, async () => {
+                const now = Date.now();
                 // A. Create the Space
                 const spaceId = await db.spaces.add({
+                    uuid: crypto.randomUUID(),
                     name: spaceName.trim(),
-                    createdAt: Date.now()
+                    createdAt: now,
+                    updatedAt: now,
                 });
 
                 // B. Map and Create Tabs
@@ -257,7 +264,9 @@ class SpaceService {
                     url: tab.url!,
                     title: tab.title || 'Untitled',
                     favicon: tab.favIconUrl || '', // Explicit mapping as requested
-                    order: index
+                    order: index,
+                    createdAt: now,
+                    updatedAt: now,
                 }));
 
                 await db.tabs.bulkAdd(tabRecords);
@@ -280,7 +289,7 @@ class SpaceService {
             const space = await db.spaces.get(spaceId);
             if (!space) return;
 
-            await db.spaces.update(spaceId, { isPinned: !space.isPinned });
+            await db.spaces.update(spaceId, { isPinned: !space.isPinned, updatedAt: Date.now() });
             contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to toggle space pin', e);
@@ -330,7 +339,7 @@ class SpaceService {
             throw new Error('Space name cannot be empty.');
         }
         try {
-            await db.spaces.update(spaceId, { name: trimmedName, color });
+            await db.spaces.update(spaceId, { name: trimmedName, color, updatedAt: Date.now() });
             contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to update space details', e);
@@ -344,7 +353,7 @@ class SpaceService {
     async updateSpaceName(spaceId: number, newName: string): Promise<void> {
         if (!newName.trim()) return;
         try {
-            await db.spaces.update(spaceId, { name: newName.trim() });
+            await db.spaces.update(spaceId, { name: newName.trim(), updatedAt: Date.now() });
             contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to update space name', e);
@@ -356,7 +365,7 @@ class SpaceService {
      */
     async updateSpaceColor(spaceId: number, color: string | undefined): Promise<void> {
         try {
-            await db.spaces.update(spaceId, { color });
+            await db.spaces.update(spaceId, { color, updatedAt: Date.now() });
             contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to update space color', e);
@@ -382,9 +391,12 @@ class SpaceService {
                     .filter(t => !t.deletedAt)
                     .sortBy('order');
 
+                const now = Date.now();
                 const newSpaceId = (await db.spaces.add({
+                    uuid: crypto.randomUUID(),
                     name: `Copy of ${sourceSpace.name}`,
-                    createdAt: Date.now(),
+                    createdAt: now,
+                    updatedAt: now,
                     isPinned: sourceSpace.isPinned,
                     color: sourceSpace.color,
                 })) as number;
@@ -396,6 +408,8 @@ class SpaceService {
                         title: tab.title,
                         favicon: tab.favicon,
                         order: tab.order,
+                        createdAt: now,
+                        updatedAt: now,
                     }));
 
                     await db.tabs.bulkAdd(newTabs);
@@ -565,6 +579,7 @@ class SpaceService {
                     .filter(t => t.url === tab.url && !!t.deletedAt)
                     .toArray();
 
+                const now = Date.now();
                 if (tombstonedTabs.length > 0) {
                     // Select at most one matching record to revive at tail
                     const primary = tombstonedTabs[0];
@@ -573,6 +588,7 @@ class SpaceService {
                         favicon: tab.favIconUrl || primary.favicon || '',
                         order: nextOrder,
                         deletedAt: undefined,
+                        updatedAt: now,
                     });
 
                     // Purge any redundant secondary tombstones with the same URL
@@ -593,6 +609,8 @@ class SpaceService {
                         title: tab.title || 'Untitled',
                         favicon: tab.favIconUrl || tab.favicon || '',
                         order: nextOrder,
+                        createdAt: now,
+                        updatedAt: now,
                     });
                 }
             });
@@ -629,10 +647,13 @@ class SpaceService {
             await db.transaction('rw', db.spaces, db.tabs, async () => {
                 // Default name fallback if empty
                 const safeName = name.trim() || `Untitled Group ${new Date().toLocaleTimeString()}`;
+                const now = Date.now();
 
                 const spaceId = await db.spaces.add({
+                    uuid: crypto.randomUUID(),
                     name: safeName,
-                    createdAt: Date.now()
+                    createdAt: now,
+                    updatedAt: now,
                 });
 
                 const tabRecords: Tab[] = validTabs.map((tab, index) => ({
@@ -640,7 +661,9 @@ class SpaceService {
                     url: tab.url!,
                     title: tab.title || 'Untitled',
                     favicon: tab.favIconUrl || '',
-                    order: index
+                    order: index,
+                    createdAt: now,
+                    updatedAt: now,
                 }));
 
                 await db.tabs.bulkAdd(tabRecords);
@@ -673,8 +696,9 @@ class SpaceService {
                     return { sourceSpaceId, originalOrder }; // Already in target space
                 }
 
+                const now = Date.now();
                 // 1. Soft-delete the tab in the source space so an authoritative tombstone remains
-                await db.tabs.update(tabId, { deletedAt: Date.now() });
+                await db.tabs.update(tabId, { deletedAt: now, updatedAt: now });
 
                 // 2. Add the tab to the target space
                 await this.addTabToSpace(targetSpaceId, {
@@ -701,7 +725,7 @@ class SpaceService {
      */
     async restoreTabPosition(tabId: number, spaceId: number, order: number): Promise<void> {
         try {
-            await db.tabs.update(tabId, { spaceId, order, deletedAt: undefined });
+            await db.tabs.update(tabId, { spaceId, order, deletedAt: undefined, updatedAt: Date.now() });
             contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to restore tab position', e);
@@ -744,6 +768,7 @@ class SpaceService {
 
                 const nextOrder = lastTab ? lastTab.order + 1 : 0;
 
+                const now = Date.now();
                 // 3. Add cloned tab to target space
                 await db.tabs.add({
                     spaceId: targetSpaceId,
@@ -751,6 +776,8 @@ class SpaceService {
                     title: sourceTab.title,
                     favicon: sourceTab.favicon,
                     order: nextOrder,
+                    createdAt: now,
+                    updatedAt: now,
                 });
             });
             contractRegistry.notifyLocalMutation();

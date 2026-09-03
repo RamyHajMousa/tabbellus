@@ -69,9 +69,10 @@ export async function performSync(windowId: number, explicitSpaceId?: number): P
                 match = matchingCandidates.find(t => !claimedTabIds.has(t.id!));
             }
 
+            const now = Date.now();
             if (match && match.id !== undefined) {
                 claimedTabIds.add(match.id);
-                // In-place update: preserve existing primary key, update order/title/favicon, clear tombstone
+                // In-place update: preserve existing primary key, update order/title/favicon, clear tombstone, bump updatedAt
                 tabsToUpsert.push({
                     id: match.id,
                     spaceId,
@@ -79,6 +80,8 @@ export async function performSync(windowId: number, explicitSpaceId?: number): P
                     title: openTab.title || match.title || 'Untitled',
                     favicon: openTab.favIconUrl || match.favicon || '',
                     order,
+                    createdAt: match.createdAt ?? now,
+                    updatedAt: now,
                     deletedAt: undefined,
                 });
             } else {
@@ -89,6 +92,8 @@ export async function performSync(windowId: number, explicitSpaceId?: number): P
                     title: openTab.title || 'Untitled',
                     favicon: openTab.favIconUrl || '',
                     order,
+                    createdAt: now,
+                    updatedAt: now,
                     deletedAt: undefined,
                 });
             }
@@ -102,6 +107,7 @@ export async function performSync(windowId: number, explicitSpaceId?: number): P
                 tabsToUpsert.push({
                     ...existingTab,
                     deletedAt: Date.now(),
+                    updatedAt: Date.now(),
                 });
             }
         }

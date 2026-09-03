@@ -892,4 +892,203 @@ describe('DiffEngine', () => {
       expect(result.hasLocalChanges).toBe(true);
     });
   });
+
+  describe('Version 5: Immutable UUIDs & Universal LWW Timestamps', () => {
+    it('matches spaces by uuid even when name and color have changed without duplicating spaces', () => {
+      const uuid = 'space-uuid-001';
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, uuid, name: 'Local Space Name', color: 'blue', createdAt: 1000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 99, uuid, name: 'Remote Renamed Name', color: 'red', createdAt: 1000, updatedAt: 3000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Exactly 1 space in merged snapshot, no duplicates!
+      expect(result.mergedSnapshot.spaces).toHaveLength(1);
+      expect(result.mergedSnapshot.spaces[0].id).toBe(1);
+      expect(result.mergedSnapshot.spaces[0].uuid).toBe(uuid);
+      expect(result.mergedSnapshot.spaces[0].name).toBe('Remote Renamed Name');
+      expect(result.mergedSnapshot.spaces[0].color).toBe('red');
+
+      // Local Dexie receives the remote update
+      expect(result.localUpdates.spaces).toHaveLength(1);
+      expect(result.localUpdates.spaces[0].id).toBe(1);
+      expect(result.localUpdates.spaces[0].name).toBe('Remote Renamed Name');
+      expect(result.localUpdates.spaces[0].color).toBe('red');
+    });
+
+    it('falls back to fingerprint matching when remote space lacks a uuid and backfills uuid', () => {
+      const localUuid = 'local-uuid-backfilled';
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, uuid: localUuid, name: 'Legacy Shared Space', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: remoteDeviceId,
+        // Legacy snapshot without uuid
+        spaces: [{ id: 77, name: 'Legacy Shared Space', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.mergedSnapshot.spaces).toHaveLength(1);
+      expect(result.mergedSnapshot.spaces[0].uuid).toBe(localUuid);
+      expect(result.mergedSnapshot.spaces[0].id).toBe(1);
+    });
+
+    it('empty space adoption assigns remote space uuid to local space (Constraint 2)', () => {
+      const remoteUuid = 'authoritative-remote-uuid';
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 5, uuid: 'initial-local-uuid', name: 'Placeholder Space', createdAt: 2000 }],
+        tabs: [], // 0 tabs -> empty placeholder candidate
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2500,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 42, uuid: remoteUuid, name: 'Placeholder Space', createdAt: 1500 }],
+        tabs: [{ id: 101, spaceId: 42, url: 'https://remote-tab.com', order: 0 }],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Local space must adopt remote space's UUID so they match across devices
+      expect(result.localUpdates.spaces).toHaveLength(1);
+      expect(result.localUpdates.spaces[0].id).toBe(5);
+      expect(result.localUpdates.spaces[0].uuid).toBe(remoteUuid);
+      expect(result.mergedSnapshot.spaces[0].uuid).toBe(remoteUuid);
+    });
+
+    it('local space with newer updatedAt overrides remote color and triggers hasRemoteChanges (Constraint 3)', () => {
+      const uuid = 'space-lww-uuid';
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 5000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, uuid, name: 'Project Alpha', color: 'green', createdAt: 1000, updatedAt: 5000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 4000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, uuid, name: 'Project Alpha', color: 'purple', createdAt: 1000, updatedAt: 3000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Local newer updatedAt wins color
+      expect(result.mergedSnapshot.spaces[0].color).toBe('green');
+      expect(result.localUpdates.spaces).toHaveLength(0); // Local already has green
+
+      // Google Drive must receive the update because remote had 'purple'
+      expect(result.hasRemoteChanges).toBe(true);
+      expect(result.hasChanges).toBe(true);
+    });
+
+    it('does NOT prune locally-added tab when tab.createdAt > remoteClientTimestamp (Absolute Pruning Guard)', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 5000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, uuid: 'matched-space', name: 'Work', createdAt: 1000 }],
+        tabs: [
+          {
+            id: 10,
+            spaceId: 1,
+            url: 'https://recently-added-local.com',
+            order: 0,
+            createdAt: 4500, // Created locally AFTER remote snapshot was taken at 3000
+            updatedAt: 4500,
+          },
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, uuid: 'matched-space', name: 'Work', createdAt: 1000 }],
+        tabs: [], // Remote snapshot does not have this tab yet
+        readLater: [],
+      };
+
+      // Baseline sync was at 2000
+      const result = DiffEngine.reconcile(local, remote, localDeviceId, 2000);
+
+      // Must NOT prune the recently added local tab!
+      expect(result.localUpdates.tabIdsToDelete).toHaveLength(0);
+      expect(result.mergedSnapshot.tabs).toHaveLength(1);
+      expect(result.mergedSnapshot.tabs[0].url).toBe('https://recently-added-local.com');
+    });
+
+    it('does NOT prune locally-modified tab when tab.updatedAt > remoteClientTimestamp (Absolute Pruning Guard)', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 5000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, uuid: 'matched-space', name: 'Work', createdAt: 1000 }],
+        tabs: [
+          {
+            id: 11,
+            spaceId: 1,
+            url: 'https://recently-modified-local.com',
+            order: 0,
+            createdAt: 1000,
+            updatedAt: 4800, // Modified locally AFTER remote snapshot at 3000
+          },
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, uuid: 'matched-space', name: 'Work', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId, 2000);
+
+      // Must NOT prune the recently modified local tab!
+      expect(result.localUpdates.tabIdsToDelete).toHaveLength(0);
+      expect(result.mergedSnapshot.tabs).toHaveLength(1);
+      expect(result.mergedSnapshot.tabs[0].url).toBe('https://recently-modified-local.com');
+    });
+  });
 });

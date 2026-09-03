@@ -243,4 +243,59 @@ describe('Background Tab Sync Service — performSync (In-Place Delta Upsert)', 
         expect(tabs[0].url).toBe('https://important.com');
         expect(tabs[0].deletedAt).toBeUndefined();
     });
+
+    it('should assign createdAt/updatedAt on new tabs and bump updatedAt on updates and tombstoning (Constraint 1)', async () => {
+        const spaceId = (await db.spaces.add({
+            name: 'Timestamp Space',
+            createdAt: Date.now(),
+        })) as number;
+
+        const initialTime = Date.now() - 10000;
+        const tab1Id = (await db.tabs.add({
+            spaceId,
+            url: 'https://existing-tab.com',
+            title: 'Existing Tab',
+            order: 0,
+            createdAt: initialTime,
+            updatedAt: initialTime,
+        })) as number;
+
+        const tabToCloseId = (await db.tabs.add({
+            spaceId,
+            url: 'https://close-me.com',
+            title: 'Close Me',
+            order: 1,
+            createdAt: initialTime,
+            updatedAt: initialTime,
+        })) as number;
+
+        // Window has existing tab updated, new tab added, and close-me tab omitted
+        queryTabsMock.mockResolvedValue([
+            { id: 501, windowId: 7001, url: 'https://existing-tab.com', title: 'Existing Tab - Renamed' },
+            { id: 502, windowId: 7001, url: 'https://brand-new-tab.com', title: 'Brand New Tab' },
+        ]);
+
+        await performSync(7001, spaceId);
+
+        const tabs = await db.tabs.where({ spaceId }).toArray();
+        expect(tabs).toHaveLength(3);
+
+        // 1. Existing tab updated: createdAt preserved, updatedAt bumped
+        const existingTab = tabs.find(t => t.id === tab1Id)!;
+        expect(existingTab.title).toBe('Existing Tab - Renamed');
+        expect(existingTab.createdAt).toBe(initialTime);
+        expect(existingTab.updatedAt).toBeGreaterThan(initialTime);
+        expect(existingTab.deletedAt).toBeUndefined();
+
+        // 2. Brand new tab: both createdAt and updatedAt set to current timestamp
+        const newTab = tabs.find(t => t.url === 'https://brand-new-tab.com')!;
+        expect(newTab.createdAt).toBeGreaterThan(initialTime);
+        expect(newTab.updatedAt).toBeGreaterThan(initialTime);
+        expect(newTab.deletedAt).toBeUndefined();
+
+        // 3. Closed tab: deletedAt and updatedAt bumped
+        const closedTab = tabs.find(t => t.id === tabToCloseId)!;
+        expect(closedTab.deletedAt).toBeGreaterThan(initialTime);
+        expect(closedTab.updatedAt).toBeGreaterThan(initialTime);
+    });
 });

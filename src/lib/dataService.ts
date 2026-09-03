@@ -172,9 +172,12 @@ export const dataService = {
 
                 for (const s of spacesRaw) {
                     const { id: oldId, ...rest } = s;
+                    const now = Date.now();
                     const spaceToInsert: Space = {
+                        uuid: crypto.randomUUID(), // Guard: fresh UUID to prevent unique index collisions
                         name: rest.name.trim(),
-                        createdAt: typeof rest.createdAt === 'number' ? rest.createdAt : Date.now(),
+                        createdAt: typeof rest.createdAt === 'number' ? rest.createdAt : now,
+                        updatedAt: typeof rest.updatedAt === 'number' ? rest.updatedAt : now,
                         ...(rest.color ? { color: rest.color } : {}),
                         ...(rest.isPinned ? { isPinned: true } : {}),
                         ...(rest.deletedAt ? { deletedAt: rest.deletedAt } : {}),
@@ -204,12 +207,15 @@ export const dataService = {
 
                     // Only import tab if we successfully resolved its parent space
                     if (targetSpaceId !== undefined) {
+                        const now = Date.now();
                         tabsToImport.push({
                             spaceId: targetSpaceId,
                             url: rest.url.trim(),
                             title: typeof rest.title === 'string' ? rest.title : 'Untitled',
                             ...(rest.favicon ? { favicon: rest.favicon } : {}),
                             order: typeof rest.order === 'number' ? rest.order : tabsToImport.length,
+                            createdAt: typeof rest.createdAt === 'number' ? rest.createdAt : now,
+                            updatedAt: typeof rest.updatedAt === 'number' ? rest.updatedAt : now,
                         });
                     }
                 }

@@ -2,8 +2,10 @@ import Dexie, { type Table } from 'dexie';
 
 export interface Space {
     id?: number;
+    uuid?: string;
     name: string;
     createdAt: number;
+    updatedAt?: number;
     deletedAt?: number; // Soft delete timestamp
     isPinned?: boolean;
     color?: string;
@@ -16,6 +18,8 @@ export interface Tab {
     title?: string;
     favicon?: string;
     order: number;
+    createdAt?: number;
+    updatedAt?: number;
     deletedAt?: number; // Soft delete timestamp
 }
 
@@ -60,26 +64,43 @@ export class TabBellusDB extends Dexie {
             tabs: '++id, spaceId, url, order, deletedAt, [spaceId+order]',
             readLater: '++id, url, title, addedAt, status, deletedAt'
         });
+
+        this.version(5).stores({
+            spaces: '++id, &uuid, name, createdAt, updatedAt, deletedAt',
+            tabs: '++id, spaceId, url, order, deletedAt, [spaceId+order]',
+            readLater: '++id, url, title, addedAt, status, deletedAt'
+        }).upgrade(async (tx) => {
+            // Populate missing UUIDs and timestamps for existing spaces
+            await tx.table('spaces').toCollection().modify((space: Space) => {
+                if (!space.uuid) space.uuid = crypto.randomUUID();
+                if (!space.updatedAt) space.updatedAt = space.createdAt || Date.now();
+            });
+            // Populate missing timestamps for existing tabs
+            await tx.table('tabs').toCollection().modify((tab: Tab) => {
+                if (!tab.createdAt) tab.createdAt = Date.now();
+                if (!tab.updatedAt) tab.updatedAt = Date.now();
+            });
+        });
     }
 
     // Soft delete a space
     async softDeleteSpace(id: number) {
-        return this.spaces.update(id, { deletedAt: Date.now() });
+        return this.spaces.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
     }
 
     // Restore a soft-deleted space
     async undoDeleteSpace(id: number) {
-        return this.spaces.update(id, { deletedAt: undefined });
+        return this.spaces.update(id, { deletedAt: undefined, updatedAt: Date.now() });
     }
 
     // Soft delete a tab
     async softDeleteTab(id: number) {
-        return this.tabs.update(id, { deletedAt: Date.now() });
+        return this.tabs.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
     }
 
     // Restore a soft-deleted tab
     async undoDeleteTab(id: number) {
-        return this.tabs.update(id, { deletedAt: undefined });
+        return this.tabs.update(id, { deletedAt: undefined, updatedAt: Date.now() });
     }
 
     // Soft delete a read later item
