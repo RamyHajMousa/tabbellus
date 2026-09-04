@@ -6,11 +6,11 @@ import { getReadLaterShortcutText } from '@/lib/platform';
 import { updateGlobalBadge } from './badgeService';
 import { runDiscardSweep } from './discardService';
 import { rulesDispatcher } from './rulesDispatcher';
-import { performSync } from './tabSyncService';
+import { performSync, cancelPendingSync } from './tabSyncService';
 import { contractRegistry } from '@/core/contracts/registry';
 import { rulesEngine } from '@/pro/headless';
 
-export { performSync };
+export { performSync, cancelPendingSync };
 
 console.log('TabBellus Service Worker Initialized');
 
@@ -360,6 +360,14 @@ chrome.tabs.onReplaced.addListener(async (addedTabId) => {
 
 // Listener for Window Closed (Cleanup tracked space mapping with footprint verification)
 chrome.windows.onRemoved.addListener(async (windowId) => {
+    // Abort active debounced sync timers and clear pending fallback alarms for the closed window
+    cancelPendingSync(windowId);
+    try {
+        await chrome.alarms.clear(`sync-flush-${windowId}`);
+    } catch (alarmErr) {
+        console.warn(`Background Sync: Failed to clear alarm for window ${windowId}:`, alarmErr);
+    }
+
     try {
         const activeSpaces = await chrome.storage.session.get('activeSpaces').then(res => res.activeSpaces || {});
         

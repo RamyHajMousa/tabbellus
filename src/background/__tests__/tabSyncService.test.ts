@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { performSync, clearPendingSyncsForTesting } from '@/background/tabSyncService';
+import { performSync, clearPendingSyncsForTesting, cancelPendingSync } from '@/background/tabSyncService';
 import { db } from '@/lib/db';
 
 describe('Background Tab Sync Service — performSync (In-Place Delta Upsert)', () => {
@@ -392,4 +392,35 @@ describe('Background Tab Sync Service — performSync (In-Place Delta Upsert)', 
             source: 'tabSyncService',
         });
     });
+
+    it('cancelPendingSync cancels active debounce timer and prevents sync execution', async () => {
+        const spaceId = (await db.spaces.add({
+            name: 'Cancel Sync Space',
+            createdAt: Date.now(),
+        })) as number;
+
+        queryTabsMock.mockResolvedValue([
+            { id: 980, windowId: 9801, url: 'https://cancel-test.com', title: 'Cancel Test' },
+        ]);
+
+        // Trigger debounced performSync with 50ms window
+        performSync(9801, spaceId, { debounceMs: 50 });
+
+        // Cancel immediately before timer fires
+        cancelPendingSync(9801);
+
+        // Wait past the debounce delay
+        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        // queryTabsMock should never have been invoked
+        expect(queryTabsMock).not.toHaveBeenCalled();
+
+        // Database should remain untouched (zero tabs)
+        const tabs = await db.tabs.where({ spaceId }).toArray();
+        expect(tabs).toHaveLength(0);
+
+        // Safe no-op on non-existent windowId
+        expect(() => cancelPendingSync(99999)).not.toThrow();
+    });
 });
+

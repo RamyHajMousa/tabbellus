@@ -52,6 +52,18 @@ interface PendingSync {
 const pendingSyncs = new Map<number, PendingSync>();
 
 /**
+ * Cancels any pending debounced sync timer for the given window ID.
+ * Aborts trailing-edge timers when a window is closed or torn down.
+ */
+export function cancelPendingSync(windowId: number): void {
+    const pending = pendingSyncs.get(windowId);
+    if (pending) {
+        clearTimeout(pending.timer);
+        pendingSyncs.delete(windowId);
+    }
+}
+
+/**
  * Clears any pending debounced sync timers (primarily for test teardown).
  */
 export function clearPendingSyncsForTesting(): void {

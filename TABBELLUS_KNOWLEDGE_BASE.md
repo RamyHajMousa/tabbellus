@@ -105,8 +105,9 @@ tabbellus/
     │   ├── badgeService.ts     # Extension action badge updater for active tabs and audio state
     │   ├── discardService.ts   # Tab auto-discarding and memory reclamation engine
     │   ├── rulesDispatcher.ts  # Tab automation rules listener/dispatcher (RulesDispatcher, isRuleEligibleUrl) — resolves engine via contractRegistry.getRulesProvider(), zero src/pro/ imports
+    │   ├── tabSyncService.ts   # Background tab synchronization engine with per-window trailing-edge debounce and cancellation hooks
     │   ├── index.ts            # Service worker bootstrap, tab/window listeners, context menus, shortcuts
-    │   └── __tests__/          # badge.test.ts (3 tests), rulesDispatcher.test.ts (25 tests)
+    │   └── __tests__/          # badge.test.ts (3 tests), rulesDispatcher.test.ts (25 tests), tabSyncService.test.ts (10 tests)
     ├── components/             # Reusable UI primitives and layout helpers
     │   ├── ui/                 # Radix / shadcn-derived visual primitives (Component Ownership Model)
     │   │   ├── Command.tsx           # Command palette input and group list container
@@ -1456,7 +1457,21 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 10.82s.
 
-<!-- Last Updated: 2026-09-04 (Phase 47: Rules Sync Oscillation Sprint: 644 Unit Tests Passing across 52 Test Files) -->
+### Phase 48: Window Closure Sync Teardown & Alarm Cleanup (Current)
+*   **Background Tab Sync Debounce Cancellation (`src/background/tabSyncService.ts`):**
+    *   Exported `cancelPendingSync(windowId: number)`: Checks `pendingSyncs.get(windowId)`. If a pending debounce timer exists, clears `clearTimeout(pending.timer)` and purges the record with `pendingSyncs.delete(windowId)`.
+    *   Prevents trailing-edge debounce timers (350ms) from executing queries on closed windows.
+*   **Window Closure Symmetrical Teardown (`src/background/index.ts`):**
+    *   In `chrome.windows.onRemoved.addListener`: Calls `cancelPendingSync(windowId)` immediately upon window removal.
+    *   Calls `chrome.alarms.clear(\`sync-flush-\${windowId}\`)` to cancel any pending 5-second single-fire fallback alarms before space mapping checks.
+    *   Guarantees zero ghost wakeups or needless Dexie sync attempts after window closure.
+*   **Testing & Quality Metrics:**
+    *   `src/background/__tests__/tabSyncService.test.ts`: Added unit test verifying `cancelPendingSync(windowId)` aborts active debounce timers and prevents `performSync` execution (10 tests).
+    *   Full test suite raised to **645/645 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 9.95s.
+
+<!-- Last Updated: 2026-09-04 (Phase 48: Window Closure Sync Teardown & Alarm Cleanup: 645 Unit Tests Passing across 52 Test Files) -->
 
 
 
