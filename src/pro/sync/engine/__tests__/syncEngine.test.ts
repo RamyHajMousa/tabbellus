@@ -326,6 +326,40 @@ describe('SyncEngine', () => {
       expect(status.state).toBe('offline');
     });
 
+    it('handles HTTP 429 rate limit on remote downloadVaultFile without setting status to offline and activates cooldown', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [{ id: 'vault-file-id-429', name: 'tabbellus_vault.json', mimeType: 'application/json' }] },
+      });
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: false,
+        statusCode: 429,
+        rateLimited: true,
+        retryAfterSeconds: 45,
+        error: 'Google Drive rate limit exceeded. Backing off.',
+      });
+
+      const result = await engine.syncNow();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Google Drive rate limit exceeded. Backing off.');
+      expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
+
+      const status = await engine.getStatus();
+      expect(status.state).toBe('error');
+      expect(status.state).not.toBe('offline');
+      expect(status.telemetry.lastError).toContain('rate limit');
+
+      // Subsequent sync call is blocked by rate-limit cooldown
+      const cooldownResult = await engine.syncNow();
+      expect(cooldownResult.success).toBe(false);
+      expect(cooldownResult.error).toContain('rate limit cooldown active');
+    });
+
     it('handles HTTP 429 rate limit without setting status to offline', async () => {
       mockedAuth.getAuthToken.mockResolvedValue({
         success: true,

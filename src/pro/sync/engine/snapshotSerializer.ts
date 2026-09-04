@@ -14,6 +14,7 @@ import { db } from '@/lib/db';
 import { loadRules } from '@/pro/rules/storage/ruleStorage';
 import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
 import { useAppStore } from '@/store/appStore';
+import type { TabRule } from '@/core/contracts/rules';
 import type { SyncVaultSnapshot, ReconciliationResult, SyncedSettings } from './types';
 
 export const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -110,10 +111,24 @@ export class SnapshotSerializer {
     });
 
     if (rules && rules.length > 0) {
-      // Clean up expired rule tombstones before saving
-      const compactedRules = rules.filter((r) => !r.deletedAt || r.deletedAt >= cutoff);
+      // Clean up expired rule tombstones from incoming updates
+      const compactedIncomingRules = rules.filter((r) => !r.deletedAt || r.deletedAt >= cutoff);
+
+      // Defensive Ingestion: Load existing local rules, index by id, and merge incoming updates
+      const existingRules = await loadRules();
+      const ruleMap = new Map<string, TabRule>();
+      for (const r of existingRules) {
+        if (!r.deletedAt || r.deletedAt >= cutoff) {
+          ruleMap.set(r.id, r);
+        }
+      }
+      for (const incoming of compactedIncomingRules) {
+        ruleMap.set(incoming.id, incoming);
+      }
+
+      const mergedRulesToSave = Array.from(ruleMap.values());
       // Anti-echo guard: bypass notifyLocalMutation()
-      await rulesEngine.saveRules(compactedRules, { skipMutationNotification: true });
+      await rulesEngine.saveRules(mergedRulesToSave, { skipMutationNotification: true });
     }
 
     if (settings) {

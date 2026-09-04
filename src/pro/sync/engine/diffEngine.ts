@@ -320,15 +320,18 @@ export class DiffEngine {
     }
 
     const cleansedRemoteTabs: Tab[] = [];
+    const remoteTabNormalizedUrls = new Map<Tab, string>();
     for (const spaceTabsMap of dedupedRemoteTabsBySpace.values()) {
-      for (const tab of spaceTabsMap.values()) {
+      for (const [normUrl, tab] of spaceTabsMap.entries()) {
         cleansedRemoteTabs.push(tab);
+        remoteTabNormalizedUrls.set(tab, normUrl);
       }
     }
 
     // 2. Index local tabs by local spaceId and composite `${spaceId}:::${normalizedUrl}`
     const localTabsBySpaceId = new Map<number, Tab[]>();
     const localTabsBySpaceAndUrl = new Map<string, Tab[]>();
+    const localTabNormalizedUrls = new Map<Tab, string>();
 
     for (const tab of localTabs) {
       const list = localTabsBySpaceId.get(tab.spaceId) ?? [];
@@ -336,6 +339,7 @@ export class DiffEngine {
       localTabsBySpaceId.set(tab.spaceId, list);
 
       const normUrl = normalizeTabUrl(tab.url);
+      localTabNormalizedUrls.set(tab, normUrl);
       const compositeKey = `${tab.spaceId}:::${normUrl}`;
       const urlList = localTabsBySpaceAndUrl.get(compositeKey) ?? [];
       urlList.push(tab);
@@ -356,7 +360,8 @@ export class DiffEngine {
       const urlSet =
         remoteNormalizedUrlsByResolvedSpaceId.get(resolvedSpaceId) ??
         new Set<string>();
-      urlSet.add(normalizeTabUrl(remoteTab.url));
+      const normRemoteUrl = remoteTabNormalizedUrls.get(remoteTab) ?? normalizeTabUrl(remoteTab.url);
+      urlSet.add(normRemoteUrl);
       remoteNormalizedUrlsByResolvedSpaceId.set(resolvedSpaceId, urlSet);
     }
 
@@ -374,7 +379,7 @@ export class DiffEngine {
           new Set<string>();
 
         for (const localTab of localTabsInSpace) {
-          const normLocalUrl = normalizeTabUrl(localTab.url);
+          const normLocalUrl = localTabNormalizedUrls.get(localTab) ?? normalizeTabUrl(localTab.url);
           if (!remoteUrls.has(normLocalUrl)) {
             // Absolute Pruning Guard:
             // Compute local tab birth/edit activity time
@@ -408,7 +413,7 @@ export class DiffEngine {
 
     for (const remoteTab of cleansedRemoteTabs) {
       const resolvedSpaceId = spaceIdMap.get(remoteTab.spaceId) ?? remoteTab.spaceId;
-      const normRemoteUrl = normalizeTabUrl(remoteTab.url);
+      const normRemoteUrl = remoteTabNormalizedUrls.get(remoteTab) ?? normalizeTabUrl(remoteTab.url);
       const compositeKey = `${resolvedSpaceId}:::${normRemoteUrl}`;
 
       const candidates = localTabsBySpaceAndUrl.get(compositeKey) ?? [];
@@ -792,7 +797,6 @@ export class DiffEngine {
     }
 
     const mergedMap = new Map<string, TabRule>();
-    const localRuleUpdates: TabRule[] = [];
 
     // 2. Process remote rules against local rules
     for (const [id, remoteRule] of remoteRuleMap.entries()) {
@@ -853,35 +857,10 @@ export class DiffEngine {
           updatedAt: mergedUpdatedAt,
           ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),
         };
-
-        // Determine if local needs update
-        const conditionsDiffer = JSON.stringify(localRule.conditions) !== JSON.stringify(mergedRule.conditions);
-        const actionsDiffer = JSON.stringify(localRule.actions) !== JSON.stringify(mergedRule.actions);
-        const localNeedsUpdate =
-          localRule.name !== mergedRule.name ||
-          localRule.enabled !== mergedRule.enabled ||
-          localRule.priority !== mergedRule.priority ||
-          localRule.matchAll !== mergedRule.matchAll ||
-          localRule.deletedAt !== mergedRule.deletedAt ||
-          toEpochMs(localRule.updatedAt) !== toEpochMs(mergedRule.updatedAt) ||
-          conditionsDiffer ||
-          actionsDiffer;
-
-        if (localNeedsUpdate) {
-          localRuleUpdates.push(mergedRule);
-        }
-
         mergedMap.set(id, mergedRule);
       } else {
         // Remote rule does not exist locally
-        if (remoteRule.deletedAt !== undefined) {
-          // Remote tombstone for rule not present locally: preserve in merged for propagation, omit from local updates
-          mergedMap.set(id, { ...remoteRule });
-        } else {
-          // Remote active rule: add to local and merged
-          mergedMap.set(id, { ...remoteRule });
-          localRuleUpdates.push({ ...remoteRule });
-        }
+        mergedMap.set(id, { ...remoteRule });
       }
     }
 
@@ -893,7 +872,7 @@ export class DiffEngine {
     }
 
     // 4. Re-normalize active rules priorities deterministically (Mandatory Requirement 1)
-    // "In reconcileRules, sort active rules by priority ASC, tie-break by toEpochMs(r.updatedAt) DESC, and tie-break by r.id ASC before mapping priorities to sequential indices 0..n-1."
+    // Sort active rules by priority ASC, tie-break by toEpochMs(r.updatedAt) DESC, and tie-break by r.id ASC before mapping priorities to sequential indices 0..n-1.
     const activeRules: TabRule[] = [];
     const deletedRules: TabRule[] = [];
 
@@ -921,20 +900,40 @@ export class DiffEngine {
       if (rule.priority === index) {
         return rule;
       }
-      const updatedRule = { ...rule, priority: index };
-      const localIdx = localRuleUpdates.findIndex((r) => r.id === rule.id);
-      if (localIdx >= 0) {
-        localRuleUpdates[localIdx] = updatedRule;
-      } else {
-        const existingLocal = localRuleMap.get(rule.id);
-        if (existingLocal && existingLocal.priority !== index) {
-          localRuleUpdates.push(updatedRule);
-        }
-      }
-      return updatedRule;
+      return { ...rule, priority: index };
     });
 
     const mergedRules = [...normalizedActiveRules, ...deletedRules];
+
+    // 5. Determine if local storage needs an update (hasLocalRulesChanges)
+    let hasLocalRulesChanges = false;
+    if (mergedRules.length !== localRules.length) {
+      hasLocalRulesChanges = true;
+    } else {
+      for (const mr of mergedRules) {
+        const lr = localRuleMap.get(mr.id);
+        if (!lr) {
+          hasLocalRulesChanges = true;
+          break;
+        }
+        if (
+          lr.name !== mr.name ||
+          lr.enabled !== mr.enabled ||
+          lr.priority !== mr.priority ||
+          lr.matchAll !== mr.matchAll ||
+          lr.deletedAt !== mr.deletedAt ||
+          toEpochMs(lr.updatedAt) !== toEpochMs(mr.updatedAt) ||
+          JSON.stringify(lr.conditions) !== JSON.stringify(mr.conditions) ||
+          JSON.stringify(lr.actions) !== JSON.stringify(mr.actions)
+        ) {
+          hasLocalRulesChanges = true;
+          break;
+        }
+      }
+    }
+
+    // Full collection semantics: if local has changes, return the complete unified collection
+    const localRuleUpdates = hasLocalRulesChanges ? [...mergedRules] : [];
 
     return {
       mergedRules,

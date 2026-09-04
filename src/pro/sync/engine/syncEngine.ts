@@ -590,6 +590,14 @@ export class SyncEngine implements SyncProvider {
   private async executeSync(
     options?: SyncOptions & { forceUnencrypted?: boolean },
   ): Promise<SyncResult> {
+    if (Date.now() < this.rateLimitResetAt && !options?.forceFull) {
+      return {
+        success: false,
+        error: 'Rate limit active. Please wait before syncing.',
+        timestamp: Date.now(),
+      };
+    }
+
     this.updateStatus({ state: 'syncing' });
 
     try {
@@ -669,59 +677,55 @@ export class SyncEngine implements SyncProvider {
       }
 
       let remoteSnapshot: SyncVaultSnapshot | null = null;
-      let vaultFileId: string | undefined = undefined;
-      const vaultExists = findResult.data.files.length > 0;
+      let vaultFileId: string | undefined = findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
+      const vaultExists = Boolean(vaultFileId);
 
       // Step 3: Download and decrypt remote snapshot if it exists
-      if (vaultExists) {
-        const file = findResult.data.files[0];
-        vaultFileId = file.id;
+      if (vaultExists && !options?.forceUnencrypted) {
+        const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId!);
+        if (!downloadResult.success) {
+          console.error(
+            '[SyncEngine] Remote vault exists but download failed. Aborting sync cycle to prevent remote clobbering:',
+            downloadResult.error,
+          );
 
-        if (!options?.forceUnencrypted) {
-          const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
-          if (!downloadResult.success) {
-            console.error(
-              '[SyncEngine] Remote vault exists but download failed. Aborting sync cycle to prevent remote clobbering:',
-              downloadResult.error,
-            );
-
-            if (downloadResult.rateLimited) {
-              this.rateLimitResetAt = Date.now() + (downloadResult.retryAfterSeconds ?? 60) * 1000;
-              this.updateStatus({
-                state: 'error',
-                telemetry: {
-                  ...this.status.telemetry,
-                  lastError: 'Google Drive rate limit exceeded. Backing off.',
-                },
-              });
-              await this.saveStorageState({ lastError: 'Google Drive rate limit exceeded. Backing off.' });
-            } else if (downloadResult.authExpired) {
-              this.updateStatus({
-                state: 'error',
-                isConnected: false,
-                telemetry: {
-                  ...this.status.telemetry,
-                  lastError: downloadResult.error,
-                },
-              });
-              await this.saveStorageState({ lastError: downloadResult.error });
-            } else {
-              this.updateStatus({
-                state: 'offline',
-                telemetry: {
-                  ...this.status.telemetry,
-                  lastError: downloadResult.error,
-                },
-              });
-              await this.saveStorageState({ lastError: downloadResult.error });
-            }
-
-            return {
-              success: false,
-              error: downloadResult.error ?? 'FAILED_REMOTE_DOWNLOAD',
-              timestamp: Date.now(),
-            };
+          if (downloadResult.rateLimited) {
+            this.rateLimitResetAt = Date.now() + (downloadResult.retryAfterSeconds ?? 60) * 1000;
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: downloadResult.error,
+              },
+            });
+            await this.saveStorageState({ lastError: downloadResult.error });
+          } else if (downloadResult.authExpired) {
+            this.updateStatus({
+              state: 'error',
+              isConnected: false,
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: downloadResult.error,
+              },
+            });
+            await this.saveStorageState({ lastError: downloadResult.error });
+          } else {
+            this.updateStatus({
+              state: 'offline',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: downloadResult.error,
+              },
+            });
+            await this.saveStorageState({ lastError: downloadResult.error });
           }
+
+          return {
+            success: false,
+            error: downloadResult.error ?? 'FAILED_REMOTE_DOWNLOAD',
+            timestamp: Date.now(),
+          };
+        }
 
           const raw = downloadResult.data as unknown as Record<string, unknown> | null;
 
@@ -844,7 +848,7 @@ export class SyncEngine implements SyncProvider {
           // abort sync cycle to prevent treating as initial upload and clobbering the remote vault.
           if (!remoteSnapshot) {
             const errorMsg = 'Remote vault payload is corrupt or invalid.';
-            console.error('[SyncEngine]', errorMsg, 'Aborting sync to prevent remote clobbering.');
+            console.warn('[SyncEngine]', errorMsg, 'Aborting sync cycle immediately.');
             this.updateStatus({
               state: 'error',
               telemetry: {
@@ -860,7 +864,6 @@ export class SyncEngine implements SyncProvider {
             };
           }
         }
-      }
 
       // Step 4: Create local snapshot
       const deviceId = await getOrCreateInstanceId();

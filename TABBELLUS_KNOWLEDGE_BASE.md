@@ -1405,7 +1405,59 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 11.10s.
 
-<!-- Last Updated: 2026-09-04 (Phase 45: Window Lifecycle & Sync Bridge Sprint: 639 Unit Tests Passing across 52 Test Files) -->
+---
+
+## Phase 46: Sync Hardening & Resilience Sprint (P0 Vault Safety Gate, Rate-Limit Cooldown, O(N) Tab Reconcile, 30-Day Tombstone Compaction)
+
+*   **Google Drive Client Rate-Limit Classification (`src/pro/sync/api/types.ts` & `googleDriveClient.ts`):**
+    *   Extended `DriveApiResult<T>` error branch with typed flags `rateLimited?: boolean` and `retryAfterSeconds?: number`.
+    *   In `googleDriveClient.ts`: `normalizeHttpError` parses HTTP 429 and HTTP 403 `rateLimitExceeded`/`userRateLimitExceeded`, reads the standard `Retry-After` header (with 60-second safe fallback), and returns typed rate-limit feedback.
+*   **P0 Remote Vault Safety Gate & Pre-Flight Rate-Limit Cooldown (`src/pro/sync/engine/syncEngine.ts`):**
+    *   Added `rateLimitResetAt` cooldown tracking. `handleLocalMutation` skips debounced auto-sync when cooldown is active.
+    *   In `executeSync`: Evaluates `Date.now() < this.rateLimitResetAt && !options?.forceFull` at entry and immediately returns `{ success: false, error: 'Rate limit active. Please wait before syncing.' }`.
+    *   In `executeSync` Step 3: Evaluates `const vaultExists = Boolean(vaultFileId);`. If remote vault file exists and download fails, aborts sync immediately without clobbering remote vault. On HTTP 429 rate limit, activates cooldown, logs error to telemetry and storage, and preserves connected state (avoids flipping to `'offline'`). If parsed remote snapshot payload is null or corrupt, logs warning diagnostics and aborts immediately.
+*   **Linear $O(N)$ Tab Reconciliation with Composite Hash Map Indexing (`src/pro/sync/engine/diffEngine.ts`):**
+    *   `DiffEngine.reconcileTabs`: Pre-indexes local tabs by composite key `${tab.spaceId}:::${normalizedUrl}` into `Map<string, Tab[]>`.
+    *   Employs dedicated `localTabNormalizedUrls` and `remoteTabNormalizedUrls` caching to eliminate redundant `normalizeTabUrl` string operations across remote deduplication, URL set construction, pruning pass (Step 4), and candidate lookup (Step 5).
+*   **30-Day Tombstone Compaction & Resilient Schema Validation (`src/pro/sync/engine/snapshotSerializer.ts`):**
+    *   Exported `TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000`. `createLocalSnapshot` filters out expired tombstones across spaces, tabs, readLater, and rules.
+    *   `applyRemoteUpdates` executes atomic range vacuum deletions (`where('deletedAt').below(cutoff).delete()`) inside the single Dexie `rw` transaction alongside remote upserts.
+    *   `validateSnapshot` rejects non-array root properties immediately while filtering malformed individual entities in-place with `console.warn` diagnostics to prevent total vault invalidation from an isolated corrupt record.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added performance test verifying 500+ tab reconciliation completes in under 15ms via composite Map indexing (42 tests).
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Added test verifying HTTP 429 on remote `downloadVaultFile` activates rate-limit cooldown and prevents status from flipping to offline (29 tests).
+    *   Full test suite raised to **641/641 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 11.08s.
+
+<!-- Last Updated: 2026-09-04 (Phase 46: Sync Hardening & Resilience Sprint: 641 Unit Tests Passing across 52 Test Files) -->
+
+---
+
+## Phase 47: Rules Sync Oscillation Sprint (Full Collection Semantics & Reactive UI Convergence)
+
+*   **Full Collection Semantics in Rules Reconciliation (`src/pro/sync/engine/diffEngine.ts`):**
+    *   Previously, when new rules arrived from a remote vault, `reconcileRules` returned only the partial unmatched delta in `localUpdates.rules`. When downstream components saved this, local rules were overwritten and destroyed, causing ping-pong sync oscillation.
+    *   Updated `DiffEngine.reconcileRules`: Combines all matched rules, unmatched local rules, and unmatched remote rules into `mergedMap`.
+    *   Sorts active rules deterministically (`priority ASC`, `toEpochMs(updatedAt) DESC`, `id ASC`) and re-maps priorities sequentially to `0..n-1`.
+    *   Evaluates `hasLocalRulesChanges`: If `true`, sets `localUpdates.rules = [...mergedRules]`, ensuring that whenever local rules need an update, the **entire unified collection** (active rules + valid tombstones) is emitted.
+*   **Defensive Ingestion in Remote Updates Application (`src/pro/sync/engine/snapshotSerializer.ts`):**
+    *   In `applyRemoteUpdates(updates)`: When `updates.rules` arrives, pre-loads existing local rules via `ruleStorage.loadRules()` into a `Map<string, TabRule>`.
+    *   Merges incoming rules into the map by ID, and writes back the merged collection using `rulesEngine.saveRules(mergedRulesToSave, { skipMutationNotification: true })`.
+    *   Guarantees that even if an upstream caller provides a partial array, local rules are never clobbered.
+*   **Reactive Multi-Window UI Convergence (`src/pro/rules/components/RuleManagerCard.tsx`):**
+    *   In `RuleManagerCard.tsx`: Replaced static hook-only rendering with reactive local state `[rules, setRules]`.
+    *   Subscribes directly to `rulesEngine.subscribe((latestRules) => setRules(latestRules.filter(r => !r.deletedAt)))` and `chrome.storage.onChanged` for `RULES_STORAGE_KEY`.
+    *   Enables instant multi-window and cross-sync UI convergence whenever remote rules are applied or locally modified.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added tests verifying full merged rule collection return and idempotent multi-cycle reconciliation without oscillation (44 tests).
+    *   `src/pro/sync/engine/__tests__/snapshotSerializer.test.ts`: Added unit test verifying defensive ingestion preserves unaffected local rules (15 tests).
+    *   Full test suite raised to **644/644 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 10.82s.
+
+<!-- Last Updated: 2026-09-04 (Phase 47: Rules Sync Oscillation Sprint: 644 Unit Tests Passing across 52 Test Files) -->
+
 
 
 

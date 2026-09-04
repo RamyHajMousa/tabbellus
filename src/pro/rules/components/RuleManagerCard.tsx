@@ -9,7 +9,7 @@
  * - Consumes `useRules` from `@/core` only.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, ListChecks, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { useRules } from '@/core/hooks/useRules';
 import { useToast } from '@/components/ui/Toaster';
@@ -21,13 +21,51 @@ import type { TabRule } from '@/core/contracts/rules';
 import { RuleEditorModal } from './RuleEditorModal';
 import { TemplatePickerModal } from './TemplatePickerModal';
 import { insertRule, moveRulePriority, removeRuleById, runApplyRulesNow, sortByPriority, summarizeRule, toggleRuleEnabled } from './ruleListActions';
+import { rulesEngine } from '../engine/rulesEngine';
+import { loadRules, RULES_STORAGE_KEY } from '../storage/ruleStorage';
 
 export const RuleManagerCard: React.FC = () => {
-    const { rules, saveRules, applyRulesToWindow } = useRules();
+    const { rules: hookRules, saveRules, applyRulesToWindow } = useRules();
     const { toast } = useToast();
     // Resolved from the sidepanel's own window (well-defined here, unlike
     // from the background service worker, which has no associated window).
     const windowId = useWindowId();
+
+    const [rules, setRules] = useState<TabRule[]>(() => hookRules.filter((r) => !r.deletedAt));
+
+    useEffect(() => {
+        setRules(hookRules.filter((r) => !r.deletedAt));
+    }, [hookRules]);
+
+    useEffect(() => {
+        const unsubscribe = rulesEngine.subscribe((latestRules) => {
+            setRules(latestRules.filter((r) => !r.deletedAt));
+        });
+
+        const handleStorageChange = (
+            changes: { [key: string]: chrome.storage.StorageChange },
+            areaName: string,
+        ) => {
+            if ((areaName === 'sync' || areaName === 'local') && changes[RULES_STORAGE_KEY]) {
+                loadRules()
+                    .then((loaded) => {
+                        setRules(loaded.filter((r) => !r.deletedAt));
+                    })
+                    .catch(() => {});
+            }
+        };
+
+        if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+            chrome.storage.onChanged.addListener(handleStorageChange);
+        }
+
+        return () => {
+            unsubscribe();
+            if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+                chrome.storage.onChanged.removeListener(handleStorageChange);
+            }
+        };
+    }, []);
 
     const [editorState, setEditorState] = useState<{ open: boolean; rule: TabRule | null }>({ open: false, rule: null });
     const [templatesOpen, setTemplatesOpen] = useState(false);

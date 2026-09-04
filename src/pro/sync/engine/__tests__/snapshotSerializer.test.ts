@@ -13,12 +13,48 @@ import { SnapshotSerializer, TOMBSTONE_TTL_MS } from '../snapshotSerializer';
 import type { SyncVaultSnapshot } from '../types';
 import { useAppStore } from '@/store/appStore';
 import { contractRegistry } from '@/core/contracts/registry';
+import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
+import type { TabRule } from '@/core/contracts/rules';
+
+const localStore: Record<string, unknown> = {};
+const syncStore: Record<string, unknown> = {};
 
 describe('SnapshotSerializer', () => {
   beforeEach(async () => {
+    Object.keys(localStore).forEach((k) => delete localStore[k]);
+    Object.keys(syncStore).forEach((k) => delete syncStore[k]);
+
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async (key: string) => ({ [key]: localStore[key] })),
+          set: vi.fn(async (items: Record<string, unknown>) => {
+            Object.assign(localStore, items);
+          }),
+          remove: vi.fn(async (key: string) => {
+            delete localStore[key];
+          }),
+        },
+        sync: {
+          get: vi.fn(async (key: string) => ({ [key]: syncStore[key] })),
+          set: vi.fn(async (items: Record<string, unknown>) => {
+            Object.assign(syncStore, items);
+          }),
+          remove: vi.fn(async (key: string) => {
+            delete syncStore[key];
+          }),
+        },
+        onChanged: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      },
+    });
+
     await db.spaces.clear();
     await db.tabs.clear();
     await db.readLater.clear();
+    await rulesEngine.saveRules([], { skipMutationNotification: true });
   });
 
   describe('createLocalSnapshot', () => {
@@ -225,6 +261,50 @@ describe('SnapshotSerializer', () => {
       expect(await db.spaces.get(Number(recentSpaceId))).toBeDefined();
       expect(await db.tabs.get(Number(expiredTabId))).toBeUndefined();
       expect(await db.readLater.get(Number(expiredReadLaterId))).toBeUndefined();
+    });
+
+    it('applyRemoteUpdates preserves existing local rules when incoming rule updates arrive', async () => {
+      // Seed existing local rules in ruleStorage
+      const localRule: TabRule = {
+        id: 'existing-local-rule',
+        name: 'Existing Rule',
+        enabled: true,
+        priority: 0,
+        matchAll: false,
+        conditions: [{ field: 'domain', operator: 'contains', value: 'existing.com' }],
+        actions: [{ type: 'pin' }],
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+      await rulesEngine.saveRules([localRule]);
+
+      // Incoming partial or new rule update
+      const incomingRule: TabRule = {
+        id: 'new-incoming-rule',
+        name: 'Incoming Cloud Rule',
+        enabled: true,
+        priority: 1,
+        matchAll: false,
+        conditions: [{ field: 'domain', operator: 'contains', value: 'cloud.com' }],
+        actions: [{ type: 'mute' }],
+        createdAt: 2000,
+        updatedAt: 2000,
+      };
+
+      // Call applyRemoteUpdates with incoming rule
+      await SnapshotSerializer.applyRemoteUpdates({
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [incomingRule],
+      });
+
+      // Verify that defensive ingestion preserved 'existing-local-rule' alongside 'new-incoming-rule'
+      const storedRules = await rulesEngine.getRules();
+      expect(storedRules).toHaveLength(2);
+      const storedIds = storedRules.map((r) => r.id);
+      expect(storedIds).toContain('existing-local-rule');
+      expect(storedIds).toContain('new-incoming-rule');
     });
   });
 

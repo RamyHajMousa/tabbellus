@@ -12,7 +12,8 @@
 import { describe, it, expect } from 'vitest';
 import { DiffEngine, normalizeTabUrl, toEpochMs } from '../diffEngine';
 import type { SyncVaultSnapshot } from '../types';
-import type { Tab } from '@/lib/db';
+import type { Space, Tab } from '@/lib/db';
+import type { TabRule } from '@/core/contracts/rules';
 
 describe('DiffEngine', () => {
   const localDeviceId = 'local-device-001';
@@ -1325,6 +1326,152 @@ describe('DiffEngine', () => {
       expect(active[2].priority).toBe(2);
     });
 
+    it('reconcileRules returns complete merged rule collection in localUpdates.rules when remote introduces new rules', () => {
+      const localRule1: TabRule = {
+        id: 'local-r1',
+        name: 'Local Rule 1',
+        enabled: true,
+        priority: 0,
+        matchAll: false,
+        conditions: [{ field: 'domain', operator: 'contains', value: 'local.com' }],
+        actions: [{ type: 'pin' }],
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+
+      const remoteRule2: TabRule = {
+        id: 'remote-r2',
+        name: 'Remote Rule 2',
+        enabled: true,
+        priority: 0,
+        matchAll: false,
+        conditions: [{ field: 'domain', operator: 'contains', value: 'remote.com' }],
+        actions: [{ type: 'mute' }],
+        createdAt: 2000,
+        updatedAt: 2000,
+      };
+
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [localRule1],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [remoteRule2],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.hasLocalChanges).toBe(true);
+      expect(result.localUpdates.rules).toBeDefined();
+      // Full collection semantics: MUST be the entire unified collection (2 rules), never a partial delta
+      expect(result.localUpdates.rules).toHaveLength(2);
+      const ids = result.localUpdates.rules!.map((r) => r.id);
+      expect(ids).toContain('local-r1');
+      expect(ids).toContain('remote-r2');
+      const priorities = result.localUpdates.rules!.map((r) => r.priority);
+      expect(priorities).toContain(0);
+      expect(priorities).toContain(1);
+    });
+
+    it('repeated reconciliation cycles are strictly idempotent and preserve all rules without oscillation', () => {
+      const localRule: TabRule = {
+        id: 'rule-alpha',
+        name: 'Alpha Rule',
+        enabled: true,
+        priority: 0,
+        matchAll: false,
+        conditions: [{ field: 'domain', operator: 'contains', value: 'alpha.com' }],
+        actions: [{ type: 'pin' }],
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+
+      const remoteRule: TabRule = {
+        id: 'rule-beta',
+        name: 'Beta Rule',
+        enabled: true,
+        priority: 1,
+        matchAll: false,
+        conditions: [{ field: 'domain', operator: 'contains', value: 'beta.com' }],
+        actions: [{ type: 'mute' }],
+        createdAt: 1500,
+        updatedAt: 1500,
+      };
+
+      // Cycle 1: Local has Alpha, Remote has Beta
+      const local1: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [localRule],
+      };
+
+      const remote1: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [remoteRule],
+      };
+
+      const result1 = DiffEngine.reconcile(local1, remote1, localDeviceId);
+      expect(result1.hasLocalChanges).toBe(true);
+      expect(result1.localUpdates.rules).toHaveLength(2);
+
+      // Simulate local applying result1.localUpdates.rules
+      const localRulesAfterCycle1 = [...result1.localUpdates.rules!];
+
+      // Cycle 2: Local now has the merged collection, Remote also has merged collection
+      const local2: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: result1.mergedSnapshot.clientTimestamp,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: localRulesAfterCycle1,
+      };
+
+      const remote2: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: result1.mergedSnapshot.clientTimestamp,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        rules: [...result1.mergedSnapshot.rules!],
+      };
+
+      const result2 = DiffEngine.reconcile(local2, remote2, localDeviceId);
+      // Strict idempotency: No local rules updates, no oscillation!
+      expect(result2.hasLocalChanges).toBe(false);
+      expect(result2.localUpdates.rules).toBeUndefined();
+      expect(result2.mergedSnapshot.rules).toHaveLength(2);
+
+      // Cycle 3: Repeat once more to verify complete stability
+      const result3 = DiffEngine.reconcile(result2.mergedSnapshot, result2.mergedSnapshot, localDeviceId);
+      expect(result3.hasLocalChanges).toBe(false);
+      expect(result3.localUpdates.rules).toBeUndefined();
+      expect(result3.mergedSnapshot.rules).toHaveLength(2);
+    });
+
     it('synced behavioral settings update locally when remote updatedAt is newer', () => {
       const local: SyncVaultSnapshot = {
         version: 1,
@@ -1456,5 +1603,68 @@ describe('DiffEngine', () => {
       expect(result.localUpdates.tabs[0].title).toBe('Remote Page 0');
       expect(elapsed).toBeLessThan(500);
     });
+
+    it('verifies 500+ tab reconciliation completes in under 15ms via composite Map indexing', () => {
+      const spaceUuid = 'test-perf-space-uuid-500';
+      const localTabs: Tab[] = [];
+      const remoteTabs: Tab[] = [];
+
+      for (let i = 0; i < 500; i++) {
+        localTabs.push({
+          id: i + 1,
+          spaceId: 1,
+          url: `https://example.com/perf-page-${i}`,
+          title: `Local Page ${i}`,
+          order: i,
+          createdAt: 1000,
+          updatedAt: 1000,
+        });
+        remoteTabs.push({
+          id: 1000 + i,
+          spaceId: 100,
+          url: `https://example.com/perf-page-${i}`,
+          title: `Remote Page ${i}`,
+          order: i,
+          createdAt: 1000,
+          updatedAt: 2000,
+        });
+      }
+
+      const spaceIdMap = new Map<number, number>([[100, 1]]);
+      const matchedSpacePairs = new Map<number, { localSpace: Space; remoteSpace: Space }>([
+        [1, {
+          localSpace: { id: 1, uuid: spaceUuid, name: 'Perf Space', createdAt: 1000 },
+          remoteSpace: { id: 100, uuid: spaceUuid, name: 'Perf Space', createdAt: 1000 },
+        }],
+      ]);
+
+      // Warm up JIT
+      DiffEngine.reconcileTabs(
+        localTabs.slice(0, 10),
+        remoteTabs.slice(0, 10),
+        spaceIdMap,
+        matchedSpacePairs,
+        3000,
+        3000,
+        0,
+      );
+
+      const start = performance.now();
+      const result = DiffEngine.reconcileTabs(
+        localTabs,
+        remoteTabs,
+        spaceIdMap,
+        matchedSpacePairs,
+        3000,
+        3000,
+        0,
+      );
+      const elapsed = performance.now() - start;
+
+      expect(result.mergedTabs).toHaveLength(500);
+      expect(result.localTabUpdates).toHaveLength(500);
+      expect(elapsed).toBeLessThan(15);
+    });
   });
 });
+
