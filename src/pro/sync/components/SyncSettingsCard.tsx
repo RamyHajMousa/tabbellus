@@ -49,6 +49,39 @@ import { formatRelativeTime } from '@/lib/dateUtils';
 import { EncryptionSetupModal } from './EncryptionSetupModal';
 import { VaultUnlockModal } from './VaultUnlockModal';
 
+/**
+ * Pure action executor for manual sync button clicks.
+ * Handles rate-limiting and contention gracefully without displaying false-failure error toasts.
+ */
+export async function performManualSyncAction(
+  syncFn: () => Promise<{ success: boolean; error?: string }>,
+  toastFn: (title: string, options?: { description?: string }) => void,
+  state?: string,
+): Promise<void> {
+  if (state === 'syncing' || state === 'locked') return;
+
+  try {
+    const result = await syncFn();
+    if (result.success) {
+      toastFn('Sync completed', {
+        description: 'All workspaces and tabs are up to date.',
+      });
+    } else if (result.error === 'Sync already in progress.') {
+      toastFn('Sync in progress', {
+        description: 'Synchronization is already running in the background.',
+      });
+    } else {
+      toastFn('Sync failed', {
+        description: result.error ?? 'Could not synchronize with Google Drive.',
+      });
+    }
+  } catch {
+    toastFn('Sync failed', {
+      description: 'An unexpected error occurred during sync.',
+    });
+  }
+}
+
 export const SyncSettingsCard: React.FC = () => {
   const { state, isConnected, telemetry } = useSyncStatus();
   const { toast } = useToast();
@@ -85,24 +118,7 @@ export const SyncSettingsCard: React.FC = () => {
   }, [isConnecting, toast]);
 
   const handleSyncNow = useCallback(async () => {
-    if (state === 'syncing' || state === 'locked') return;
-
-    try {
-      const result = await syncEngine.syncNow();
-      if (result.success) {
-        toast('Sync completed', {
-          description: 'All workspaces and tabs are up to date.',
-        });
-      } else {
-        toast('Sync failed', {
-          description: result.error ?? 'Could not synchronize with Google Drive.',
-        });
-      }
-    } catch {
-      toast('Sync failed', {
-        description: 'An unexpected error occurred during sync.',
-      });
-    }
+    await performManualSyncAction(() => syncEngine.syncNow(), toast, state);
   }, [state, toast]);
 
   const handleDisconnect = useCallback(async () => {

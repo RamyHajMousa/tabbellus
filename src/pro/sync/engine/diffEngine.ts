@@ -326,12 +326,20 @@ export class DiffEngine {
       }
     }
 
-    // 2. Group local tabs by local spaceId
+    // 2. Index local tabs by local spaceId and composite `${spaceId}:::${normalizedUrl}`
     const localTabsBySpaceId = new Map<number, Tab[]>();
+    const localTabsBySpaceAndUrl = new Map<string, Tab[]>();
+
     for (const tab of localTabs) {
       const list = localTabsBySpaceId.get(tab.spaceId) ?? [];
       list.push(tab);
       localTabsBySpaceId.set(tab.spaceId, list);
+
+      const normUrl = normalizeTabUrl(tab.url);
+      const compositeKey = `${tab.spaceId}:::${normUrl}`;
+      const urlList = localTabsBySpaceAndUrl.get(compositeKey) ?? [];
+      urlList.push(tab);
+      localTabsBySpaceAndUrl.set(compositeKey, urlList);
     }
 
     // 3. Group cleansed remote tabs by resolved local spaceId & collect normalized URLs
@@ -393,7 +401,7 @@ export class DiffEngine {
       }
     }
 
-    // 5. Reconcile remote tabs against local tabs
+    // 5. Reconcile remote tabs against local tabs via O(1) hash map lookup
     const mergedTabs: Tab[] = [];
     const localTabUpdates: Tab[] = [];
     const matchedLocalTabIds = new Set<number>();
@@ -401,14 +409,14 @@ export class DiffEngine {
     for (const remoteTab of cleansedRemoteTabs) {
       const resolvedSpaceId = spaceIdMap.get(remoteTab.spaceId) ?? remoteTab.spaceId;
       const normRemoteUrl = normalizeTabUrl(remoteTab.url);
+      const compositeKey = `${resolvedSpaceId}:::${normRemoteUrl}`;
 
-      const localTabsInSpace = localTabsBySpaceId.get(resolvedSpaceId) ?? [];
-      const existingLocalTab = localTabsInSpace.find(
+      const candidates = localTabsBySpaceAndUrl.get(compositeKey) ?? [];
+      const existingLocalTab = candidates.find(
         (lt) =>
           lt.id !== undefined &&
           !matchedLocalTabIds.has(lt.id) &&
-          !prunedLocalTabIds.has(lt.id) &&
-          normalizeTabUrl(lt.url) === normRemoteUrl,
+          !prunedLocalTabIds.has(lt.id),
       );
 
       if (existingLocalTab) {

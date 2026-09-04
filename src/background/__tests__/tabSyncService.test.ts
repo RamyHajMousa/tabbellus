@@ -1,28 +1,37 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { performSync } from '@/background/tabSyncService';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { performSync, clearPendingSyncsForTesting } from '@/background/tabSyncService';
 import { db } from '@/lib/db';
 
 describe('Background Tab Sync Service — performSync (In-Place Delta Upsert)', () => {
     let queryTabsMock: ReturnType<typeof vi.fn>;
     let sessionGetMock: ReturnType<typeof vi.fn>;
+    let sendMessageMock: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
         vi.clearAllMocks();
 
         queryTabsMock = vi.fn();
         sessionGetMock = vi.fn().mockResolvedValue({});
+        sendMessageMock = vi.fn().mockResolvedValue(undefined);
 
         (globalThis as any).chrome = {
             storage: {
                 session: {
                     get: sessionGetMock,
-                    set: vi.fn(),
+                    set: vi.fn().mockResolvedValue(undefined),
                 },
             },
             tabs: {
                 query: queryTabsMock,
             },
+            runtime: {
+                sendMessage: sendMessageMock,
+            },
         };
+    });
+
+    afterEach(() => {
+        clearPendingSyncsForTesting();
     });
 
     it('should update tab order and metadata in place while strictly preserving original auto-increment IDs', async () => {
@@ -297,5 +306,90 @@ describe('Background Tab Sync Service — performSync (In-Place Delta Upsert)', 
         const closedTab = tabs.find(t => t.id === tabToCloseId)!;
         expect(closedTab.deletedAt).toBeGreaterThan(initialTime);
         expect(closedTab.updatedAt).toBeGreaterThan(initialTime);
+    });
+
+    it('performSync skips tombstoning missing tabs when window is in restoring mode', async () => {
+        const spaceId = (await db.spaces.add({
+            name: 'Restoring Space',
+            createdAt: Date.now(),
+        })) as number;
+
+        const tab1Id = (await db.tabs.add({
+            spaceId,
+            url: 'https://site-a.com',
+            title: 'Site A',
+            order: 0,
+        })) as number;
+
+        const tab2Id = (await db.tabs.add({
+            spaceId,
+            url: 'https://site-b.com',
+            title: 'Site B',
+            order: 1,
+        })) as number;
+
+        // Mock window 8001 as currently in restoration mode
+        sessionGetMock.mockResolvedValue({
+            restoringWindows: { 8001: Date.now() + 10000 },
+        });
+
+        // Window only has Site A open (Site B not yet spawned)
+        queryTabsMock.mockResolvedValue([
+            { id: 801, windowId: 8001, url: 'https://site-a.com', title: 'Site A' },
+        ]);
+
+        await performSync(8001, spaceId);
+
+        const tabs = await db.tabs.where({ spaceId }).toArray();
+        expect(tabs).toHaveLength(2);
+
+        const tabA = tabs.find(t => t.id === tab1Id)!;
+        expect(tabA.deletedAt).toBeUndefined();
+
+        const tabB = tabs.find(t => t.id === tab2Id)!;
+        // CRITICAL INVARIANT: Tab B must NOT be tombstoned
+        expect(tabB.deletedAt).toBeUndefined();
+    });
+
+    it('performSync debounces rapid successive tab creation events', async () => {
+        const spaceId = (await db.spaces.add({
+            name: 'Debounce Space',
+            createdAt: Date.now(),
+        })) as number;
+
+        queryTabsMock.mockResolvedValue([
+            { id: 901, windowId: 9001, url: 'https://example.com/1', title: 'Page 1' },
+        ]);
+
+        // Trigger performSync 3 times rapidly
+        const p1 = performSync(9001, spaceId);
+        const p2 = performSync(9001, spaceId);
+        const p3 = performSync(9001, spaceId);
+
+        await Promise.all([p1, p2, p3]);
+
+        // Assert queryTabsMock was called only ONCE due to trailing-edge debounce
+        expect(queryTabsMock).toHaveBeenCalledTimes(1);
+
+        const tabs = await db.tabs.where({ spaceId }).toArray();
+        expect(tabs).toHaveLength(1);
+    });
+
+    it('performSync dispatches TABBELLUS_LOCAL_MUTATION runtime message when tabs are updated', async () => {
+        const spaceId = (await db.spaces.add({
+            name: 'Runtime Msg Space',
+            createdAt: Date.now(),
+        })) as number;
+
+        queryTabsMock.mockResolvedValue([
+            { id: 950, windowId: 9501, url: 'https://mutation-test.com', title: 'Mutation Test' },
+        ]);
+
+        await performSync(9501, spaceId);
+
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'TABBELLUS_LOCAL_MUTATION',
+            source: 'tabSyncService',
+        });
     });
 });

@@ -295,6 +295,95 @@ describe('SyncEngine', () => {
       expect(status.state).toBe('offline');
     });
 
+    it('aborts sync cycle and preserves remote vault when remote file exists but download fails', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [{ id: 'existing-vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' }] },
+      });
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: false,
+        error: 'Connection error: Failed to fetch',
+      });
+
+      await db.spaces.add({
+        name: 'Local Only Space',
+        createdAt: Date.now(),
+      });
+
+      const result = await engine.syncNow();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Failed to fetch');
+
+      // CRITICAL: uploadVaultFile must NEVER have been called
+      expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
+
+      const status = await engine.getStatus();
+      expect(status.state).toBe('offline');
+    });
+
+    it('handles HTTP 429 rate limit without setting status to offline', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: false,
+        statusCode: 429,
+        rateLimited: true,
+        retryAfterSeconds: 30,
+        error: 'Google Drive rate limit exceeded. Backing off.',
+      });
+
+      const result = await engine.syncNow();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('rate limit exceeded');
+
+      const status = await engine.getStatus();
+      expect(status.state).toBe('error');
+      expect(status.telemetry.lastError).toContain('rate limit');
+
+      // Subsequent syncNow within cooldown window is rejected with cooldown notice
+      const cooldownResult = await engine.syncNow();
+      expect(cooldownResult.success).toBe(false);
+      expect(cooldownResult.error).toContain('rate limit cooldown active');
+    });
+
+    it('aborts sync cycle when downloaded remote vault is corrupt or invalid', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [{ id: 'corrupt-vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' }] },
+      });
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          schemaVersion: '1.0.0',
+          clientTimestamp: new Date().toISOString(),
+          payload: 'not-valid-json{{{',
+          isEncrypted: false,
+        },
+      });
+
+      const result = await engine.syncNow();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Remote vault payload is corrupt or invalid');
+
+      expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
+
+      const status = await engine.getStatus();
+      expect(status.state).toBe('error');
+    });
+
     it('prevents concurrent overlapping sync cycles', async () => {
       mockedAuth.getAuthToken.mockImplementation(
         () => new Promise((res) => setTimeout(() => res({ success: true, data: 'token' }), 50)),

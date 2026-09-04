@@ -49,13 +49,77 @@ function buildMultipartBody(
 }
 
 /**
+ * Helper to parse the Retry-After header from an HTTP response, defaulting to 60 seconds.
+ */
+function parseRetryAfter(response: Response, defaultSeconds = 60): number {
+  try {
+    const retryHeader = response.headers?.get?.('Retry-After');
+    if (retryHeader) {
+      const parsedInt = parseInt(retryHeader, 10);
+      if (!isNaN(parsedInt) && parsedInt > 0) {
+        return parsedInt;
+      }
+      const parsedDate = Date.parse(retryHeader);
+      if (!isNaN(parsedDate)) {
+        const diffSeconds = Math.round((parsedDate - Date.now()) / 1000);
+        if (diffSeconds > 0) return diffSeconds;
+      }
+    }
+  } catch {
+    // Headers not accessible or malformed
+  }
+  return defaultSeconds;
+}
+
+/**
  * Normalizes a non-OK HTTP response into a typed DriveApiResult error.
  */
-function normalizeHttpError(status: number, statusText: string): DriveApiResult<never> {
+async function normalizeHttpError(response: Response): Promise<DriveApiResult<never>> {
+  const status = response.status;
+  const statusText = response.statusText;
+
   if (status === 401) {
     return { success: false, error: 'Authentication expired.', statusCode: 401, authExpired: true };
   }
+  if (status === 429) {
+    const retryAfterSeconds = parseRetryAfter(response, 60);
+    return {
+      success: false,
+      error: 'Google Drive rate limit exceeded. Backing off.',
+      statusCode: 429,
+      rateLimited: true,
+      retryAfterSeconds,
+    };
+  }
   if (status === 403) {
+    let isRateLimit = false;
+    try {
+      if (typeof response.json === 'function') {
+        const errorJson = await response.json();
+        const reasons = errorJson?.error?.errors?.map((e: { reason?: string }) => e.reason) ?? [];
+        if (
+          reasons.includes('rateLimitExceeded') ||
+          reasons.includes('userRateLimitExceeded') ||
+          errorJson?.error?.message?.toLowerCase().includes('rate limit')
+        ) {
+          isRateLimit = true;
+        }
+      }
+    } catch {
+      // Body not JSON
+    }
+
+    if (isRateLimit) {
+      const retryAfterSeconds = parseRetryAfter(response, 60);
+      return {
+        success: false,
+        error: 'Google Drive rate limit exceeded. Backing off.',
+        statusCode: 429,
+        rateLimited: true,
+        retryAfterSeconds,
+      };
+    }
+
     return { success: false, error: 'Access denied or rate limit exceeded.', statusCode: 403 };
   }
   if (status === 404) {
@@ -136,7 +200,7 @@ export class GoogleDriveClient {
 
       // Step 4: Handle non-OK responses
       if (!response.ok) {
-        return normalizeHttpError(response.status, response.statusText);
+        return await normalizeHttpError(response);
       }
 
       // Step 5: Parse the successful response

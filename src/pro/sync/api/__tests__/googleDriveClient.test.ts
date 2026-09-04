@@ -311,10 +311,56 @@ describe('GoogleDriveClient', () => {
 
   // =========================================================================
   // HTTP Error Normalization
-  // =========================================================================
-
   describe('HTTP error normalization', () => {
-    it('normalizes 403 as access denied / rate limit', async () => {
+    it('normalizes 429 with Retry-After header as rate limit', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: {
+          get: (name: string) => (name.toLowerCase() === 'retry-after' ? '45' : null),
+        },
+      });
+
+      const result = await client.findVaultFile();
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.statusCode).toBe(429);
+        expect(result.rateLimited).toBe(true);
+        expect(result.retryAfterSeconds).toBe(45);
+        expect(result.error).toContain('rate limit exceeded');
+      }
+    });
+
+    it('normalizes 403 with userRateLimitExceeded as rate limit', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        headers: {
+          get: () => null,
+        },
+        json: async () => ({
+          error: {
+            errors: [{ reason: 'userRateLimitExceeded' }],
+            message: 'User Rate Limit Exceeded',
+          },
+        }),
+      });
+
+      const result = await client.findVaultFile();
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.statusCode).toBe(429);
+        expect(result.rateLimited).toBe(true);
+        expect(result.retryAfterSeconds).toBe(60);
+        expect(result.error).toContain('rate limit exceeded');
+      }
+    });
+
+    it('normalizes 403 as access denied when not a rate limit', async () => {
       mockFetch.mockResolvedValue({ ok: false, status: 403, statusText: 'Forbidden' });
 
       const result = await client.findVaultFile();
@@ -322,7 +368,8 @@ describe('GoogleDriveClient', () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.statusCode).toBe(403);
-        expect(result.error).toContain('rate limit');
+        expect(result.rateLimited).toBeUndefined();
+        expect(result.error).toContain('Access denied');
       }
     });
 

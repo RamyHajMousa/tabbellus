@@ -187,6 +187,45 @@ describe('SpaceService — Dexie Integration', () => {
     expect(await spaceService.getTabsForSpace(spaceId)).toHaveLength(1);
   });
 
+  it('restoreTab creates physical browser tab if target space is active in an open window', async () => {
+    const spaceId = await seedSpace('Active Open Space');
+    const tabId = (await db.tabs.add({
+      spaceId,
+      url: 'https://physical-restore.com',
+      title: 'Physical Restore',
+      order: 0,
+      deletedAt: Date.now(),
+    })) as number;
+
+    const createTabMock = vi.fn().mockResolvedValue({ id: 777 });
+    const oldChrome = (globalThis as any).chrome;
+    (globalThis as any).chrome = {
+      storage: {
+        session: {
+          get: vi.fn().mockResolvedValue({ activeSpaces: { [spaceId]: 5005 } }),
+        },
+      },
+      tabs: {
+        create: createTabMock,
+      },
+    };
+
+    try {
+      await spaceService.restoreTab(tabId);
+
+      const inDb = await db.tabs.get(tabId);
+      expect(inDb?.deletedAt).toBeUndefined();
+
+      expect(createTabMock).toHaveBeenCalledWith({
+        windowId: 5005,
+        url: 'https://physical-restore.com',
+        active: false,
+      });
+    } finally {
+      (globalThis as any).chrome = oldChrome;
+    }
+  });
+
   it('should defensively revive tombstoned tab on re-add and purge redundant tombstones', async () => {
     const spaceId = await seedSpace('Revival Space');
     await seedTab(spaceId, 'https://existing-active.com', 0);

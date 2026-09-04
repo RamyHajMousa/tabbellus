@@ -1,6 +1,7 @@
 import { db, type Tab, type Space, type SpaceWithTabs, type SavedTabResult } from './db';
 import { tabService } from './tabService';
 import { contractRegistry } from '@/core/contracts/registry';
+import { setWindowRestoring } from '@/background/tabSyncService';
 
 export type SpaceRestoreListener = (spaceId: number, windowId: number) => void;
 
@@ -50,15 +51,42 @@ class SpaceService {
     }
 
     /**
-     * Restores (un-deletes) a tab record.
+     * Restores (un-deletes) a tab record and synchronizes with any active Chrome window.
      */
     async restoreTab(tabOrId: Tab | number): Promise<void> {
         const now = Date.now();
+        let restoredTab: Tab | undefined;
+
         if (typeof tabOrId === 'number') {
-            await db.tabs.update(tabOrId, { deletedAt: undefined, updatedAt: now });
+            const existing = await db.tabs.get(tabOrId);
+            if (existing) {
+                restoredTab = { ...existing, deletedAt: undefined, updatedAt: now };
+                await db.tabs.update(tabOrId, { deletedAt: undefined, updatedAt: now });
+            }
         } else {
-            await db.tabs.put({ ...tabOrId, deletedAt: undefined, updatedAt: now });
+            restoredTab = { ...tabOrId, deletedAt: undefined, updatedAt: now };
+            await db.tabs.put(restoredTab);
         }
+
+        if (restoredTab && restoredTab.spaceId && restoredTab.url) {
+            try {
+                if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+                    const res = await chrome.storage.session.get('activeSpaces');
+                    const activeSpaces: Record<number, number> = res?.activeSpaces || {};
+                    const targetWindowId = activeSpaces[restoredTab.spaceId];
+                    if (targetWindowId !== undefined && chrome.tabs?.create) {
+                        await chrome.tabs.create({
+                            windowId: targetWindowId,
+                            url: restoredTab.url,
+                            active: false,
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn('[SpaceService] Failed to create physical browser tab on restoreTab:', err);
+            }
+        }
+
         contractRegistry.notifyLocalMutation();
     }
 
@@ -435,6 +463,7 @@ class SpaceService {
             });
 
             if (win.id) {
+                await setWindowRestoring(win.id, 3500);
                 this.emitRestore(spaceId, win.id);
 
                 // Configure Side Panel Options Declaratively
@@ -514,6 +543,8 @@ class SpaceService {
             if (tabsToCreate.length === 0) {
                 return { total: tabs.length, appended: 0, skipped };
             }
+
+            await setWindowRestoring(windowId, 3500);
 
             for (let i = 0; i < tabsToCreate.length; i++) {
                 const tab = tabsToCreate[i];
@@ -726,6 +757,25 @@ class SpaceService {
     async restoreTabPosition(tabId: number, spaceId: number, order: number): Promise<void> {
         try {
             await db.tabs.update(tabId, { spaceId, order, deletedAt: undefined, updatedAt: Date.now() });
+            try {
+                if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+                    const res = await chrome.storage.session.get('activeSpaces');
+                    const activeSpaces: Record<number, number> = res?.activeSpaces || {};
+                    const targetWindowId = activeSpaces[spaceId];
+                    if (targetWindowId !== undefined && chrome.tabs?.create) {
+                        const tab = await db.tabs.get(tabId);
+                        if (tab?.url) {
+                            await chrome.tabs.create({
+                                windowId: targetWindowId,
+                                url: tab.url,
+                                active: false,
+                            });
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[SpaceService] Failed to create physical browser tab on restoreTabPosition:', err);
+            }
             contractRegistry.notifyLocalMutation();
         } catch (e) {
             console.error('SpaceService: Failed to restore tab position', e);

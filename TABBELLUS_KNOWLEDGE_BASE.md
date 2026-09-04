@@ -1344,7 +1344,68 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 9.82s.
 
-<!-- Last Updated: 2026-09-03 (Milestone 6: E2EE Synchronization of Tab Rules & Behavioral Settings: 621 Unit Tests Passing across 52 Test Files) -->
+---
+
+## Phase 44: Sync Hardening & Resilience Sprint (P0 Vault Safety, O(N) Reconciliation, Tombstone Compaction, Rate-Limit Cooldown)
+
+*   **P0 Remote Vault Safety Gate (`src/pro/sync/engine/syncEngine.ts`):**
+    *   Eliminated the catastrophic data-loss risk where an existing remote vault on Google Drive could be clobbered if download returned null or failed.
+    *   `SyncEngine.syncNow` tracks `vaultExists`. In Step 3, if `vaultExists` is true and `downloadResult.success === false` or `remoteSnapshot === null`, sync aborts immediately without attempting reconciliation or uploading a new empty snapshot.
+*   **Linear $O(N)$ Tab Reconciliation (`src/pro/sync/engine/diffEngine.ts`):**
+    *   Pre-indexes local tabs by composite key `${tab.spaceId}:::${normalizedUrl}` into `Map<string, Tab[]>`.
+    *   Replaces the inner quadratic nested loop in `reconcileTabs` with $O(1)$ composite bucket lookups, eliminating CPU spikes and UI freezes during large tab synchronization (verified on 500+ tabs in under 5ms).
+*   **30-Day Tombstone Compaction & Storage Vacuum (`src/pro/sync/engine/snapshotSerializer.ts`):**
+    *   Exported `TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000`.
+    *   `createLocalSnapshot` filters out soft-deleted tombstones where `deletedAt < cutoff`, preventing unbounded cloud payload growth.
+    *   **Atomic Vacuum Transaction (Constraint 1):** In `applyRemoteUpdates`, executed IndexedDB tombstone vacuum deletions (`where('deletedAt').below(cutoff).delete()`) inside the existing atomic `db.transaction('rw', [db.spaces, db.tabs, db.readLater], ...)` write block alongside remote upserts.
+*   **Resilient Deep Schema Validation (Constraint 3) (`src/pro/sync/engine/snapshotSerializer.ts`):**
+    *   `validateSnapshot` immediately rejects payloads if `candidate.spaces`, `candidate.tabs`, or `candidate.readLater` are not arrays.
+    *   For individual records inside valid arrays, filters out malformed entities (missing string names on spaces, missing string URLs on tabs/readLater) with `console.warn` rather than throwing or failing the entire snapshot, preventing single corrupted tabs from bricking user sync.
+*   **Rate-Limit Cooldown Lockout (Constraint 2) (`src/pro/sync/api/googleDriveClient.ts` & `src/pro/sync/engine/syncEngine.ts`):**
+    *   `GoogleDriveClient` parses `Retry-After` HTTP headers on 429 and 403 `userRateLimitExceeded` responses, populating `rateLimited: true` and `retryAfterSeconds` (defaulting to 60 seconds).
+    *   `SyncEngine` tracks `rateLimitResetAt`. Auto-sync debounced triggers in `handleLocalMutation` are skipped while `Date.now() < this.rateLimitResetAt`.
+    *   Manual sync invocations via `syncNow` throw a friendly cooldown error when rate-limited.
+*   **Contention UX Polish (`src/pro/sync/components/SyncSettingsCard.tsx`):**
+    *   Refactored manual sync trigger into `performManualSyncAction` and cleanly caught `'Sync already in progress.'` errors, surfacing an informational toast instead of a noisy failure toast.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/api/__tests__/googleDriveClient.test.ts`: Added 429 and 403 rate-limit parsing tests (18 tests).
+    *   `src/pro/sync/engine/__tests__/snapshotSerializer.test.ts`: Added 30-day tombstone compaction, atomic vacuum, and resilient deep validation tests (14 tests).
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added $O(N)$ linear performance test with 500 local and remote tabs (41 tests).
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Added tests for remote vault safety gate, rate-limit cooldown lockout, and corrupt download handling (28 tests).
+    *   `src/pro/sync/components/__tests__/SyncSettingsCard.test.tsx`: Added contention toast handling test (11 tests).
+    *   `src/store/__tests__/appStore.test.ts`: Verified persist merge assertions with `settingsUpdatedAt: 0` (13 tests).
+    *   Full test suite raised to **635/635 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 14.23s.
+
+---
+
+## Phase 45: Window Lifecycle & Sync Bridge Sprint (Eliminate Tab Dropping, Fix Active Restore, Bridge Background Auto-Sync)
+
+*   **Staggered Tab Spawning Protection (`src/background/tabSyncService.ts`):**
+    *   **Per-Window Trailing-Edge Debounce:** Implemented trailing-edge debounce (`SYNC_DEBOUNCE_MS = 350`) for `performSync` calls keyed by `windowId`. Cancels pending timers on rapid tab events and reschedules so `performSync` executes exactly once when the window settles.
+    *   **Window Restoration Lock:**
+        *   Maintains ephemeral restoration registry in `chrome.storage.session` under `restoringWindows: Record<number, number>` (mapping `windowId` to expiry epoch ms).
+        *   Exported `setWindowRestoring(windowId, durationMs = 3000): Promise<void>` and `isWindowRestoring(windowId): Promise<boolean>`.
+        *   **Critical Invariant:** In `performSync(windowId, spaceId)`, if `await isWindowRestoring(windowId)` is true, active window tabs are upserted into Dexie, and the closed tab tombstoning loop is **completely skipped**. Unspawned active Dexie tabs are preserved without premature deletion.
+*   **Active Space Tab Restoration Sync (`src/lib/spaceService.ts`):**
+    *   Updated `restoreTab(tabOrId: Tab | number)`: After un-deleting the database record (`deletedAt: undefined, updatedAt: now`), checks `chrome.storage.session` for `activeSpaces`. If the restored tab's `spaceId` is mapped to an active open Chrome window, invokes `chrome.tabs.create({ windowId, url: tab.url, active: false })` to spawn the physical tab and prevent immediate background re-tombstoning.
+    *   Updated `restoreTabPosition(tabId, spaceId, order)` to also create the physical tab in the active window.
+*   **Window Restoration Registration (`src/lib/spaceService.ts`):**
+    *   In `restoreSpace(spaceId)`: immediately calls `await setWindowRestoring(win.id, 3500)` after `chrome.windows.create`.
+    *   In `appendSpaceTabsToWindow(spaceId, windowId)`: registers `await setWindowRestoring(windowId, 3500)` prior to the staggered tab spawning loop.
+*   **Cross-Process Mutation Event Bridge (`src/background/tabSyncService.ts` & `src/sidepanel/index.tsx`):**
+    *   In `tabSyncService.ts`: Whenever `performSync` commits tab changes to IndexedDB (`tabsToUpsert.length > 0`), dispatches a runtime notification:
+        `chrome.runtime.sendMessage({ type: 'TABBELLUS_LOCAL_MUTATION', source: 'tabSyncService' }).catch(() => {})`.
+    *   In `src/sidepanel/index.tsx`: Bound `chrome.runtime.onMessage` listener in `SidePanel` component to intercept `TABBELLUS_LOCAL_MUTATION` and invoke `contractRegistry.notifyLocalMutation()`, bridging live Chrome tab operations into the sidepanel's 3-second debounced cloud auto-sync timer without violating the Zero-Contamination Boundary.
+*   **Testing & Quality Metrics:**
+    *   `src/background/__tests__/tabSyncService.test.ts`: Added tests for restoration mode tombstone skipping, per-window debouncing, and runtime mutation message dispatch (9 tests).
+    *   `src/lib/__tests__/spaceService.test.ts`: Added test for physical browser tab creation on `restoreTab` in active window (34 tests).
+    *   Full test suite raised to **639/639 passing tests across 52 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 11.10s.
+
+<!-- Last Updated: 2026-09-04 (Phase 45: Window Lifecycle & Sync Bridge Sprint: 639 Unit Tests Passing across 52 Test Files) -->
 
 
 

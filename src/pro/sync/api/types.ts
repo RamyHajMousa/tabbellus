@@ -50,7 +50,14 @@ export interface DriveFileListResponse {
  */
 export type DriveApiResult<T> =
   | { success: true; data: T }
-  | { success: false; error: string; statusCode?: number; authExpired?: boolean };
+  | {
+      success: false;
+      error: string;
+      statusCode?: number;
+      authExpired?: boolean;
+      rateLimited?: boolean;
+      retryAfterSeconds?: number;
+    };
 
 // ---------------------------------------------------------------------------
 // Vault Payload Envelope

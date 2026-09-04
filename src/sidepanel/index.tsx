@@ -120,6 +120,22 @@ const SidePanel = () => {
         };
     }, []);
 
+    // Bridge background tab sync mutations into local mutation bus (debounced cloud auto-sync)
+    React.useEffect(() => {
+        const handleMessage = (message: any) => {
+            if (message?.type === 'TABBELLUS_LOCAL_MUTATION') {
+                contractRegistry.notifyLocalMutation();
+            }
+        };
+
+        if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+            chrome.runtime.onMessage.addListener(handleMessage);
+            return () => {
+                chrome.runtime.onMessage.removeListener(handleMessage);
+            };
+        }
+    }, []);
+
     return (
         <div className="h-screen w-full bg-background text-foreground flex flex-col font-sans overflow-hidden">
             <GlobalHeader />

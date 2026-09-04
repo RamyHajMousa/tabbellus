@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderToString } from 'react-dom/server';
-import { SyncSettingsCard } from '../SyncSettingsCard';
+import { SyncSettingsCard, performManualSyncAction } from '../SyncSettingsCard';
 import { ToastProvider } from '@/components/ui/Toaster';
 import { contractRegistry } from '@/core/contracts/registry';
 import type { SyncProvider } from '@/core/contracts/sync';
@@ -273,6 +273,63 @@ describe('SyncSettingsCard Component', () => {
     expect(html).toContain('Standard Sync');
     expect(html).toContain('Enable E2EE');
     expect(html).toContain('appDataFolder');
+  });
+
+  describe('performManualSyncAction', () => {
+    it('handles concurrent sync contention without rendering error toast', async () => {
+      const mockSyncFn = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Sync already in progress.',
+      });
+      const mockToastFn = vi.fn();
+
+      await performManualSyncAction(mockSyncFn, mockToastFn, 'idle');
+
+      expect(mockSyncFn).toHaveBeenCalledOnce();
+      expect(mockToastFn).toHaveBeenCalledWith('Sync in progress', {
+        description: 'Synchronization is already running in the background.',
+      });
+    });
+
+    it('renders success toast when sync completes successfully', async () => {
+      const mockSyncFn = vi.fn().mockResolvedValue({
+        success: true,
+      });
+      const mockToastFn = vi.fn();
+
+      await performManualSyncAction(mockSyncFn, mockToastFn, 'idle');
+
+      expect(mockSyncFn).toHaveBeenCalledOnce();
+      expect(mockToastFn).toHaveBeenCalledWith('Sync completed', {
+        description: 'All workspaces and tabs are up to date.',
+      });
+    });
+
+    it('renders error toast when sync genuinely fails', async () => {
+      const mockSyncFn = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Network connection failed.',
+      });
+      const mockToastFn = vi.fn();
+
+      await performManualSyncAction(mockSyncFn, mockToastFn, 'idle');
+
+      expect(mockSyncFn).toHaveBeenCalledOnce();
+      expect(mockToastFn).toHaveBeenCalledWith('Sync failed', {
+        description: 'Network connection failed.',
+      });
+    });
+
+    it('skips execution when state is syncing or locked', async () => {
+      const mockSyncFn = vi.fn();
+      const mockToastFn = vi.fn();
+
+      await performManualSyncAction(mockSyncFn, mockToastFn, 'syncing');
+      await performManualSyncAction(mockSyncFn, mockToastFn, 'locked');
+
+      expect(mockSyncFn).not.toHaveBeenCalled();
+      expect(mockToastFn).not.toHaveBeenCalled();
+    });
   });
 });
 

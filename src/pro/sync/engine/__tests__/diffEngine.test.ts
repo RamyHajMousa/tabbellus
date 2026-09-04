@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { DiffEngine, normalizeTabUrl, toEpochMs } from '../diffEngine';
 import type { SyncVaultSnapshot } from '../types';
+import type { Tab } from '@/lib/db';
 
 describe('DiffEngine', () => {
   const localDeviceId = 'local-device-001';
@@ -1401,6 +1402,59 @@ describe('DiffEngine', () => {
       expect(result.localUpdates.settings).toBeUndefined();
       expect(result.mergedSnapshot.settings).toEqual(local.settings);
       expect(result.hasRemoteChanges).toBe(true); // Remote needs to receive the settings
+    });
+
+    it('reconciles large tab sets with O(N) linear map indexing without performance regressions', () => {
+      const spaceUuid = 'test-perf-space-uuid';
+      const localTabs: Tab[] = [];
+      const remoteTabs: Tab[] = [];
+
+      for (let i = 0; i < 500; i++) {
+        localTabs.push({
+          id: i + 1,
+          spaceId: 1,
+          url: `https://example.com/page-${i}`,
+          title: `Local Page ${i}`,
+          order: i,
+          createdAt: 1000,
+          updatedAt: 1000,
+        });
+        remoteTabs.push({
+          spaceId: 100,
+          url: `https://example.com/page-${i}`,
+          title: `Remote Page ${i}`,
+          order: i,
+          createdAt: 1000,
+          updatedAt: 2000,
+        });
+      }
+
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, uuid: spaceUuid, name: 'Perf Space', createdAt: 1000 }],
+        tabs: localTabs,
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 100, uuid: spaceUuid, name: 'Perf Space', createdAt: 1000 }],
+        tabs: remoteTabs,
+        readLater: [],
+      };
+
+      const start = performance.now();
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+      const elapsed = performance.now() - start;
+
+      expect(result.mergedSnapshot.tabs).toHaveLength(500);
+      expect(result.localUpdates.tabs).toHaveLength(500);
+      expect(result.localUpdates.tabs[0].title).toBe('Remote Page 0');
+      expect(elapsed).toBeLessThan(500);
     });
   });
 });

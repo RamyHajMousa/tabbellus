@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { db } from '@/lib/db';
-import { SnapshotSerializer } from '../snapshotSerializer';
+import { SnapshotSerializer, TOMBSTONE_TTL_MS } from '../snapshotSerializer';
 import type { SyncVaultSnapshot } from '../types';
 import { useAppStore } from '@/store/appStore';
 import { contractRegistry } from '@/core/contracts/registry';
@@ -57,16 +57,53 @@ describe('SnapshotSerializer', () => {
     });
 
     it('includes soft-deleted spaces in snapshot for tombstone sync', async () => {
+      const recentTombstone = Date.now() - 5000;
       await db.spaces.add({
         name: 'Deleted Space',
         createdAt: 1700000000000,
-        deletedAt: 1700000100000,
+        deletedAt: recentTombstone,
       });
 
       const snapshot = await SnapshotSerializer.createLocalSnapshot('device-1');
 
       expect(snapshot.spaces).toHaveLength(1);
-      expect(snapshot.spaces[0].deletedAt).toBe(1700000100000);
+      expect(snapshot.spaces[0].deletedAt).toBe(recentTombstone);
+    });
+
+    it('filters out tombstones older than 30 days during createLocalSnapshot', async () => {
+      const now = Date.now();
+      const expiredTombstone = now - TOMBSTONE_TTL_MS - 60000;
+      const recentTombstone = now - 5000;
+
+      await db.spaces.add({
+        name: 'Expired Deleted Space',
+        createdAt: now - TOMBSTONE_TTL_MS - 100000,
+        deletedAt: expiredTombstone,
+      });
+      await db.spaces.add({
+        name: 'Recent Deleted Space',
+        createdAt: now - 10000,
+        deletedAt: recentTombstone,
+      });
+      await db.tabs.add({
+        spaceId: 1,
+        url: 'https://expired.com',
+        order: 0,
+        deletedAt: expiredTombstone,
+      });
+      await db.readLater.add({
+        url: 'https://expired-readlater.com',
+        addedAt: now - TOMBSTONE_TTL_MS - 100000,
+        status: 'archived',
+        deletedAt: expiredTombstone,
+      });
+
+      const snapshot = await SnapshotSerializer.createLocalSnapshot('device-1');
+
+      expect(snapshot.spaces.some((s) => s.name === 'Expired Deleted Space')).toBe(false);
+      expect(snapshot.spaces.some((s) => s.name === 'Recent Deleted Space')).toBe(true);
+      expect(snapshot.tabs.some((t) => t.url === 'https://expired.com')).toBe(false);
+      expect(snapshot.readLater.some((r) => r.url === 'https://expired-readlater.com')).toBe(false);
     });
   });
 
@@ -149,6 +186,46 @@ describe('SnapshotSerializer', () => {
       expect(remainingTab1).toBeUndefined();
       expect(remainingTab2).toBeDefined();
     });
+
+    it('vacuums expired tombstones from IndexedDB during applyRemoteUpdates', async () => {
+      const now = Date.now();
+      const expiredTombstone = now - TOMBSTONE_TTL_MS - 60000;
+      const recentTombstone = now - 5000;
+
+      const expiredSpaceId = await db.spaces.add({
+        name: 'Old Deleted Space',
+        createdAt: now - TOMBSTONE_TTL_MS - 100000,
+        deletedAt: expiredTombstone,
+      });
+      const recentSpaceId = await db.spaces.add({
+        name: 'Recent Deleted Space',
+        createdAt: now - 10000,
+        deletedAt: recentTombstone,
+      });
+      const expiredTabId = await db.tabs.add({
+        spaceId: 1,
+        url: 'https://old-tab.com',
+        order: 0,
+        deletedAt: expiredTombstone,
+      });
+      const expiredReadLaterId = await db.readLater.add({
+        url: 'https://old-readlater.com',
+        addedAt: now - TOMBSTONE_TTL_MS - 100000,
+        status: 'archived',
+        deletedAt: expiredTombstone,
+      });
+
+      await SnapshotSerializer.applyRemoteUpdates({
+        spaces: [],
+        tabs: [],
+        readLater: [],
+      });
+
+      expect(await db.spaces.get(Number(expiredSpaceId))).toBeUndefined();
+      expect(await db.spaces.get(Number(recentSpaceId))).toBeDefined();
+      expect(await db.tabs.get(Number(expiredTabId))).toBeUndefined();
+      expect(await db.readLater.get(Number(expiredReadLaterId))).toBeUndefined();
+    });
   });
 
   describe('validateSnapshot', () => {
@@ -184,6 +261,72 @@ describe('SnapshotSerializer', () => {
       };
 
       expect(SnapshotSerializer.validateSnapshot(valid)).toBe(true);
+    });
+
+    it('filters malformed entities in-place rather than failing entire snapshot', () => {
+      const candidate: any = {
+        version: 1,
+        clientTimestamp: Date.now(),
+        deviceId: 'dev-1',
+        spaces: [
+          { id: 1, name: 'Valid Space', createdAt: Date.now() },
+          { id: 2, name: '', createdAt: Date.now() }, // Malformed: empty name
+          { id: 3, createdAt: Date.now() }, // Malformed: missing name
+        ],
+        tabs: [
+          { id: 1, spaceId: 1, url: 'https://valid.com' },
+          { id: 2, spaceId: 1, url: '' }, // Malformed: empty url
+          { id: 3, spaceId: 1 }, // Malformed: missing url
+          { id: 4, url: 'https://notab.com' }, // Malformed: missing spaceId
+        ],
+        readLater: [
+          { id: 1, url: 'https://valid-readlater.com' },
+          { id: 2, url: '' }, // Malformed
+        ],
+      };
+
+      expect(SnapshotSerializer.validateSnapshot(candidate)).toBe(true);
+      expect(candidate.spaces).toHaveLength(1);
+      expect(candidate.spaces[0].name).toBe('Valid Space');
+      expect(candidate.tabs).toHaveLength(1);
+      expect(candidate.tabs[0].url).toBe('https://valid.com');
+      expect(candidate.readLater).toHaveLength(1);
+      expect(candidate.readLater[0].url).toBe('https://valid-readlater.com');
+    });
+
+    it('rejects snapshots when spaces, tabs, or readLater are not arrays', () => {
+      expect(
+        SnapshotSerializer.validateSnapshot({
+          version: 1,
+          clientTimestamp: Date.now(),
+          deviceId: 'dev-1',
+          spaces: 'not-an-array',
+          tabs: [],
+          readLater: [],
+        }),
+      ).toBe(false);
+
+      expect(
+        SnapshotSerializer.validateSnapshot({
+          version: 1,
+          clientTimestamp: Date.now(),
+          deviceId: 'dev-1',
+          spaces: [],
+          tabs: null,
+          readLater: [],
+        }),
+      ).toBe(false);
+
+      expect(
+        SnapshotSerializer.validateSnapshot({
+          version: 1,
+          clientTimestamp: Date.now(),
+          deviceId: 'dev-1',
+          spaces: [],
+          tabs: [],
+          readLater: {},
+        }),
+      ).toBe(false);
     });
 
     it('rejects snapshots with malformed rules or settings', () => {

@@ -59,6 +59,7 @@ export class SyncEngine implements SyncProvider {
   private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly AUTO_SYNC_DEBOUNCE_MS = 3000;
   private mutationUnsubscribe: (() => void) | null = null;
+  private rateLimitResetAt = 0;
 
   constructor() {
     this.initFromStorage();
@@ -535,6 +536,11 @@ export class SyncEngine implements SyncProvider {
       return;
     }
 
+    if (Date.now() < this.rateLimitResetAt) {
+      console.debug('[SyncEngine] Skipping debounced auto-sync: rate limit cooldown active');
+      return;
+    }
+
     if (this.autoSyncTimer) {
       clearTimeout(this.autoSyncTimer);
       this.autoSyncTimer = null;
@@ -542,6 +548,9 @@ export class SyncEngine implements SyncProvider {
 
     this.autoSyncTimer = setTimeout(async () => {
       this.autoSyncTimer = null;
+      if (Date.now() < this.rateLimitResetAt) {
+        return;
+      }
       try {
         await this.syncNow({ silent: true });
       } catch (err) {
@@ -554,6 +563,15 @@ export class SyncEngine implements SyncProvider {
    * Executes a full synchronization cycle.
    */
   async syncNow(options?: SyncOptions): Promise<SyncResult> {
+    if (Date.now() < this.rateLimitResetAt) {
+      const waitSeconds = Math.ceil((this.rateLimitResetAt - Date.now()) / 1000);
+      return {
+        success: false,
+        error: `Google Drive rate limit cooldown active (${waitSeconds}s remaining).`,
+        timestamp: Date.now(),
+      };
+    }
+
     return this.withSyncLock(
       'syncNow',
       async () => this.executeSync(options),
@@ -622,15 +640,27 @@ export class SyncEngine implements SyncProvider {
       // Step 2: Query for existing vault file in appDataFolder
       const findResult = await googleDriveClient.findVaultFile(VAULT_FILE_NAME);
       if (!findResult.success) {
-        const state = findResult.authExpired ? 'error' : 'offline';
-        this.updateStatus({
-          state,
-          telemetry: {
-            ...this.status.telemetry,
-            lastError: findResult.error,
-          },
-        });
-        await this.saveStorageState({ lastError: findResult.error });
+        if (findResult.rateLimited) {
+          this.rateLimitResetAt = Date.now() + (findResult.retryAfterSeconds ?? 60) * 1000;
+          this.updateStatus({
+            state: 'error',
+            telemetry: {
+              ...this.status.telemetry,
+              lastError: 'Google Drive rate limit exceeded. Backing off.',
+            },
+          });
+          await this.saveStorageState({ lastError: 'Google Drive rate limit exceeded. Backing off.' });
+        } else {
+          const state = findResult.authExpired ? 'error' : 'offline';
+          this.updateStatus({
+            state,
+            telemetry: {
+              ...this.status.telemetry,
+              lastError: findResult.error,
+            },
+          });
+          await this.saveStorageState({ lastError: findResult.error });
+        }
         return {
           success: false,
           error: findResult.error,
@@ -640,131 +670,194 @@ export class SyncEngine implements SyncProvider {
 
       let remoteSnapshot: SyncVaultSnapshot | null = null;
       let vaultFileId: string | undefined = undefined;
+      const vaultExists = findResult.data.files.length > 0;
 
       // Step 3: Download and decrypt remote snapshot if it exists
-      if (findResult.data.files.length > 0) {
+      if (vaultExists) {
         const file = findResult.data.files[0];
         vaultFileId = file.id;
 
         if (!options?.forceUnencrypted) {
           const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
-          if (downloadResult.success) {
-            const raw = downloadResult.data as unknown as Record<string, unknown> | null;
+          if (!downloadResult.success) {
+            console.error(
+              '[SyncEngine] Remote vault exists but download failed. Aborting sync cycle to prevent remote clobbering:',
+              downloadResult.error,
+            );
 
-            let potentialPayload: VaultPayload | null = null;
-            if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
-              potentialPayload = raw as unknown as VaultPayload;
-            } else if (SnapshotSerializer.validateSnapshot(raw)) {
-              remoteSnapshot = raw as unknown as SyncVaultSnapshot;
+            if (downloadResult.rateLimited) {
+              this.rateLimitResetAt = Date.now() + (downloadResult.retryAfterSeconds ?? 60) * 1000;
+              this.updateStatus({
+                state: 'error',
+                telemetry: {
+                  ...this.status.telemetry,
+                  lastError: 'Google Drive rate limit exceeded. Backing off.',
+                },
+              });
+              await this.saveStorageState({ lastError: 'Google Drive rate limit exceeded. Backing off.' });
+            } else if (downloadResult.authExpired) {
+              this.updateStatus({
+                state: 'error',
+                isConnected: false,
+                telemetry: {
+                  ...this.status.telemetry,
+                  lastError: downloadResult.error,
+                },
+              });
+              await this.saveStorageState({ lastError: downloadResult.error });
+            } else {
+              this.updateStatus({
+                state: 'offline',
+                telemetry: {
+                  ...this.status.telemetry,
+                  lastError: downloadResult.error,
+                },
+              });
+              await this.saveStorageState({ lastError: downloadResult.error });
             }
 
-            if (potentialPayload) {
-              const isRemoteEncrypted = Boolean(
-                potentialPayload.isEncrypted ||
-                (potentialPayload.iv && potentialPayload.salt)
-              );
+            return {
+              success: false,
+              error: downloadResult.error ?? 'FAILED_REMOTE_DOWNLOAD',
+              timestamp: Date.now(),
+            };
+          }
 
-              if (isRemoteEncrypted) {
-                const salt = potentialPayload.salt;
-                await this.saveStorageState({
-                  isEncrypted: true,
-                  ...(salt ? { vaultSalt: salt } : {}),
+          const raw = downloadResult.data as unknown as Record<string, unknown> | null;
+
+          let potentialPayload: VaultPayload | null = null;
+          if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
+            potentialPayload = raw as unknown as VaultPayload;
+          } else if (SnapshotSerializer.validateSnapshot(raw)) {
+            remoteSnapshot = raw as unknown as SyncVaultSnapshot;
+          }
+
+          if (potentialPayload) {
+            const isRemoteEncrypted = Boolean(
+              potentialPayload.isEncrypted ||
+              (potentialPayload.iv && potentialPayload.salt)
+            );
+
+            if (isRemoteEncrypted) {
+              const salt = potentialPayload.salt;
+              await this.saveStorageState({
+                isEncrypted: true,
+                ...(salt ? { vaultSalt: salt } : {}),
+              });
+
+              const isUnlocked = await sessionKeyStore.isUnlocked();
+              if (!isUnlocked) {
+                this.updateStatus({
+                  state: 'locked',
+                  isConnected: true,
+                  telemetry: {
+                    ...this.status.telemetry,
+                    encrypted: true,
+                  },
                 });
+                return {
+                  success: false,
+                  error: 'Vault is locked. Passphrase required.',
+                  timestamp: Date.now(),
+                };
+              }
 
-                const isUnlocked = await sessionKeyStore.isUnlocked();
-                if (!isUnlocked) {
-                  this.updateStatus({
-                    state: 'locked',
-                    isConnected: true,
-                    telemetry: {
-                      ...this.status.telemetry,
-                      encrypted: true,
-                    },
-                  });
-                  return {
-                    success: false,
-                    error: 'Vault is locked. Passphrase required.',
-                    timestamp: Date.now(),
-                  };
+              const session = await sessionKeyStore.loadSession();
+              if (!session) {
+                this.updateStatus({
+                  state: 'locked',
+                  isConnected: true,
+                  telemetry: {
+                    ...this.status.telemetry,
+                    encrypted: true,
+                  },
+                });
+                return {
+                  success: false,
+                  error: 'Vault is locked. Passphrase required.',
+                  timestamp: Date.now(),
+                };
+              }
+
+              try {
+                const decryptedStr = await WebCryptoEngine.decryptPayload(
+                  {
+                    version: 1,
+                    salt: potentialPayload.salt ?? session.salt,
+                    iv: potentialPayload.iv!,
+                    ciphertext: potentialPayload.payload,
+                    iterations: 600_000,
+                  },
+                  session.key
+                );
+                const parsed = JSON.parse(decryptedStr);
+                if (SnapshotSerializer.validateSnapshot(parsed)) {
+                  remoteSnapshot = parsed;
                 }
-
-                const session = await sessionKeyStore.loadSession();
-                if (!session) {
-                  this.updateStatus({
-                    state: 'locked',
-                    isConnected: true,
-                    telemetry: {
-                      ...this.status.telemetry,
-                      encrypted: true,
-                    },
-                  });
-                  return {
-                    success: false,
-                    error: 'Vault is locked. Passphrase required.',
-                    timestamp: Date.now(),
-                  };
-                }
-
-                try {
-                  const decryptedStr = await WebCryptoEngine.decryptPayload(
-                    {
-                      version: 1,
-                      salt: potentialPayload.salt ?? session.salt,
-                      iv: potentialPayload.iv!,
-                      ciphertext: potentialPayload.payload,
-                      iterations: 600_000,
-                    },
-                    session.key
-                  );
-                  const parsed = JSON.parse(decryptedStr);
-                  if (SnapshotSerializer.validateSnapshot(parsed)) {
-                    remoteSnapshot = parsed;
-                  }
-                } catch (err: unknown) {
-                  if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
-                    this.updateStatus({
-                      state: 'error',
-                      telemetry: {
-                        ...this.status.telemetry,
-                        encrypted: true,
-                        lastError: 'INVALID_PASSPHRASE',
-                      },
-                    });
-                    await this.saveStorageState({ lastError: 'INVALID_PASSPHRASE' });
-                    return {
-                      success: false,
-                      error: 'INVALID_PASSPHRASE',
-                      timestamp: Date.now(),
-                    };
-                  }
-                  const msg = err instanceof Error ? err.message : 'Decryption failed';
+              } catch (err: unknown) {
+                if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
                   this.updateStatus({
                     state: 'error',
                     telemetry: {
                       ...this.status.telemetry,
                       encrypted: true,
-                      lastError: msg,
+                      lastError: 'INVALID_PASSPHRASE',
                     },
                   });
-                  await this.saveStorageState({ lastError: msg });
+                  await this.saveStorageState({ lastError: 'INVALID_PASSPHRASE' });
                   return {
                     success: false,
-                    error: msg,
+                    error: 'INVALID_PASSPHRASE',
                     timestamp: Date.now(),
                   };
                 }
-              } else {
-                // Legacy unencrypted payload
-                try {
-                  const parsed = JSON.parse(potentialPayload.payload);
-                  if (SnapshotSerializer.validateSnapshot(parsed)) {
-                    remoteSnapshot = parsed;
-                  }
-                } catch {
-                  // Ignore corrupt payload
+                const msg = err instanceof Error ? err.message : 'Decryption failed';
+                this.updateStatus({
+                  state: 'error',
+                  telemetry: {
+                    ...this.status.telemetry,
+                    encrypted: true,
+                    lastError: msg,
+                  },
+                });
+                await this.saveStorageState({ lastError: msg });
+                return {
+                  success: false,
+                  error: msg,
+                  timestamp: Date.now(),
+                };
+              }
+            } else {
+              // Legacy unencrypted payload
+              try {
+                const parsed = JSON.parse(potentialPayload.payload);
+                if (SnapshotSerializer.validateSnapshot(parsed)) {
+                  remoteSnapshot = parsed;
                 }
+              } catch {
+                // Ignore corrupt payload
               }
             }
+          }
+
+          // Safety gate: If a remote vault exists on Google Drive but could not be parsed into a valid remoteSnapshot,
+          // abort sync cycle to prevent treating as initial upload and clobbering the remote vault.
+          if (!remoteSnapshot) {
+            const errorMsg = 'Remote vault payload is corrupt or invalid.';
+            console.error('[SyncEngine]', errorMsg, 'Aborting sync to prevent remote clobbering.');
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: errorMsg,
+              },
+            });
+            await this.saveStorageState({ lastError: errorMsg });
+            return {
+              success: false,
+              error: errorMsg,
+              timestamp: Date.now(),
+            };
           }
         }
       }
@@ -845,15 +938,27 @@ export class SyncEngine implements SyncProvider {
         );
 
         if (!uploadResult.success) {
-          const state = uploadResult.authExpired ? 'error' : 'offline';
-          this.updateStatus({
-            state,
-            telemetry: {
-              ...this.status.telemetry,
-              lastError: uploadResult.error,
-            },
-          });
-          await this.saveStorageState({ lastError: uploadResult.error });
+          if (uploadResult.rateLimited) {
+            this.rateLimitResetAt = Date.now() + (uploadResult.retryAfterSeconds ?? 60) * 1000;
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: 'Google Drive rate limit exceeded. Backing off.',
+              },
+            });
+            await this.saveStorageState({ lastError: 'Google Drive rate limit exceeded. Backing off.' });
+          } else {
+            const state = uploadResult.authExpired ? 'error' : 'offline';
+            this.updateStatus({
+              state,
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: uploadResult.error,
+              },
+            });
+            await this.saveStorageState({ lastError: uploadResult.error });
+          }
           return {
             success: false,
             error: uploadResult.error,

@@ -151,6 +151,7 @@ describe('useAppStore Settings Slice', () => {
             autoDiscardInterval: 0,
             spaceRestoreTrigger: 'single',
             duplicateTabBehavior: 'focus-existing',
+            settingsUpdatedAt: 0,
         });
         expect(merged.theme).toBe('dark');
         expect(merged.showDomain).toBe(true);
@@ -190,6 +191,7 @@ describe('useAppStore Settings Slice', () => {
             autoDiscardInterval: 120,
             spaceRestoreTrigger: 'double',
             duplicateTabBehavior: 'allow',
+            settingsUpdatedAt: 0,
         });
         expect(merged.theme).toBe('light');
         expect(merged.showDomain).toBe(false);
