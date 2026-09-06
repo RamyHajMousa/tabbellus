@@ -2,6 +2,25 @@ import type React from 'react';
 
 export type SearchItemType = 'tab' | 'space' | 'saved-tab' | 'read-later' | 'bookmark';
 
+export type FilterOperatorKey = 'domain' | 'site' | 'in' | 'is' | 'age' | 'before' | 'after';
+
+export interface SearchFilterDirective {
+    key: FilterOperatorKey;
+    value: string;
+    negated: boolean;
+    rawToken: string;
+}
+
+export interface ParsedSearchQuery {
+    rawText: string;
+    terms: string[];
+    filters: SearchFilterDirective[];
+    trailingOperator?: {
+        key: FilterOperatorKey;
+        partialValue: string;
+    };
+}
+
 export interface TabSearchResult {
     type: 'tab';
     id: number;
@@ -10,6 +29,11 @@ export interface TabSearchResult {
     favIconUrl?: string;
     windowId: number;
     isCurrentWindow: boolean;
+    audible?: boolean;
+    muted?: boolean;
+    discarded?: boolean;
+    pinned?: boolean;
+    createdAt?: number;
 }
 
 export interface SpaceSearchResult {
@@ -19,6 +43,7 @@ export interface SpaceSearchResult {
     color?: string;
     tabCount: number;
     isPinned?: boolean;
+    createdAt?: number;
 }
 
 export interface SavedTabSearchResult {
@@ -30,6 +55,7 @@ export interface SavedTabSearchResult {
     title?: string;
     url: string;
     favicon?: string;
+    createdAt?: number;
 }
 
 export interface ReadLaterSearchResult {
@@ -46,6 +72,7 @@ export interface BookmarkSearchResult {
     id: string;
     title: string;
     url: string;
+    dateAdded?: number;
 }
 
 export type SearchResultItem =

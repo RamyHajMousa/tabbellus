@@ -1457,7 +1457,7 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 10.82s.
 
-### Phase 48: Window Closure Sync Teardown & Alarm Cleanup (Current)
+### Phase 48: Window Closure Sync Teardown & Alarm Cleanup
 *   **Background Tab Sync Debounce Cancellation (`src/background/tabSyncService.ts`):**
     *   Exported `cancelPendingSync(windowId: number)`: Checks `pendingSyncs.get(windowId)`. If a pending debounce timer exists, clears `clearTimeout(pending.timer)` and purges the record with `pendingSyncs.delete(windowId)`.
     *   Prevents trailing-edge debounce timers (350ms) from executing queries on closed windows.
@@ -1471,7 +1471,57 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 9.95s.
 
-<!-- Last Updated: 2026-09-04 (Phase 48: Window Closure Sync Teardown & Alarm Cleanup: 645 Unit Tests Passing across 52 Test Files) -->
+---
+
+## Phase 49: Advanced Search Query Lexer & Filter Engine (Milestone 5 Part 1) (Current)
+
+*   **Search Query AST & Discriminative Directives (`src/features/search/types.ts`):**
+    *   Defined `FilterOperatorKey = 'domain' | 'site' | 'in' | 'is' | 'age' | 'before' | 'after'`.
+    *   Created `SearchFilterDirective` (`key`, `value`, `negated`, `rawToken`) and `ParsedSearchQuery` (`rawText`, `terms`, `filters`, `trailingOperator`).
+    *   Extended search candidate interfaces (`TabSearchResult`, `SpaceSearchResult`, `SavedTabSearchResult`, `BookmarkSearchResult`) with candidate attributes (`audible`, `muted`, `discarded`, `pinned`, `createdAt`, `dateAdded`) for predicate evaluation.
+*   **Deterministic Single-Pass Lexer & Scanner (`src/features/search/utils/queryParser.ts`):**
+    *   Stateless single-pass character scanner free of catastrophic regex backtracking.
+    *   Gracefully recovers unclosed quotes during active typing (`in:"Proj` $\rightarrow$ `key: 'in', value: 'Proj'`).
+    *   Captures leading negation dashes in `rawToken` (`-domain:youtube.com` $\rightarrow$ `negated: true, rawToken: '-domain:youtube.com'`).
+    *   Extracts `trailingOperator` for autocomplete suggestions when cursor is actively typing on an operator token without trailing whitespace.
+*   **Predicate Filter Evaluator with Assertive Capability Matrix (`src/features/search/utils/filterEvaluator.ts`):**
+    *   Evaluates `domain:`/`site:` matching against extracted hostnames via `tryParseHost` with automatic `www.` normalization.
+    *   **Assertive Domain Capability Enforcement (Positive Assertions):**
+        *   `is:unread` | `is:archived`: Strictly evaluates against `ReadLaterItem` (`candidate.status === directive.value`). Returns `false` for open tabs, bookmarks, and spaces.
+        *   `is:audible` | `is:muted` | `is:discarded` | `is:suspended` | `is:locked`: Strictly evaluates against open `TabSearchResult`. Returns `false` for bookmarks, spaces, and read later items.
+        *   `is:pinned`: Returns `true` only for pinned `TabSearchResult` (`candidate.pinned === true`) or pinned `SpaceSearchResult` (`candidate.isPinned === true`). Returns `false` for all other entity types.
+        *   `in:active`: Returns `true` ONLY for open `TabSearchResult`.
+        *   `in:readlater`: Returns `true` ONLY for `ReadLaterItem`.
+        *   `in:spaces`: Returns `true` ONLY for `SpaceSearchResult` and `SavedTabSearchResult`.
+        *   `in:bookmarks`: Returns `true` ONLY for `BookmarkSearchResult`.
+        *   `in:<space_name>`: Returns `true` ONLY for `SavedTabSearchResult` matching parent space or `SpaceSearchResult` matching space name.
+        *   `age:`, `before:`, `after:`: Requires valid numeric timestamps (`createdAt`, `addedAt`, `dateAdded`). Open tabs lacking timestamps strictly return `false`.
+    *   **Inverted Negation Evaluation:**
+        *   Negated directives (`negated === true`) invert the evaluation: entities lacking the capability or property pass negation (`true`). Example: `-is:audible` allows bookmarks and spaces to pass (`true`), while audible open tabs return `false`.
+*   **Per-Category Candidate Clamping Budget (`src/features/search/hooks/useOmniSearchData.ts`):**
+    *   Aggregates live tab states (`audible`, `mutedInfo`, `discarded`, `pinned`, `lastAccessed`) and space creation timestamps. Integrates `useTabLockStore` for `lockedTabIds`.
+    *   Pre-filters collections with `filterEvaluator` before applying tokenized text relevance scoring.
+    *   **Anti-Flooding Clamping Budget:** Clamps post-filter and zero-state results per category:
+        *   Open Tabs: max 15 items
+        *   Saved Spaces: max 8 items
+        *   Space Tabs: max 15 items
+        *   Read Later: max 15 items
+        *   Bookmarks: max 15 items
+    *   Eliminates input handler latency violations and DOM thrashing in `cmdk` when querying large collections.
+*   **Filter Chip Tray UI Component (`src/features/search/components/FilterChipTray.tsx`):**
+    *   High-density filter chip tray mounted beneath `<CommandInput>` in `OmniSearch.tsx`.
+    *   Styled with `border-border bg-card` (or `border-destructive/30 text-destructive` for negated directives) adhering to `DESIGN.md`.
+    *   Dismissal button configured with `tabIndex={-1}` to prevent `cmdk` keyboard focus trapping.
+*   **Testing & Quality Metrics:**
+    *   `src/features/search/utils/__tests__/queryParser.test.ts`: Added 16 tests covering tokenization, quoted values, unclosed quotes, negation, case insensitivity, and trailing operators.
+    *   `src/features/search/utils/__tests__/filterEvaluator.test.ts`: Added 21 tests covering domain matching, affirmative capability discrimination, scope restrictions, temporal inequalities, negation inversion, and fail-open edge cases.
+    *   `src/features/search/components/__tests__/FilterChipTray.test.tsx`: Added 3 tests verifying rendering, `tabIndex={-1}`, and negation styling.
+    *   Full test suite raised to **685/685 passing tests across 55 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   `npm run build`: Production build succeeded in 14.09s.
+
+<!-- Last Updated: 2026-09-06 (Phase 49: Advanced Search Query Lexer & Filter Engine: 685 Unit Tests Passing across 55 Test Files) -->
+
 
 
 

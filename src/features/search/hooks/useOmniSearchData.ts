@@ -1,13 +1,17 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { spaceService, readLaterService, bookmarkService } from '@/lib';
+import { useTabLockStore } from '@/features/tabs/store/tabLockStore';
 import type {
     TabSearchResult,
     SpaceSearchResult,
     SavedTabSearchResult,
     ReadLaterSearchResult,
     BookmarkSearchResult,
+    ParsedSearchQuery,
 } from '../types';
 import { flattenBookmarks, fuzzyMatchTokens } from '../utils/searchUtils';
+import { parseSearchQuery } from '../utils/queryParser';
+import { evaluateCandidateFilters } from '../utils/filterEvaluator';
 
 export interface OmniSearchDataState {
     activeTabs: TabSearchResult[];
@@ -25,6 +29,7 @@ export interface UseOmniSearchDataResult extends OmniSearchDataState {
     filteredReadLater: ReadLaterSearchResult[];
     filteredBookmarks: BookmarkSearchResult[];
     totalResultsCount: number;
+    parsedQuery: ParsedSearchQuery;
     refetch: () => Promise<void>;
 }
 
@@ -70,6 +75,11 @@ export function useOmniSearchData(isOpen: boolean, query: string): UseOmniSearch
                             favIconUrl: t.favIconUrl,
                             windowId: t.windowId || 0,
                             isCurrentWindow: Boolean(currentWindowId && t.windowId === currentWindowId),
+                            audible: Boolean(t.audible),
+                            muted: Boolean(t.mutedInfo?.muted),
+                            discarded: Boolean(t.discarded),
+                            pinned: Boolean(t.pinned),
+                            createdAt: (t as { lastAccessed?: number }).lastAccessed,
                         }));
                 } catch (err) {
                     console.warn('[useOmniSearchData] Failed to query chrome tabs:', err);
@@ -92,6 +102,7 @@ export function useOmniSearchData(isOpen: boolean, query: string): UseOmniSearch
                                 color: s.color,
                                 tabCount: tabs.length,
                                 isPinned: s.isPinned,
+                                createdAt: s.createdAt,
                             };
                         })
                 );
@@ -165,46 +176,96 @@ export function useOmniSearchData(isOpen: boolean, query: string): UseOmniSearch
         }
     }, [isOpen]);
 
-    // Tokenized fuzzy filtering across all entities
-    const tokens = useMemo(() => {
-        return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    }, [query]);
+    const lockedTabIds = useTabLockStore((state) => state.lockedTabIds);
+    const filterContext = useMemo(() => ({ lockedTabIds }), [lockedTabIds]);
+
+    const parsedQuery = useMemo(() => parseSearchQuery(query), [query]);
 
     const filteredActiveTabs = useMemo(() => {
-        if (tokens.length === 0) return state.activeTabs.slice(0, 15);
-        return state.activeTabs.filter((tab) =>
-            fuzzyMatchTokens(`${tab.title} ${tab.url}`, tokens)
-        );
-    }, [state.activeTabs, tokens]);
+        const hasFilters = parsedQuery.filters.length > 0;
+        const hasTerms = parsedQuery.terms.length > 0;
+
+        if (!hasFilters && !hasTerms) {
+            return state.activeTabs.slice(0, 15);
+        }
+
+        return state.activeTabs
+            .filter((tab) => evaluateCandidateFilters(tab, parsedQuery.filters, filterContext))
+            .filter((tab) => {
+                if (!hasTerms) return true;
+                return fuzzyMatchTokens(`${tab.title} ${tab.url}`, parsedQuery.terms);
+            })
+            .slice(0, 15);
+    }, [state.activeTabs, parsedQuery, filterContext]);
 
     const filteredSpaces = useMemo(() => {
-        if (tokens.length === 0) return state.spaces.slice(0, 15);
-        return state.spaces.filter((space) =>
-            fuzzyMatchTokens(space.name, tokens)
-        );
-    }, [state.spaces, tokens]);
+        const hasFilters = parsedQuery.filters.length > 0;
+        const hasTerms = parsedQuery.terms.length > 0;
+
+        if (!hasFilters && !hasTerms) {
+            return state.spaces.slice(0, 8);
+        }
+
+        return state.spaces
+            .filter((space) => evaluateCandidateFilters(space, parsedQuery.filters, filterContext))
+            .filter((space) => {
+                if (!hasTerms) return true;
+                return fuzzyMatchTokens(space.name, parsedQuery.terms);
+            })
+            .slice(0, 8);
+    }, [state.spaces, parsedQuery, filterContext]);
 
     const filteredSavedTabs = useMemo(() => {
-        if (tokens.length === 0) return state.savedTabs.slice(0, 15);
-        return state.savedTabs.filter((tab) => {
-            const spaceNamesStr = tab.spaceNames ? tab.spaceNames.join(' ') : (tab.spaceName || '');
-            return fuzzyMatchTokens(`${tab.title || ''} ${tab.url} ${spaceNamesStr}`, tokens);
-        });
-    }, [state.savedTabs, tokens]);
+        const hasFilters = parsedQuery.filters.length > 0;
+        const hasTerms = parsedQuery.terms.length > 0;
+
+        if (!hasFilters && !hasTerms) {
+            return state.savedTabs.slice(0, 15);
+        }
+
+        return state.savedTabs
+            .filter((tab) => evaluateCandidateFilters(tab, parsedQuery.filters, filterContext))
+            .filter((tab) => {
+                if (!hasTerms) return true;
+                const spaceNamesStr = tab.spaceNames ? tab.spaceNames.join(' ') : (tab.spaceName || '');
+                return fuzzyMatchTokens(`${tab.title || ''} ${tab.url} ${spaceNamesStr}`, parsedQuery.terms);
+            })
+            .slice(0, 15);
+    }, [state.savedTabs, parsedQuery, filterContext]);
 
     const filteredReadLater = useMemo(() => {
-        if (tokens.length === 0) return state.readLater.slice(0, 15);
-        return state.readLater.filter((item) =>
-            fuzzyMatchTokens(`${item.title || ''} ${item.url} ${item.status}`, tokens)
-        );
-    }, [state.readLater, tokens]);
+        const hasFilters = parsedQuery.filters.length > 0;
+        const hasTerms = parsedQuery.terms.length > 0;
+
+        if (!hasFilters && !hasTerms) {
+            return state.readLater.slice(0, 15);
+        }
+
+        return state.readLater
+            .filter((item) => evaluateCandidateFilters(item, parsedQuery.filters, filterContext))
+            .filter((item) => {
+                if (!hasTerms) return true;
+                return fuzzyMatchTokens(`${item.title || ''} ${item.url} ${item.status}`, parsedQuery.terms);
+            })
+            .slice(0, 15);
+    }, [state.readLater, parsedQuery, filterContext]);
 
     const filteredBookmarks = useMemo(() => {
-        if (tokens.length === 0) return state.bookmarks.slice(0, 15);
-        return state.bookmarks.filter((bm) =>
-            fuzzyMatchTokens(`${bm.title} ${bm.url}`, tokens)
-        );
-    }, [state.bookmarks, tokens]);
+        const hasFilters = parsedQuery.filters.length > 0;
+        const hasTerms = parsedQuery.terms.length > 0;
+
+        if (!hasFilters && !hasTerms) {
+            return state.bookmarks.slice(0, 15);
+        }
+
+        return state.bookmarks
+            .filter((bm) => evaluateCandidateFilters(bm, parsedQuery.filters, filterContext))
+            .filter((bm) => {
+                if (!hasTerms) return true;
+                return fuzzyMatchTokens(`${bm.title} ${bm.url}`, parsedQuery.terms);
+            })
+            .slice(0, 15);
+    }, [state.bookmarks, parsedQuery, filterContext]);
 
     const totalResultsCount =
         filteredActiveTabs.length +
@@ -221,6 +282,7 @@ export function useOmniSearchData(isOpen: boolean, query: string): UseOmniSearch
         filteredReadLater,
         filteredBookmarks,
         totalResultsCount,
+        parsedQuery,
         refetch: fetchData,
     };
 }

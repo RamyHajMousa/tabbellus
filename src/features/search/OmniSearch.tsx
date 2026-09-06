@@ -22,6 +22,7 @@ import { CommandItemRow } from './components/CommandItemRow';
 import { SearchSectionHeader } from './components/SearchSectionHeader';
 import { TopSiteRow, PinnedSpaceRow, RecentSessionRow } from './components/LaunchpadRows';
 import { useLaunchpadData } from './hooks/useLaunchpadData';
+import { FilterChipTray } from './components/FilterChipTray';
 import type {
     TabSearchResult,
     SpaceSearchResult,
@@ -31,6 +32,7 @@ import type {
     CommandAction,
     TopSiteItem,
     RecentSessionItem,
+    SearchFilterDirective,
 } from './types';
 
 export const OmniSearch: React.FC = () => {
@@ -51,6 +53,7 @@ export const OmniSearch: React.FC = () => {
         filteredReadLater,
         filteredBookmarks,
         totalResultsCount,
+        parsedQuery,
     } = useOmniSearchData(isSearchOpen && mode === 'search' && query.length > 0, query);
 
     const {
@@ -100,6 +103,18 @@ export const OmniSearch: React.FC = () => {
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [isSearchOpen, setSearchOpen]);
+
+    // Remove filter token cleanly from raw input
+    const handleRemoveFilter = useCallback((directive: SearchFilterDirective) => {
+        setRawValue((prev) => {
+            const token = directive.rawToken;
+            const idx = prev.indexOf(token);
+            if (idx === -1) return prev;
+            const before = prev.slice(0, idx).trimEnd();
+            const after = prev.slice(idx + token.length).trimStart();
+            return before && after ? `${before} ${after}` : before || after;
+        });
+    }, []);
 
     // Handle Backspace when in command mode to easily escape back to search
     const handleInputKeyDown = useCallback(
@@ -263,6 +278,13 @@ export const OmniSearch: React.FC = () => {
                     </div>
                 }
             />
+
+            {mode === 'search' && parsedQuery.filters.length > 0 && (
+                <FilterChipTray
+                    filters={parsedQuery.filters}
+                    onRemoveFilter={handleRemoveFilter}
+                />
+            )}
 
             <CommandList className="max-h-[360px] overflow-y-auto">
                 {/* Mode Empty States */}

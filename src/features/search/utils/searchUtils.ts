@@ -13,6 +13,7 @@ export function flattenBookmarks(nodes: chrome.bookmarks.BookmarkTreeNode[]): Bo
                 id: node.id,
                 title: node.title || node.url,
                 url: node.url,
+                dateAdded: node.dateAdded,
             });
         }
         if (node.children && node.children.length > 0) {
