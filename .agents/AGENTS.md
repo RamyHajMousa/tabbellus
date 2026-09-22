@@ -40,6 +40,13 @@
 - **Declarative Feature Slotting:** Pro gating must use declarative `<FeatureGate>` wrappers or registry slot lookups rather than scattered inline boolean conditionals (if (isPro)).
 - **Offline-First Entitlement & Grace Cycles:** License and entitlement checks must fail open to a clean fallback UI without crashing core tab operations or sidepanel renders.
 
+### 3.2 Intellectual Property & Licensing Constraints
+- **Clean-Room Logic:** All generated code must be original implementations tailored strictly to TabBellus's owned primitives and contracts.
+- **Permissible Licenses Only:** Third-party logic or patterns must be strictly compatible with permissive open-source licenses (MIT, Apache 2.0, BSD-2/3-Clause, ISC, 0BSD).
+- **Strict Copyleft Ban:** You are strictly forbidden from generating or adapting code from copyleft-licensed projects (GPL, AGPL, LGPL, SSPL).
+- **Compliance Gate:** If a requested feature or algorithm closely matches a unique, proprietary, or copyleft-protected public implementation, you MUST flag this in the implementation plan before writing any code.
+- **Dependency Guard:** Never introduce new npm packages without explicit user authorization (enforces KISS/MVS).
+
 ## 4. Interaction Style
 - Keep responses concise, direct, and stripped of fluff.
 - Provide clear technical justifications for architectural choices (e.g., "Used `chrome.tabs.onReplaced` to prevent Edge Reader Mode ghost IDs").
