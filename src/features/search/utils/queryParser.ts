@@ -116,6 +116,11 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
                     trailingOperator = {
                         key: opKey,
                         partialValue: value,
+                        negated,
+                        startIndex: tokenStart,
+                        endIndex: cursor,
+                        rawToken,
+                        hasColon: true,
                     };
                 }
 
@@ -145,6 +150,11 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
                     trailingOperator = {
                         key: opKey,
                         partialValue: value,
+                        negated,
+                        startIndex: tokenStart,
+                        endIndex: cursor,
+                        rawToken,
+                        hasColon: true,
                     };
                 }
 
@@ -153,7 +163,35 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
             }
         }
 
-        // 5. Not an operator directive; parse as a search term
+        // 5. Operator Discovery Mode: check if cursor is at the end of input typing an operator key before ':'
+        if (cursor === n) {
+            const isPrefixOfOperator =
+                identifier.length > 0 &&
+                Array.from(VALID_OPERATOR_KEYS).some((k) => k.startsWith(identifier));
+            const isDanglingNegation = negated && identifier.length === 0;
+
+            if (isPrefixOfOperator || isDanglingNegation) {
+                const rawToken = input.slice(tokenStart, cursor);
+                trailingOperator = {
+                    partialKey: identifier,
+                    partialValue: '',
+                    negated,
+                    startIndex: tokenStart,
+                    endIndex: cursor,
+                    rawToken,
+                    hasColon: false,
+                };
+
+                if (rawToken.length > 0 && !isDanglingNegation) {
+                    terms.push(rawToken);
+                }
+
+                i = cursor;
+                continue;
+            }
+        }
+
+        // 6. Not an operator directive; parse as a search term
         cursor = tokenStart;
         if (input[cursor] === '"') {
             // Quoted search term

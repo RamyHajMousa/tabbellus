@@ -23,6 +23,9 @@ import { SearchSectionHeader } from './components/SearchSectionHeader';
 import { TopSiteRow, PinnedSpaceRow, RecentSessionRow } from './components/LaunchpadRows';
 import { useLaunchpadData } from './hooks/useLaunchpadData';
 import { FilterChipTray } from './components/FilterChipTray';
+import { SuggestionItemRow } from './components/SuggestionItemRow';
+import { getDirectiveSuggestions } from './utils/suggestionEngine';
+import { applyDirectiveSuggestion } from './utils/queryReplacer';
 import type {
     TabSearchResult,
     SpaceSearchResult,
@@ -33,6 +36,7 @@ import type {
     TopSiteItem,
     RecentSessionItem,
     SearchFilterDirective,
+    DirectiveSuggestion,
 } from './types';
 
 export const OmniSearch: React.FC = () => {
@@ -47,6 +51,8 @@ export const OmniSearch: React.FC = () => {
     const { mode, query } = useMemo(() => partitionSearchQuery(rawValue), [rawValue]);
 
     const {
+        activeTabs,
+        spaces,
         filteredActiveTabs,
         filteredSpaces,
         filteredSavedTabs,
@@ -63,6 +69,34 @@ export const OmniSearch: React.FC = () => {
     } = useLaunchpadData(isSearchOpen && mode === 'search' && query.length === 0);
 
     const { executeCommand } = useCommandExecutor();
+
+    // Directive Autocomplete Suggestions
+    const suggestions = useMemo(() => {
+        if (mode !== 'search' || !parsedQuery.trailingOperator) return [];
+        return getDirectiveSuggestions(parsedQuery.trailingOperator, {
+            spaces,
+            openTabs: activeTabs,
+        });
+    }, [mode, parsedQuery.trailingOperator, spaces, activeTabs]);
+
+    const handleSelectSuggestion = useCallback(
+        (suggestion: DirectiveSuggestion) => {
+            if (!parsedQuery.trailingOperator) return;
+            const { updatedQuery, nextCaretPosition } = applyDirectiveSuggestion(
+                rawValue,
+                suggestion,
+                parsedQuery.trailingOperator
+            );
+            setRawValue(updatedQuery);
+            requestAnimationFrame(() => {
+                if (inputRef.current) {
+                    inputRef.current.focus();
+                    inputRef.current.setSelectionRange(nextCaretPosition, nextCaretPosition);
+                }
+            });
+        },
+        [rawValue, parsedQuery.trailingOperator]
+    );
 
     // Filter commands in command mode
     const filteredCommands = useMemo(() => {
@@ -116,14 +150,17 @@ export const OmniSearch: React.FC = () => {
         });
     }, []);
 
-    // Handle Backspace when in command mode to easily escape back to search
+    // Handle Backspace when in command mode, and Tab for directive suggestion completion
     const handleInputKeyDown = useCallback(
         (e: React.KeyboardEvent<HTMLInputElement>) => {
             if (e.key === 'Backspace' && (rawValue === '>' || rawValue === '')) {
                 setRawValue('');
+            } else if (e.key === 'Tab' && suggestions.length > 0) {
+                e.preventDefault();
+                handleSelectSuggestion(suggestions[0]);
             }
         },
-        [rawValue]
+        [rawValue, suggestions, handleSelectSuggestion]
     );
 
     // Entity Selection Handlers
@@ -288,12 +325,25 @@ export const OmniSearch: React.FC = () => {
 
             <CommandList className="max-h-[360px] overflow-y-auto">
                 {/* Mode Empty States */}
-                {mode === 'search' && totalResultsCount === 0 && query.length > 0 && (
+                {mode === 'search' && totalResultsCount === 0 && query.length > 0 && suggestions.length === 0 && (
                     <CommandEmpty>No matching tabs, spaces, or bookmarks found.</CommandEmpty>
                 )}
 
                 {mode === 'command' && filteredCommands.length === 0 && (
                     <CommandEmpty>No matching commands found.</CommandEmpty>
+                )}
+
+                {/* SEARCH MODE: Directive Autocomplete Suggestions */}
+                {mode === 'search' && suggestions.length > 0 && (
+                    <CommandGroup heading={<SearchSectionHeader title="Filter Suggestions" count={suggestions.length} /> as any}>
+                        {suggestions.map((suggestion) => (
+                            <SuggestionItemRow
+                                key={suggestion.id}
+                                suggestion={suggestion}
+                                onSelect={() => handleSelectSuggestion(suggestion)}
+                            />
+                        ))}
+                    </CommandGroup>
                 )}
 
                 {/* SEARCH MODE: Recent Searches */}

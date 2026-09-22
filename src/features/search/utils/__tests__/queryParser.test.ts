@@ -58,6 +58,11 @@ describe('parseSearchQuery (Lexer & AST Parser)', () => {
             expect(result.trailingOperator).toEqual({
                 key: 'domain',
                 partialValue: 'github.com',
+                negated: false,
+                startIndex: 0,
+                endIndex: 17,
+                rawToken: 'domain:github.com',
+                hasColon: true,
             });
         });
 
@@ -125,6 +130,11 @@ describe('parseSearchQuery (Lexer & AST Parser)', () => {
             expect(result.trailingOperator).toEqual({
                 key: 'in',
                 partialValue: 'Proj',
+                negated: false,
+                startIndex: 0,
+                endIndex: 8,
+                rawToken: 'in:"Proj',
+                hasColon: true,
             });
         });
     });
@@ -194,6 +204,11 @@ describe('parseSearchQuery (Lexer & AST Parser)', () => {
             expect(result.trailingOperator).toEqual({
                 key: 'in',
                 partialValue: '',
+                negated: false,
+                startIndex: 7,
+                endIndex: 10,
+                rawToken: 'in:',
+                hasColon: true,
             });
             // Empty value directive should not be added to active filters
             expect(result.filters).toHaveLength(0);
@@ -205,6 +220,11 @@ describe('parseSearchQuery (Lexer & AST Parser)', () => {
             expect(result.trailingOperator).toEqual({
                 key: 'is',
                 partialValue: 'aud',
+                negated: false,
+                startIndex: 4,
+                endIndex: 10,
+                rawToken: 'is:aud',
+                hasColon: true,
             });
             expect(result.filters).toEqual([
                 {
@@ -216,10 +236,40 @@ describe('parseSearchQuery (Lexer & AST Parser)', () => {
             ]);
         });
 
+        it('detects operator discovery mode when cursor types incomplete operator key without colon', () => {
+            const result = parseSearchQuery('tab i');
+            expect(result.trailingOperator).toEqual({
+                partialKey: 'i',
+                partialValue: '',
+                negated: false,
+                startIndex: 4,
+                endIndex: 5,
+                rawToken: 'i',
+                hasColon: false,
+            });
+            expect(result.terms).toEqual(['tab', 'i']);
+        });
+
+        it('detects negated operator discovery mode', () => {
+            const result = parseSearchQuery('-d');
+            expect(result.trailingOperator).toEqual({
+                partialKey: 'd',
+                partialValue: '',
+                negated: true,
+                startIndex: 0,
+                endIndex: 2,
+                rawToken: '-d',
+                hasColon: false,
+            });
+        });
+
         it('clears trailing operator if input ends with trailing whitespace', () => {
             const result = parseSearchQuery('is:audible ');
             expect(result.trailingOperator).toBeUndefined();
             expect(result.filters).toHaveLength(1);
+
+            const result2 = parseSearchQuery('tab i ');
+            expect(result2.trailingOperator).toBeUndefined();
         });
     });
 });

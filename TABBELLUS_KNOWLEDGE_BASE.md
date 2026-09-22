@@ -1517,10 +1517,43 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `src/features/search/utils/__tests__/filterEvaluator.test.ts`: Added 21 tests covering domain matching, affirmative capability discrimination, scope restrictions, temporal inequalities, negation inversion, and fail-open edge cases.
     *   `src/features/search/components/__tests__/FilterChipTray.test.tsx`: Added 3 tests verifying rendering, `tabIndex={-1}`, and negation styling.
     *   Full test suite raised to **685/685 passing tests across 55 test files** (100% pass rate).
+### Phase 50: Directive Autocomplete & Dynamic Typeahead Engine (Milestone 5 — Part 2)
+*   **Context & Architectural Scope:**
+    *   OmniSearch 2.0 directive autocompletion engine providing deterministic typeahead for operator directives (`in:`, `is:`, `domain:`, `site:`, `before:`, `after:`, `age:`) and candidate values.
+    *   Maintained strict Free Core isolation (zero imports from `src/pro/`) and zero IndexedDB overhead by sourcing spaces and hostnames strictly from in-memory collections (`useOmniSearchData`).
+*   **Enriched Trailing Operator AST & Operator Discovery Mode (`src/features/search/utils/queryParser.ts`, `src/features/search/types.ts`):**
+    *   Enriched `TrailingOperator` with token boundaries and metadata: `key`, `partialKey`, `partialValue`, `negated`, `startIndex`, `endIndex`, `rawToken`, and `hasColon`.
+    *   **Operator Discovery Mode:** Triggers when cursor types an incomplete operator prefix before a colon (e.g. `i` $\rightarrow$ `in:`, `is:`; `d` $\rightarrow$ `domain:`; `b` $\rightarrow$ `before:`), capturing `hasColon: false` and `partialKey`.
+    *   **Value Completion Mode:** Triggers when operator key is complete (`hasColon: true`), extracting `partialValue` for capability/scope/hostname matching.
+    *   Trailing whitespace cleanly clears `trailingOperator` to prevent stale suggestion trays.
+*   **Pure Suggestion Engine with Budget Clamping (`src/features/search/utils/suggestionEngine.ts`):**
+    *   Zero-dependency pure generator (`getDirectiveSuggestions`):
+        *   *Operator Discovery Mode:* Returns valid `FilterOperatorKey` tokens with colons, preserving negation prefixes (`-in:`, `-is:`).
+        *   *Value Completion for `is:`:* Suggests capability tokens (`audible`, `muted`, `pinned`, `discarded`, `locked`, `unread`, `archived`) with human-readable descriptions.
+        *   *Value Completion for `in:`:* Returns static scopes (`active`, `spaces`, `readlater`, `bookmarks`) and dynamic space names. Sanitizes double quotes to prevent lexer corruption and applies the **Quoting Constraint** (wraps space names with spaces in double quotes: `in:"Project Alpha" `).
+        *   *Value Completion for `domain:` and `site:`:* Extracts unique hostnames from currently open tabs using `tryParseHost`, clamped to 5 domain suggestions.
+        *   *Temporal Directives (`before:`, `after:`, `age:`):* Offers starter duration tokens (`today`, `yesterday`, `7d`, `30d`).
+    *   **Strict Clamping Budget:** Clamps final suggestions to a maximum of 6 items to eliminate UI crowding in the sidepanel palette.
+*   **Query Splicer Engine (`src/features/search/utils/queryReplacer.ts`):**
+    *   `applyDirectiveSuggestion`: Deterministically replaces the substring slice defined by `trailingOperator.startIndex` and `trailingOperator.endIndex`.
+    *   Appends a single trailing space (` `) after value tokens to commit the directive in the lexer, while preserving colons without trailing space for operator suggestions.
+    *   Implements mid-query whitespace collision guards to prevent double spaces before subsequent terms.
+    *   Computes and returns `{ updatedQuery, nextCaretPosition }`.
+*   **Palette UI Integration & Accessible Keyboard Selection (`src/features/search/components/SuggestionItemRow.tsx`, `src/features/search/OmniSearch.tsx`):**
+    *   Created `SuggestionItemRow` component rendering category-aware Lucide icons (`SlidersHorizontal` / `Tag`), monospace primary label, truncated descriptions, and trailing `<kbd>Tab</kbd>` shortcut hints.
+    *   Rendered as the FIRST `<CommandGroup heading="Filter Suggestions">` inside `<CommandList>` whenever suggestions exist.
+    *   Wired `Tab` key interception in `handleInputKeyDown` to autocomplete the top suggestion without losing focus.
+    *   Implemented `handleSelectSuggestion` keeping dialog open, focusing `<CommandInput>`, and restoring caret position via `setSelectionRange(nextCaretPosition, nextCaretPosition)`.
+*   **Testing & Verification Metrics:**
+    *   `src/features/search/utils/__tests__/suggestionEngine.test.ts`: 19 tests covering root discovery, value typeahead, quoting, negation preservation, double-quote sanitization, and 6-item budget clamping.
+    *   `src/features/search/utils/__tests__/queryReplacer.test.ts`: 6 tests covering end-of-query and mid-query splicing, operator colons, value spaces, and caret positioning.
+    *   `src/features/search/components/__tests__/SuggestionItemRow.test.tsx`: 2 SSR component tests.
+    *   `src/features/search/utils/__tests__/queryParser.test.ts`: Expanded to 18 tests (+2 for operator discovery).
+    *   Full test suite raised to **714/714 passing tests across 58 test files** (100% pass rate).
     *   `npx tsc --noEmit`: 0 diagnostics.
-    *   `npm run build`: Production build succeeded in 14.09s.
+    *   `npm run build`: Production build succeeded in 12.34s with zero bundle warnings.
 
-<!-- Last Updated: 2026-09-06 (Phase 49: Advanced Search Query Lexer & Filter Engine: 685 Unit Tests Passing across 55 Test Files) -->
+<!-- Last Updated: 2026-09-22 (Phase 50: Directive Autocomplete & Dynamic Typeahead Engine: 714 Unit Tests Passing across 58 Test Files) -->
 
 
 

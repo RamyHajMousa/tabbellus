@@ -11,14 +11,36 @@ export interface SearchFilterDirective {
     rawToken: string;
 }
 
+export interface TrailingOperator {
+    key?: FilterOperatorKey;
+    partialKey?: string;
+    partialValue: string;
+    negated: boolean;
+    startIndex: number;
+    endIndex: number;
+    rawToken: string;
+    hasColon: boolean;
+}
+
 export interface ParsedSearchQuery {
     rawText: string;
     terms: string[];
     filters: SearchFilterDirective[];
-    trailingOperator?: {
-        key: FilterOperatorKey;
-        partialValue: string;
-    };
+    trailingOperator?: TrailingOperator;
+}
+
+export interface DirectiveSuggestion {
+    id: string;
+    label: string;
+    description?: string;
+    insertText: string;
+    category: 'operator' | 'value';
+    key?: FilterOperatorKey;
+}
+
+export interface SuggestionContext {
+    spaces?: Array<{ name: string; id?: number } | string>;
+    openTabs?: Array<{ url: string; title?: string }>;
 }
 
 export interface TabSearchResult {
