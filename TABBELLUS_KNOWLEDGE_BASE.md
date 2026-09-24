@@ -1616,7 +1616,41 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **724/724 passing tests across 58 test files** (100% pass rate).
     *   `npx tsc --noEmit`: 0 diagnostics.
 
-<!-- Last Updated: 2026-09-24 (Phase 52: Encryption Teardown Data Loss Fix & Peer Auto-Downgrade Protocol: 724 Unit Tests Passing across 58 Test Files) -->
+### Phase 53: Persistent Cascade Space Tombstones & Symmetric 4-Case Tombstone LWW
+*   **Context & Architectural Scope:**
+    *   Addressed a critical space resurrection bug: previously, spaces were soft-deleted but permanently wiped from IndexedDB 10 seconds later via `hardDeleteSpace`. When cloud sync did not complete within those 10 seconds (e.g., offline, rate-limited, vault locked, or sidepanel closed), the tombstone was destroyed. On subsequent sync cycles, Google Drive still held the active space, and `DiffEngine` resurrected it as a new remote space.
+    *   Furthermore, child tabs were not cascade soft-deleted when their parent space was soft-deleted, leaving orphaned active tab records in IndexedDB.
+    *   Strictly preserved Zero-Contamination Boundary: all modifications isolated to `src/lib/` (Free Core) and `src/pro/sync/` (Pro Layer) without introducing cross-tier dependencies.
+*   **Space Cascade Soft-Delete & Revival (`src/lib/spaceService.ts` & `src/lib/db.ts`):**
+    *   `softDeleteSpace(spaceId: number)`:
+        *   Executes inside an atomic Dexie transaction `db.transaction('rw', [db.spaces, db.tabs])`.
+        *   Atomically updates the target space with `{ deletedAt: now, updatedAt: now }`.
+        *   Atomically updates all child tabs matching `spaceId` with `{ deletedAt: now, updatedAt: now }`.
+        *   Dispatches cross-process mutation notification via `contractRegistry.notifyLocalMutation()`.
+    *   `undoDeleteSpace(spaceId: number)`:
+        *   Executes inside an atomic Dexie transaction `db.transaction('rw', [db.spaces, db.tabs])`.
+        *   Atomically clears `deletedAt` (`{ deletedAt: undefined, updatedAt: now }`) on the space.
+        *   Atomically clears `deletedAt` on all child tabs matching `spaceId` with `{ deletedAt: undefined, updatedAt: now }`.
+        *   Dispatches cross-process mutation notification via `contractRegistry.notifyLocalMutation()`.
+*   **Eradication of 10-Second Hard-Deletion Timer (`src/features/spaces/components/SpaceItem.tsx`):**
+    *   Completely eliminated the `setTimeout` hard-delete timer and all calls to `spaceService.hardDeleteSpace` from `handleDelete`.
+    *   Deletion strictly calls `spaceService.softDeleteSpace(space.id)` with undo wired to `spaceService.undoDeleteSpace(space.id)`.
+    *   Soft-deleted spaces remain persistent tombstones in IndexedDB to reliably propagate deletions across cloud sync cycles until 30-day compaction.
+*   **Symmetric 4-Case Tombstone LWW in `DiffEngine.reconcileSpaces` (`src/pro/sync/engine/diffEngine.ts`):**
+    *   **Case 1 (Local Tombstone vs Remote Active):** If `toEpochMs(localSpace.deletedAt) > toEpochMs(remoteSpace.updatedAt ?? remoteSpace.createdAt)`: Local tombstone wins. Merged space retains `deletedAt: localSpace.deletedAt`, sets `hasRemoteChanges: true`. If remote `updatedAt >= localSpace.deletedAt`: Remote wins, space is revived locally (`deletedAt: undefined` queued in `localUpdates.spaces`).
+    *   **Case 2 (Remote Tombstone vs Local Active):** If `toEpochMs(remoteSpace.deletedAt) > toEpochMs(localSpace.updatedAt ?? localSpace.createdAt)`: Remote tombstone wins. Queues space with `deletedAt: remoteSpace.deletedAt` into `localUpdates.spaces`. If local `updatedAt >= remoteSpace.deletedAt`: Local active space wins.
+    *   **Case 3 (Remote Tombstone, No Local Space):** Preserves tombstone in `mergedSpaces` for cloud propagation, but strictly omits it from `localUpdates.spaces` to prevent creating deleted spaces in local IndexedDB.
+    *   **Case 4 (Both Tombstoned):** Preserves newest tombstone (`Math.max(toEpochMs(localSpace.deletedAt), toEpochMs(remoteSpace.deletedAt))`).
+*   **30-Day Space Tombstone Compaction & Vacuum (`src/pro/sync/engine/snapshotSerializer.ts`):**
+    *   `createLocalSnapshot`: Prunes spaces where `deletedAt < cutoff` (`TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000`).
+    *   `applyRemoteUpdates`: Atomically vacuums expired space tombstones via `db.spaces.where('deletedAt').below(cutoff).delete()`.
+*   **Testing & Quality Metrics:**
+    *   `src/lib/__tests__/spaceService.test.ts`: Added tests verifying atomic cascade soft-delete and revival of child tabs (36 tests).
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added tests verifying 4-case space tombstone LWW, resurrection prevention, remote soft-delete propagation, remote tombstone suppression from `localUpdates.spaces`, and remote active space revival (48 tests).
+    *   Full test suite raised to **730/730 passing tests across 58 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+
+<!-- Last Updated: 2026-09-24 (Phase 53: Persistent Cascade Space Tombstones & 4-Case Tombstone LWW: 730 Unit Tests Passing across 58 Test Files) -->
 
 
 

@@ -198,15 +198,6 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
                 if (space.id) spaceService.undoDeleteSpace(space.id);
             }
         });
-
-        // 3. Set Hard Delete Timer (Optimistic cleanup)
-        setTimeout(async () => {
-            // Check if it's still deleted before hard deleting
-            const current = await spaceService.getSpaceById(space.id!);
-            if (current && current.deletedAt) {
-                await spaceService.hardDeleteSpace(space.id!);
-            }
-        }, 10001);
     }, [space.id, space.name, toast]);
 
     const formatDate = React.useCallback((ts: number) => new Date(ts).toLocaleDateString(undefined, {

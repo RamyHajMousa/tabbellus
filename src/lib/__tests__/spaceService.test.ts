@@ -122,6 +122,47 @@ describe('SpaceService — Dexie Integration', () => {
     expect(raw!.deletedAt).toBeUndefined();
   });
 
+  it('softDeleteSpace atomically sets deletedAt on both the space and its child tabs', async () => {
+    const spaceId = await seedSpace('Cascade Soft Delete Space');
+    await seedTab(spaceId, 'https://example.com/1', 0);
+    await seedTab(spaceId, 'https://example.com/2', 1);
+
+    await spaceService.softDeleteSpace(spaceId);
+
+    const space = await db.spaces.get(spaceId);
+    expect(space).toBeDefined();
+    expect(space!.deletedAt).toBeGreaterThan(0);
+    expect(space!.updatedAt).toBe(space!.deletedAt);
+
+    const tabs = await db.tabs.where({ spaceId }).toArray();
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].deletedAt).toBe(space!.deletedAt);
+    expect(tabs[0].updatedAt).toBe(space!.deletedAt);
+    expect(tabs[1].deletedAt).toBe(space!.deletedAt);
+    expect(tabs[1].updatedAt).toBe(space!.deletedAt);
+  });
+
+  it('undoDeleteSpace atomically clears deletedAt on both the space and its child tabs', async () => {
+    const spaceId = await seedSpace('Cascade Undo Space');
+    await seedTab(spaceId, 'https://example.com/1', 0);
+    await seedTab(spaceId, 'https://example.com/2', 1);
+
+    await spaceService.softDeleteSpace(spaceId);
+    await spaceService.undoDeleteSpace(spaceId);
+
+    const space = await db.spaces.get(spaceId);
+    expect(space).toBeDefined();
+    expect(space!.deletedAt).toBeUndefined();
+    expect(space!.updatedAt).toBeGreaterThan(0);
+
+    const tabs = await db.tabs.where({ spaceId }).toArray();
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].deletedAt).toBeUndefined();
+    expect(tabs[0].updatedAt).toBeGreaterThan(0);
+    expect(tabs[1].deletedAt).toBeUndefined();
+    expect(tabs[1].updatedAt).toBeGreaterThan(0);
+  });
+
   // ── Hard Delete Cascades ───────────────────────────────────────
 
   it('should hard-delete a space and cascade-remove its tabs', async () => {

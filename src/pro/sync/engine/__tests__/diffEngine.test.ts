@@ -128,6 +128,183 @@ describe('DiffEngine', () => {
       expect(result.localUpdates.spaces).toHaveLength(0); // Local already deleted
     });
 
+    it('Local space tombstone prevents remote active space from resurrecting when local deletion is newer', () => {
+      const createdAt = 1000;
+      const uuid = 'space-tombstone-test-uuid';
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 4000,
+        deviceId: localDeviceId,
+        spaces: [
+          {
+            id: 1,
+            uuid,
+            name: 'Doomed Space',
+            createdAt,
+            updatedAt: 3500,
+            deletedAt: 3500,
+          },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          {
+            id: 10,
+            uuid,
+            name: 'Doomed Space',
+            createdAt,
+            updatedAt: 2000,
+            deletedAt: undefined,
+          },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.mergedSnapshot.spaces[0].deletedAt).toBe(3500);
+      expect(result.localUpdates.spaces).toHaveLength(0);
+      expect(result.hasRemoteChanges).toBe(true);
+    });
+
+    it('Remote space tombstone soft-deletes local space when remote deletion is newer', () => {
+      const createdAt = 1000;
+      const uuid = 'space-remote-tombstone-uuid';
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [
+          {
+            id: 1,
+            uuid,
+            name: 'Active Locally',
+            createdAt,
+            updatedAt: 1500,
+            deletedAt: undefined,
+          },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 4000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          {
+            id: 10,
+            uuid,
+            name: 'Active Locally',
+            createdAt,
+            updatedAt: 3000,
+            deletedAt: 3000,
+          },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.localUpdates.spaces).toHaveLength(1);
+      expect(result.localUpdates.spaces[0].id).toBe(1);
+      expect(result.localUpdates.spaces[0].deletedAt).toBe(3000);
+      expect(result.mergedSnapshot.spaces[0].deletedAt).toBe(3000);
+    });
+
+    it('Remote tombstone for a space that does not exist locally is kept in mergedSnapshot but omitted from localUpdates.spaces', () => {
+      const createdAt = 1000;
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          {
+            id: 10,
+            uuid: 'remote-only-deleted-space-uuid',
+            name: 'Remote Deleted Space',
+            createdAt,
+            updatedAt: 2500,
+            deletedAt: 2500,
+          },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.mergedSnapshot.spaces).toHaveLength(1);
+      expect(result.mergedSnapshot.spaces[0].uuid).toBe('remote-only-deleted-space-uuid');
+      expect(result.mergedSnapshot.spaces[0].deletedAt).toBe(2500);
+      expect(result.localUpdates.spaces).toHaveLength(0);
+    });
+
+    it('Revives local space when remote space has newer updatedAt than local deletion', () => {
+      const createdAt = 1000;
+      const uuid = 'space-revival-uuid';
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: localDeviceId,
+        spaces: [
+          {
+            id: 1,
+            uuid,
+            name: 'Revived Space',
+            createdAt,
+            updatedAt: 2000,
+            deletedAt: 2000,
+          },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 4000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          {
+            id: 10,
+            uuid,
+            name: 'Revived Space',
+            createdAt,
+            updatedAt: 3500,
+            deletedAt: undefined,
+          },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.mergedSnapshot.spaces[0].deletedAt).toBeUndefined();
+      expect(result.localUpdates.spaces).toHaveLength(1);
+      expect(result.localUpdates.spaces[0].id).toBe(1);
+      expect(result.localUpdates.spaces[0].deletedAt).toBeUndefined();
+    });
+
     it('assigns unique local IDs for incoming remote-only spaces', () => {
       const local: SyncVaultSnapshot = {
         version: 1,

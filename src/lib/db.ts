@@ -83,14 +83,25 @@ export class TabBellusDB extends Dexie {
         });
     }
 
-    // Soft delete a space
+    // Soft delete a space and its tabs
     async softDeleteSpace(id: number) {
-        return this.spaces.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
+        const now = Date.now();
+        return this.transaction('rw', [this.spaces, this.tabs], async () => {
+            await this.spaces.update(id, { deletedAt: now, updatedAt: now });
+            await this.tabs.where('spaceId').equals(id).modify({ deletedAt: now, updatedAt: now });
+        });
     }
 
-    // Restore a soft-deleted space
+    // Restore a soft-deleted space and its tabs
     async undoDeleteSpace(id: number) {
-        return this.spaces.update(id, { deletedAt: undefined, updatedAt: Date.now() });
+        const now = Date.now();
+        return this.transaction('rw', [this.spaces, this.tabs], async () => {
+            await this.spaces.update(id, { deletedAt: undefined, updatedAt: now });
+            await this.tabs.where('spaceId').equals(id).modify((tab: Tab) => {
+                delete tab.deletedAt;
+                tab.updatedAt = now;
+            });
+        });
     }
 
     // Soft delete a tab

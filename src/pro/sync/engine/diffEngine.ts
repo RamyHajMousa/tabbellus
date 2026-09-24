@@ -61,7 +61,9 @@ export class DiffEngine {
     localSpaceUpdates: Space[];
     remoteToLocalSpaceId: Map<number, number>;
     matchedSpacePairs: Map<number, { localSpace: Space; remoteSpace: Space }>;
+    hasRemoteChanges?: boolean;
   } {
+    let hasRemoteChanges = false;
     let maxLocalSpaceId = local.spaces.reduce(
       (max, s) => Math.max(max, s.id ?? 0),
       0,
@@ -129,6 +131,11 @@ export class DiffEngine {
         const localUpdatedMs = toEpochMs(localSpace.updatedAt);
         const remoteUpdatedMs = toEpochMs(remoteSpace.updatedAt);
 
+        const localEffectiveUpdatedMs =
+          localHasUpdated ? localUpdatedMs : localCreatedMs;
+        const remoteEffectiveUpdatedMs =
+          remoteHasUpdated ? remoteUpdatedMs : remoteCreatedMs;
+
         const localDelMs = toEpochMs(localSpace.deletedAt);
         const remoteDelMs = toEpochMs(remoteSpace.deletedAt);
 
@@ -157,22 +164,49 @@ export class DiffEngine {
                 ? remoteUpdatedMs
                 : (remoteWins ? remoteMutationTime : localMutationTime);
 
-        // Soft deletion tombstone rule: if either side is deleted after creation, tombstone wins
-        const mergedDeletedAt =
-          localSpace.deletedAt !== undefined && remoteSpace.deletedAt !== undefined
-            ? Math.max(localDelMs, remoteDelMs)
-            : remoteSpace.deletedAt !== undefined && (remoteDelMs >= localMutationTime || remoteWins)
-              ? remoteSpace.deletedAt
-              : localSpace.deletedAt !== undefined && (localDelMs >= remoteMutationTime || !remoteWins)
-                ? localSpace.deletedAt
-                : undefined;
+        // Symmetric 4-Case Tombstone LWW:
+        let mergedDeletedAt: number | undefined;
+
+        if (localSpace.deletedAt !== undefined && remoteSpace.deletedAt !== undefined) {
+          // Case 4 (Both Tombstoned): Preserve newest tombstone
+          mergedDeletedAt = Math.max(localDelMs, remoteDelMs);
+        } else if (localSpace.deletedAt !== undefined && remoteSpace.deletedAt === undefined) {
+          // Case 1 (Local Tombstone vs Remote Active):
+          // If toEpochMs(localSpace.deletedAt) > toEpochMs(remoteSpace.updatedAt): Local tombstone wins.
+          // Merged space retains deletedAt: localSpace.deletedAt, sets hasRemoteChanges: true.
+          // If remote updatedAt >= localSpace.deletedAt: Remote wins, space is revived locally.
+          if (localDelMs > remoteEffectiveUpdatedMs) {
+            mergedDeletedAt = localSpace.deletedAt;
+            hasRemoteChanges = true;
+          } else {
+            mergedDeletedAt = undefined;
+          }
+        } else if (localSpace.deletedAt === undefined && remoteSpace.deletedAt !== undefined) {
+          // Case 2 (Remote Tombstone vs Local Active):
+          // If toEpochMs(remoteSpace.deletedAt) > toEpochMs(localSpace.updatedAt): Remote tombstone wins.
+          // Queues space with deletedAt: remoteSpace.deletedAt into localUpdates.spaces.
+          // If local updatedAt >= remoteSpace.deletedAt: Local active space wins.
+          if (remoteDelMs > localEffectiveUpdatedMs) {
+            mergedDeletedAt = remoteSpace.deletedAt;
+          } else {
+            mergedDeletedAt = undefined;
+          }
+        } else {
+          // Neither side is tombstoned (Both Active)
+          mergedDeletedAt = undefined;
+        }
+
+        const finalUpdatedAt =
+          mergedDeletedAt !== undefined
+            ? Math.max(mergedUpdatedAt, mergedDeletedAt)
+            : mergedUpdatedAt;
 
         const mergedSpace: Space = {
           id: localSpaceId,
           uuid: resolvedUuid,
           name: remoteWins ? remoteSpace.name : localSpace.name,
           createdAt: Math.min(localCreatedMs, remoteCreatedMs),
-          updatedAt: mergedUpdatedAt,
+          updatedAt: finalUpdatedAt,
           deletedAt: mergedDeletedAt,
           isPinned: remoteWins
             ? (remoteSpace.isPinned ?? localSpace.isPinned)
@@ -197,63 +231,79 @@ export class DiffEngine {
 
         mergedSpaces.push(mergedSpace);
       } else {
-        // Empty Placeholder Adoption Fallback:
-        // If an incoming remote space does not match any local space by UUID or fingerprint,
-        // check if there is an active (non-deleted) local space with the exact same name
-        // and 0 associated local tabs.
-        const emptyPlaceholder = local.spaces.find(
-          (ls) =>
-            ls.deletedAt === undefined &&
-            ls.name.trim() === remoteSpace.name.trim() &&
-            (localTabCountBySpaceId.get(ls.id!) ?? 0) === 0 &&
-            (ls.id === undefined || !matchedLocalSpaceIds.has(ls.id)),
-        );
-
-        if (emptyPlaceholder) {
-          if (emptyPlaceholder.id !== undefined) {
-            matchedLocalSpaceIds.add(emptyPlaceholder.id);
-          }
-          const localSpaceId = emptyPlaceholder.id ?? ++maxLocalSpaceId;
-          if (remoteSpace.id !== undefined) {
-            remoteToLocalSpaceId.set(remoteSpace.id, localSpaceId);
-          }
-          matchedSpacePairs.set(localSpaceId, {
-            localSpace: emptyPlaceholder,
-            remoteSpace,
-          });
-
-          // Constraint 2: Assign remote space's UUID to local space so UUIDs match across devices
-          const adoptedUuid = remoteSpace.uuid || emptyPlaceholder.uuid || crypto.randomUUID();
-
-          const adoptedSpace: Space = {
-            id: localSpaceId,
-            uuid: adoptedUuid,
-            name: remoteSpace.name,
-            createdAt: remoteSpace.createdAt,
-            updatedAt: Math.max(toEpochMs(emptyPlaceholder.updatedAt ?? 0), toEpochMs(remoteSpace.updatedAt ?? remote.clientTimestamp)),
-            color: remoteSpace.color,
-            deletedAt: remoteSpace.deletedAt,
-            isPinned: remoteSpace.isPinned ?? emptyPlaceholder.isPinned,
-          };
-
-          localSpaceUpdates.push(adoptedSpace);
-          mergedSpaces.push(adoptedSpace);
-        } else {
-          // Remote-only space: Assign new local ID and add to local updates
+        if (remoteSpace.deletedAt !== undefined) {
+          // Case 3 (Remote Tombstone, No Local Space):
+          // Preserve tombstone in mergedSpaces for cloud propagation, but DO NOT add to localUpdates.spaces.
           const newLocalSpaceId = ++maxLocalSpaceId;
           if (remoteSpace.id !== undefined) {
             remoteToLocalSpaceId.set(remoteSpace.id, newLocalSpaceId);
           }
-
-          const incomingSpace: Space = {
+          const tombstoneSpace: Space = {
             ...remoteSpace,
             id: newLocalSpaceId,
             uuid: remoteSpace.uuid || crypto.randomUUID(),
             updatedAt: toEpochMs(remoteSpace.updatedAt ?? remote.clientTimestamp),
           };
+          mergedSpaces.push(tombstoneSpace);
+        } else {
+          // Empty Placeholder Adoption Fallback:
+          // If an incoming remote space does not match any local space by UUID or fingerprint,
+          // check if there is an active (non-deleted) local space with the exact same name
+          // and 0 associated local tabs.
+          const emptyPlaceholder = local.spaces.find(
+            (ls) =>
+              ls.deletedAt === undefined &&
+              ls.name.trim() === remoteSpace.name.trim() &&
+              (localTabCountBySpaceId.get(ls.id!) ?? 0) === 0 &&
+              (ls.id === undefined || !matchedLocalSpaceIds.has(ls.id)),
+          );
 
-          localSpaceUpdates.push(incomingSpace);
-          mergedSpaces.push(incomingSpace);
+          if (emptyPlaceholder) {
+            if (emptyPlaceholder.id !== undefined) {
+              matchedLocalSpaceIds.add(emptyPlaceholder.id);
+            }
+            const localSpaceId = emptyPlaceholder.id ?? ++maxLocalSpaceId;
+            if (remoteSpace.id !== undefined) {
+              remoteToLocalSpaceId.set(remoteSpace.id, localSpaceId);
+            }
+            matchedSpacePairs.set(localSpaceId, {
+              localSpace: emptyPlaceholder,
+              remoteSpace,
+            });
+
+            // Constraint 2: Assign remote space's UUID to local space so UUIDs match across devices
+            const adoptedUuid = remoteSpace.uuid || emptyPlaceholder.uuid || crypto.randomUUID();
+
+            const adoptedSpace: Space = {
+              id: localSpaceId,
+              uuid: adoptedUuid,
+              name: remoteSpace.name,
+              createdAt: remoteSpace.createdAt,
+              updatedAt: Math.max(toEpochMs(emptyPlaceholder.updatedAt ?? 0), toEpochMs(remoteSpace.updatedAt ?? remote.clientTimestamp)),
+              color: remoteSpace.color,
+              deletedAt: remoteSpace.deletedAt,
+              isPinned: remoteSpace.isPinned ?? emptyPlaceholder.isPinned,
+            };
+
+            localSpaceUpdates.push(adoptedSpace);
+            mergedSpaces.push(adoptedSpace);
+          } else {
+            // Remote-only space: Assign new local ID and add to local updates
+            const newLocalSpaceId = ++maxLocalSpaceId;
+            if (remoteSpace.id !== undefined) {
+              remoteToLocalSpaceId.set(remoteSpace.id, newLocalSpaceId);
+            }
+
+            const incomingSpace: Space = {
+              ...remoteSpace,
+              id: newLocalSpaceId,
+              uuid: remoteSpace.uuid || crypto.randomUUID(),
+              updatedAt: toEpochMs(remoteSpace.updatedAt ?? remote.clientTimestamp),
+            };
+
+            localSpaceUpdates.push(incomingSpace);
+            mergedSpaces.push(incomingSpace);
+          }
         }
       }
     }
@@ -278,6 +328,7 @@ export class DiffEngine {
       localSpaceUpdates,
       remoteToLocalSpaceId,
       matchedSpacePairs,
+      hasRemoteChanges,
     };
   }
 
@@ -1229,6 +1280,7 @@ export class DiffEngine {
 
     const hasRemoteChanges =
       spacesDiffer ||
+      Boolean(spacesResult.hasRemoteChanges) ||
       tabsDiffer ||
       readLaterDiffer ||
       rulesDiffer ||

@@ -332,21 +332,30 @@ class SpaceService {
     }
 
     /**
-     * Soft deletes a space.
+     * Soft deletes a space and all its child tabs atomically.
      */
-    async softDeleteSpace(spaceId: number) {
-        const result = await db.softDeleteSpace(spaceId);
+    async softDeleteSpace(spaceId: number): Promise<void> {
+        const now = Date.now();
+        await db.transaction('rw', [db.spaces, db.tabs], async () => {
+            await db.spaces.update(spaceId, { deletedAt: now, updatedAt: now });
+            await db.tabs.where('spaceId').equals(spaceId).modify({ deletedAt: now, updatedAt: now });
+        });
         contractRegistry.notifyLocalMutation();
-        return result;
     }
 
     /**
-     * Restores a soft-deleted space.
+     * Restores a soft-deleted space and all its child tabs atomically.
      */
-    async undoDeleteSpace(spaceId: number) {
-        const result = await db.undoDeleteSpace(spaceId);
+    async undoDeleteSpace(spaceId: number): Promise<void> {
+        const now = Date.now();
+        await db.transaction('rw', [db.spaces, db.tabs], async () => {
+            await db.spaces.update(spaceId, { deletedAt: undefined, updatedAt: now });
+            await db.tabs.where('spaceId').equals(spaceId).modify((tab: Tab) => {
+                delete tab.deletedAt;
+                tab.updatedAt = now;
+            });
+        });
         contractRegistry.notifyLocalMutation();
-        return result;
     }
 
     /**
