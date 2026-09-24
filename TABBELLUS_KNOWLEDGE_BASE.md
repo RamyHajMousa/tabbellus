@@ -56,18 +56,18 @@ tabbellus/
     │   ├── licensing/          # Entitlement validation, signature verification, and cache manager
     │   ├── sync/               # Cloud synchronization modules (Google Drive, E2EE)
     │   │   ├── api/            # Google Drive Auth & REST API client layer
-    │   │   │   ├── types.ts    # DriveFileMetadata, DriveFileListResponse, DriveApiResult<T>, VaultPayload (ETag OCC & conflict support)
+    │   │   │   ├── types.ts    # DriveFileMetadata, DriveFileListResponse, DriveApiResult<T>, VaultPayload (Version guard & conflict support)
     │   │   │   ├── googleAuthClient.ts  # OAuth2 token lifecycle (chrome.identity wrapper)
-    │   │   │   ├── googleDriveClient.ts # Drive v3 REST client (appDataFolder CRUD, 401 auto-recovery, ETag If-Match OCC & HTTP 412/409 handling)
+    │   │   │   ├── googleDriveClient.ts # Drive v3 REST client (appDataFolder CRUD, 401 auto-recovery, pre-flight version guard & conflict handling)
     │   │   │   ├── index.ts    # Barrel re-export
     │   │   │   └── __tests__/  # googleAuthClient.test.ts (13 tests), googleDriveClient.test.ts (24 tests)
     │   │   ├── engine/         # Snapshot serialization & LWW reconciliation engine layer
     │   │   │   ├── types.ts    # SyncVaultSnapshot, ReconciliationResult, SyncStorageState
     │   │   │   ├── snapshotSerializer.ts # Dexie transaction extraction, atomic bulkPut updates, schema validation
     │   │   │   ├── diffEngine.ts         # Record-level LWW diffing, soft-delete tombstones, FK remapping
-    │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, ETag OCC retry loop with jitter
+    │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, Drive v3 version guard retry loop with jitter
     │   │   │   ├── index.ts    # Barrel re-export
-    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (7 tests), diffEngine.test.ts (16 tests), syncEngine.test.ts (33 tests)
+    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (7 tests), diffEngine.test.ts (16 tests), syncEngine.test.ts (35 tests)
     │   │   ├── crypto/         # Pure WebCrypto E2EE primitives & ephemeral session key store
     │   │   │   ├── types.ts    # EncryptedVaultEnvelope, KeyStoreRecord, CryptoErrorCode, CryptoEngineError
     │   │   │   ├── webCrypto.ts # WebCryptoEngine (PBKDF2 600k, AES-GCM 256, chunked Base64, auth tag validation)
@@ -1723,7 +1723,37 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   Production build (`npm run build`): clean build in 9.51s.
 
-<!-- Last Updated: 2026-09-24 (Phase 55: Fix Imported Space Sync Omission & Prevent Tab Grafting: 743 Unit Tests Passing across 58 Test Files) -->
+### **Phase 56: Fix Cross-Device Cloud Sync Overwrite using Drive v3 Version Guard**
+*   **Context & Problem:**
+    *   Google Drive API v3 does not support `etag` in File fields (it returns HTTP 400 "Invalid field selection: etag") and does not support `If-Match` headers on uploads.
+    *   To prevent concurrent syncs from silently overwriting each other across devices, TabBellus leverages Google Drive's native monotonically increasing `version` field to implement a pre-flight version guard and a jittered retry loop in `SyncEngine`.
+*   **API & Type System Cleanse (`src/pro/sync/api/types.ts` & `src/pro/sync/api/googleDriveClient.ts`):**
+    *   Removed `etag` from all Google Drive API `fields` query parameters.
+    *   `DriveFileMetadata`: Extended with `version?: string`.
+    *   `DriveApiResult<T>`: Extended discriminated union with `version?: string` and `conflict?: boolean`.
+    *   `findVaultFile`: Queries `fields=files(id,name,mimeType,modifiedTime,version,appProperties)`.
+    *   `uploadVaultFile`:
+        *   Accepts `expectedVersion?: string`.
+        *   When `existingFileId` and `expectedVersion` are provided, issues a lightweight GET request `https://www.googleapis.com/drive/v3/files/${existingFileId}?fields=version`.
+        *   If the fetched remote `version !== expectedVersion`, aborts upload immediately and returns `{ success: false, conflict: true, version: remoteVersion }`.
+        *   On actual upload PATCH, appends `fields=id,name,version,modifiedTime` and returns the updated `version` in the response result.
+*   **Sync Engine Jittered Retry Loop (`src/pro/sync/engine/syncEngine.ts`):**
+    *   Step 3 (Download): Records `this.lastDownloadedVersion = remoteMetadata.version`.
+    *   Step 7 (Upload): Passes `this.lastDownloadedVersion` as `expectedVersion` to `uploadVaultFile`.
+    *   **Version Conflict Retry Loop (`result.conflict === true`):**
+        *   Waits with randomized jitter: `250ms + Math.random() * 500ms`.
+        *   Re-downloads the remote vault file and captures the new `version`.
+        *   Re-reconciles state using `DiffEngine.reconcile()`.
+        *   Applies any local updates to Dexie.
+        *   Re-attempts upload with the new version baseline, up to `MAX_CONFLICT_RETRIES = 3`.
+        *   Fails open safely without crashing or corrupting local Dexie state if retries are exhausted.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/api/__tests__/googleDriveClient.test.ts`: Verified that `findVaultFile` and `uploadVaultFile` do not request `etag` in `fields`, `uploadVaultFile` returns `conflict: true` on version mismatch, and proceeds to upload on matching version (24/24 passing).
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Verified that when upload returns `conflict: true`, the engine backs off with jitter, re-downloads the updated remote snapshot, re-merges, and successfully uploads on retry, and aborts safely if `MAX_CONFLICT_RETRIES` is exceeded (35/35 passing).
+    *   Full test suite: **743/743 passing tests across 58 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+
+<!-- Last Updated: 2026-09-24 (Phase 56: Fix Cross-Device Cloud Sync Overwrite using Drive v3 Version Guard: 743 Unit Tests Passing across 58 Test Files) -->
 
 
 

@@ -550,7 +550,7 @@ describe('SyncEngine', () => {
     });
 
     describe('Optimistic Concurrency Control (OCC) & Conflict Retries', () => {
-      it('handles concurrent overwrite collision (HTTP 412), backs off with jitter, re-downloads fresh ETag, re-merges, and succeeds on retry', async () => {
+      it('when upload returns conflict: true, the engine backs off, re-downloads the updated remote snapshot, re-merges, and successfully uploads on retry', async () => {
         mockedAuth.getAuthToken.mockResolvedValue({
           success: true,
           data: 'valid-token',
@@ -564,13 +564,13 @@ describe('SyncEngine', () => {
                 id: 'vault-occ-file-01',
                 name: 'tabbellus_vault.json',
                 mimeType: 'application/json',
-                etag: 'etag-v1',
+                version: '1',
               },
             ],
           },
         });
 
-        // 1st download returns initial remote state with etag-v1
+        // 1st download returns initial remote state with version '1'
         const initialRemoteSnapshot = {
           version: 1,
           clientTimestamp: 1000,
@@ -580,7 +580,7 @@ describe('SyncEngine', () => {
           readLater: [],
         };
 
-        // 2nd download (on conflict retry) returns updated remote state with etag-v2
+        // 2nd download (on conflict retry) returns updated remote state with version '2'
         const updatedRemoteSnapshot = {
           version: 1,
           clientTimestamp: 2500,
@@ -596,22 +596,22 @@ describe('SyncEngine', () => {
         mockedDrive.downloadVaultFile
           .mockResolvedValueOnce({
             success: true,
-            etag: 'etag-v1',
+            version: '1',
             data: initialRemoteSnapshot as unknown as VaultPayload,
           })
           .mockResolvedValueOnce({
             success: true,
-            etag: 'etag-v2',
+            version: '2',
             data: updatedRemoteSnapshot as unknown as VaultPayload,
           });
 
-        // 1st upload fails with HTTP 412 conflict; 2nd upload succeeds with etag-v3
+        // 1st upload fails with version conflict; 2nd upload succeeds with version '3'
         mockedDrive.uploadVaultFile
           .mockResolvedValueOnce({
             success: false,
-            error: 'Precondition Failed: Remote file has been modified concurrently.',
-            statusCode: 412,
+            error: 'Conflict: Remote file version mismatch (expected: 1, remote: 2).',
             conflict: true,
+            version: '2',
           })
           .mockResolvedValueOnce({
             success: true,
@@ -619,8 +619,9 @@ describe('SyncEngine', () => {
               id: 'vault-occ-file-01',
               name: 'tabbellus_vault.json',
               mimeType: 'application/json',
-              etag: 'etag-v3',
+              version: '3',
             },
+            version: '3',
           });
 
         // Local state has a distinct space
@@ -635,10 +636,10 @@ describe('SyncEngine', () => {
         expect(mockedDrive.downloadVaultFile).toHaveBeenCalledTimes(2);
         expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(2);
 
-        // 1st upload used etag-v1
-        expect(mockedDrive.uploadVaultFile.mock.calls[0][3]).toBe('etag-v1');
-        // 2nd upload used fresh etag-v2 from re-download
-        expect(mockedDrive.uploadVaultFile.mock.calls[1][3]).toBe('etag-v2');
+        // 1st upload used initial version '1'
+        expect(mockedDrive.uploadVaultFile.mock.calls[0][3]).toBe('1');
+        // 2nd upload used fresh version '2' from re-download
+        expect(mockedDrive.uploadVaultFile.mock.calls[1][3]).toBe('2');
 
         // Merged state in Dexie contains local space, initial remote space, and concurrently added space
         const localSpaces = await db.spaces.toArray();
@@ -665,7 +666,7 @@ describe('SyncEngine', () => {
                 id: 'vault-conflict-forever',
                 name: 'tabbellus_vault.json',
                 mimeType: 'application/json',
-                etag: 'etag-start',
+                version: 'version-start',
               },
             ],
           },
@@ -682,15 +683,14 @@ describe('SyncEngine', () => {
 
         mockedDrive.downloadVaultFile.mockResolvedValue({
           success: true,
-          etag: 'etag-repeat',
+          version: 'version-repeat',
           data: remoteSnapshot as unknown as VaultPayload,
         });
 
-        // uploadVaultFile constantly conflicts (412)
+        // uploadVaultFile constantly conflicts
         mockedDrive.uploadVaultFile.mockResolvedValue({
           success: false,
-          error: 'Precondition Failed: Remote file has been modified concurrently.',
-          statusCode: 412,
+          error: 'Conflict: Remote file version mismatch.',
           conflict: true,
         });
 

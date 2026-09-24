@@ -229,10 +229,15 @@ export class GoogleDriveClient {
       if (etag && data && typeof data === 'object' && !('etag' in data)) {
         (data as Record<string, unknown>).etag = etag;
       }
+      const dataVersion = (data && typeof data === 'object' && 'version' in data && (data as Record<string, unknown>).version != null)
+        ? String((data as Record<string, unknown>).version)
+        : undefined;
+
       return {
         success: true,
         data,
         ...(etag ? { etag } : {}),
+        ...(dataVersion ? { version: dataVersion } : {}),
       };
     } catch (err: unknown) {
       return normalizeNetworkError(err);
@@ -253,7 +258,7 @@ export class GoogleDriveClient {
         fetch(
           `${DRIVE_API_BASE}?spaces=appDataFolder` +
             `&q=name='${fileName}' and trashed=false` +
-            `&fields=files(id,name,mimeType,modifiedTime,appProperties,etag)`,
+            `&fields=files(id,name,mimeType,modifiedTime,version,appProperties)`,
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -261,7 +266,10 @@ export class GoogleDriveClient {
       async (response) => {
         const json = await response.json();
         return {
-          files: (json.files ?? []) as DriveFileMetadata[],
+          files: (json.files ?? []).map((file: Record<string, unknown>) => ({
+            ...file,
+            version: file.version != null ? String(file.version) : undefined,
+          })) as DriveFileMetadata[],
           nextPageToken: json.nextPageToken as string | undefined,
         };
       },
@@ -290,19 +298,55 @@ export class GoogleDriveClient {
    * - If `existingFileId` is provided: PATCH (update) the existing file.
    * - If no `existingFileId`: POST (create) a new file with `parents: ['appDataFolder']`.
    *
-   * Uses `multipart/related` upload for combined metadata + media.
+   * If `existingFileId` and `expectedVersion` are provided:
+   * Issues a lightweight GET request:
+   * `https://www.googleapis.com/drive/v3/files/${existingFileId}?fields=version`
+   * If the fetched remote version !== expectedVersion, halts upload immediately and returns
+   * `{ success: false, conflict: true, version: remoteVersion }`.
+   *
+   * Uses `multipart/related` upload with `fields=id,name,version,modifiedTime` and
+   * returns the updated `version` in the response result.
    *
    * @param content - JSON string content for the vault file body.
    * @param existingFileId - Optional file ID to update instead of create.
    * @param fileName - Name for the file. Defaults to 'tabbellus_vault.json'.
+   * @param expectedVersion - Expected version from Google Drive for pre-flight guard.
    * @returns The created/updated file metadata.
    */
   async uploadVaultFile(
     content: string,
     existingFileId?: string,
     fileName = 'tabbellus_vault.json',
-    ifMatchEtag?: string,
+    expectedVersion?: string,
   ): Promise<DriveApiResult<DriveFileMetadata>> {
+    if (existingFileId && expectedVersion !== undefined) {
+      const versionCheckResult = await this.executeWithAuth(
+        (token) =>
+          fetch(`${DRIVE_API_BASE}/${existingFileId}?fields=version`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        async (response) => {
+          const json = await response.json();
+          return json.version != null ? String(json.version) : undefined;
+        },
+      );
+
+      if (!versionCheckResult.success) {
+        return versionCheckResult as DriveApiResult<DriveFileMetadata>;
+      }
+
+      const remoteVersion = versionCheckResult.data;
+      if (remoteVersion !== expectedVersion) {
+        return {
+          success: false,
+          error: `Conflict: Remote file version mismatch (expected: ${expectedVersion}, remote: ${remoteVersion}).`,
+          conflict: true,
+          version: remoteVersion,
+          statusCode: 409,
+        };
+      }
+    }
+
     const boundary = generateBoundary();
 
     const metadata: Record<string, unknown> = existingFileId
@@ -314,8 +358,8 @@ export class GoogleDriveClient {
     return this.executeWithAuth(
       (token) => {
         const url = existingFileId
-          ? `${DRIVE_UPLOAD_BASE}/${existingFileId}?uploadType=multipart`
-          : `${DRIVE_UPLOAD_BASE}?uploadType=multipart`;
+          ? `${DRIVE_UPLOAD_BASE}/${existingFileId}?uploadType=multipart&fields=id,name,version,modifiedTime`
+          : `${DRIVE_UPLOAD_BASE}?uploadType=multipart&fields=id,name,version,modifiedTime`;
 
         const method = existingFileId ? 'PATCH' : 'POST';
 
@@ -324,17 +368,19 @@ export class GoogleDriveClient {
           'Content-Type': `multipart/related; boundary=${boundary}`,
         };
 
-        if (existingFileId && ifMatchEtag) {
-          headers['If-Match'] = ifMatchEtag;
-        }
-
         return fetch(url, {
           method,
           headers,
           body,
         });
       },
-      async (response) => (await response.json()) as DriveFileMetadata,
+      async (response) => {
+        const json = await response.json();
+        return {
+          ...json,
+          version: json.version != null ? String(json.version) : undefined,
+        } as DriveFileMetadata;
+      },
     );
   }
 }

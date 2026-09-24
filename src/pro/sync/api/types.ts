@@ -19,6 +19,7 @@ export interface DriveFileMetadata {
   name: string;
   mimeType: string;
   modifiedTime?: string;
+  version?: string;
   appProperties?: Record<string, string>;
   etag?: string;
 }
@@ -53,8 +54,9 @@ export type DriveApiResult<T> =
   | {
       success: true;
       data: T;
-      etag?: string;
+      version?: string;
       conflict?: false;
+      etag?: string;
     }
   | {
       success: false;
@@ -64,6 +66,7 @@ export type DriveApiResult<T> =
       rateLimited?: boolean;
       retryAfterSeconds?: number;
       conflict?: boolean;
+      version?: string;
       etag?: string;
     };
 

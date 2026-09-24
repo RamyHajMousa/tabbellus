@@ -266,47 +266,117 @@ describe('GoogleDriveClient', () => {
       expect(body).toContain('Content-Type: application/json; charset=UTF-8');
     });
 
-    it('attaches If-Match header when ifMatchEtag is provided for existing file update (PATCH)', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ id: 'existing-file-001', name: 'tabbellus_vault.json', mimeType: 'application/json' }),
-      });
+    it('verifies findVaultFile and uploadVaultFile do not request etag in their fields parameters', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ files: [] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              id: 'existing-file-001',
+              name: 'tabbellus_vault.json',
+              mimeType: 'application/json',
+              version: '2',
+            }),
+        });
 
-      const result = await client.uploadVaultFile('{"test":1}', 'existing-file-001', 'tabbellus_vault.json', '"etag-v1"');
-
-      expect(result.success).toBe(true);
-      const [, options] = mockFetch.mock.calls[0];
-      expect(options.method).toBe('PATCH');
-      expect(options.headers['If-Match']).toBe('"etag-v1"');
-    });
-
-    it('omits If-Match header when ifMatchEtag is not provided on PATCH', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ id: 'existing-file-001', name: 'tabbellus_vault.json', mimeType: 'application/json' }),
-      });
+      await client.findVaultFile();
+      const [findUrl] = mockFetch.mock.calls[0];
+      expect(findUrl).toContain('fields=files(id,name,mimeType,modifiedTime,version,appProperties)');
+      expect(findUrl).not.toContain('etag');
 
       await client.uploadVaultFile('{"test":1}', 'existing-file-001');
-
-      const [, options] = mockFetch.mock.calls[0];
-      expect(options.method).toBe('PATCH');
-      expect(options.headers['If-Match']).toBeUndefined();
+      const [uploadUrl] = mockFetch.mock.calls[1];
+      expect(uploadUrl).toContain('fields=id,name,version,modifiedTime');
+      expect(uploadUrl).not.toContain('etag');
     });
 
-    it('does not attach If-Match header on POST (create new file) even if ifMatchEtag is passed', async () => {
-      mockFetch.mockResolvedValue({
+    it('performs a pre-flight version check and returns conflict: true if the remote version does not match expectedVersion', async () => {
+      // Pre-flight GET returns version '5'
+      mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ id: 'new-file-001', name: 'tabbellus_vault.json', mimeType: 'application/json' }),
+        json: () => Promise.resolve({ version: '5' }),
       });
 
-      await client.uploadVaultFile('{"test":1}', undefined, 'tabbellus_vault.json', '"etag-v1"');
+      const result = await client.uploadVaultFile(
+        '{"test":1}',
+        'existing-file-001',
+        'tabbellus_vault.json',
+        '4', // expectedVersion is 4, remote is 5 -> conflict
+      );
 
-      const [, options] = mockFetch.mock.calls[0];
-      expect(options.method).toBe('POST');
-      expect(options.headers['If-Match']).toBeUndefined();
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.conflict).toBe(true);
+        expect(result.version).toBe('5');
+        expect(result.statusCode).toBe(409);
+        expect(result.error).toContain('Remote file version mismatch');
+      }
+
+      // Verify that the pre-flight GET request was issued
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [checkUrl, checkOptions] = mockFetch.mock.calls[0];
+      expect(checkUrl).toBe('https://www.googleapis.com/drive/v3/files/existing-file-001?fields=version');
+      expect(checkOptions?.method).toBeUndefined(); // default GET
+
+      // Verify no upload PATCH call occurred
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        expect.stringContaining('upload/drive/v3/files'),
+        expect.anything(),
+      );
+    });
+
+    it('proceeds with upload if remote version matches expectedVersion', async () => {
+      // 1st call: pre-flight GET returns version '5'
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ version: '5' }),
+      });
+
+      // 2nd call: PATCH upload succeeds and returns updated version '6'
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            id: 'existing-file-001',
+            name: 'tabbellus_vault.json',
+            mimeType: 'application/json',
+            version: '6',
+          }),
+      });
+
+      const result = await client.uploadVaultFile(
+        '{"test":1}',
+        'existing-file-001',
+        'tabbellus_vault.json',
+        '5', // expectedVersion matches remote
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.version).toBe('6');
+      if (result.success) {
+        expect(result.data.version).toBe('6');
+        expect(result.data.id).toBe('existing-file-001');
+      }
+
+      // Verify 2 calls: GET check -> PATCH upload
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [checkUrl] = mockFetch.mock.calls[0];
+      expect(checkUrl).toBe('https://www.googleapis.com/drive/v3/files/existing-file-001?fields=version');
+
+      const [uploadUrl, uploadOptions] = mockFetch.mock.calls[1];
+      expect(uploadUrl).toContain(
+        'upload/drive/v3/files/existing-file-001?uploadType=multipart&fields=id,name,version,modifiedTime',
+      );
+      expect(uploadOptions.method).toBe('PATCH');
     });
   });
 
@@ -386,7 +456,7 @@ describe('GoogleDriveClient', () => {
         statusText: 'Precondition Failed',
       });
 
-      const result = await client.uploadVaultFile('{}', 'existing-1', 'tabbellus_vault.json', '"etag-old"');
+      const result = await client.uploadVaultFile('{}', 'existing-1');
 
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -403,7 +473,7 @@ describe('GoogleDriveClient', () => {
         statusText: 'Conflict',
       });
 
-      const result = await client.uploadVaultFile('{}', 'existing-1', 'tabbellus_vault.json', '"etag-old"');
+      const result = await client.uploadVaultFile('{}', 'existing-1');
 
       expect(result.success).toBe(false);
       if (!result.success) {

@@ -69,6 +69,7 @@ export class SyncEngine implements SyncProvider {
   private readonly MAX_CONFLICT_RETRIES = 3;
   private mutationUnsubscribe: (() => void) | null = null;
   private rateLimitResetAt = 0;
+  private lastDownloadedVersion?: string;
 
   constructor() {
     this.initFromStorage();
@@ -341,8 +342,10 @@ export class SyncEngine implements SyncProvider {
 
         let vaultFileId: string | undefined =
           findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
-        let currentVaultEtag: string | undefined =
-          findResult.data.files.length > 0 ? findResult.data.files[0].etag : undefined;
+        let currentVaultVersion: string | undefined =
+          findResult.data.files.length > 0
+            ? (findResult.data.files[0].version ?? findResult.data.files[0].etag)
+            : undefined;
 
         let remoteSnapshot: SyncVaultSnapshot | null = null;
 
@@ -360,8 +363,10 @@ export class SyncEngine implements SyncProvider {
             throw new Error(`Failed to download remote vault: ${downloadResult.error}`);
           }
 
-          if (downloadResult.etag) {
-            currentVaultEtag = downloadResult.etag;
+          if (downloadResult.version) {
+            currentVaultVersion = downloadResult.version;
+          } else if (!currentVaultVersion && downloadResult.etag) {
+            currentVaultVersion = downloadResult.etag;
           }
 
           const raw = downloadResult.data;
@@ -462,7 +467,7 @@ export class SyncEngine implements SyncProvider {
           JSON.stringify(unencryptedVaultContent),
           vaultFileId,
           VAULT_FILE_NAME,
-          currentVaultEtag,
+          currentVaultVersion,
         );
 
         if (!uploadResult.success) {
@@ -996,11 +1001,13 @@ export class SyncEngine implements SyncProvider {
 
       let remoteSnapshot: SyncVaultSnapshot | null = null;
       let vaultFileId: string | undefined = findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
-      let currentVaultEtag: string | undefined = findResult.data.files.length > 0 ? findResult.data.files[0].etag : undefined;
+      const remoteMetadata = findResult.data.files.length > 0 ? findResult.data.files[0] : undefined;
+      let currentVaultEtag: string | undefined = remoteMetadata?.etag;
       const vaultExists = Boolean(vaultFileId);
 
       // Step 3: Download and decrypt remote snapshot if it exists
       if (vaultExists && !options?.forceUnencrypted) {
+        this.lastDownloadedVersion = remoteMetadata?.version ?? remoteMetadata?.etag;
         const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId!);
         if (!downloadResult.success) {
           console.error(
@@ -1044,6 +1051,12 @@ export class SyncEngine implements SyncProvider {
             error: downloadResult.error ?? 'FAILED_REMOTE_DOWNLOAD',
             timestamp: Date.now(),
           };
+        }
+
+        if (downloadResult.version) {
+          this.lastDownloadedVersion = downloadResult.version;
+        } else if (!this.lastDownloadedVersion && downloadResult.etag) {
+          this.lastDownloadedVersion = downloadResult.etag;
         }
 
         if (downloadResult.etag) {
@@ -1194,7 +1207,7 @@ export class SyncEngine implements SyncProvider {
           uploadContent,
           vaultFileId,
           VAULT_FILE_NAME,
-          currentVaultEtag,
+          this.lastDownloadedVersion,
         );
 
         // OCC Conflict Resolution Loop
@@ -1202,18 +1215,18 @@ export class SyncEngine implements SyncProvider {
         while (!uploadResult.success && uploadResult.conflict && conflictRetries < this.MAX_CONFLICT_RETRIES) {
           conflictRetries++;
           console.warn(
-            `[SyncEngine] Vault conflict detected (HTTP 412/409). Attempting OCC retry ${conflictRetries}/${this.MAX_CONFLICT_RETRIES}...`,
+            `[SyncEngine] Vault conflict detected. Attempting OCC retry ${conflictRetries}/${this.MAX_CONFLICT_RETRIES}...`,
           );
 
-          // Apply random jitter delay (between 250ms and 750ms)
-          const jitterMs = Math.floor(Math.random() * (750 - 250 + 1)) + 250;
+          // Apply random jitter delay: 250ms + Math.random() * 500ms
+          const jitterMs = 250 + Math.random() * 500;
           await new Promise((resolve) => setTimeout(resolve, jitterMs));
 
           if (!vaultFileId) {
             break;
           }
 
-          // Re-download the remote vault and its new ETag
+          // Re-download the remote vault file (and capture the new version)
           const retryDownload = await googleDriveClient.downloadVaultFile(vaultFileId);
           if (!retryDownload.success) {
             console.error(
@@ -1237,6 +1250,15 @@ export class SyncEngine implements SyncProvider {
               timestamp: Date.now(),
             };
           }
+
+          // Capture the new version baseline
+          this.lastDownloadedVersion =
+            retryDownload.version ??
+            uploadResult.version ??
+            ((retryDownload.data as unknown as Record<string, unknown>)?.version !== undefined
+              ? String((retryDownload.data as unknown as Record<string, unknown>).version)
+              : undefined) ??
+            retryDownload.etag;
 
           currentVaultEtag = retryDownload.etag ?? (retryDownload.data as { etag?: string })?.etag;
 
@@ -1334,14 +1356,16 @@ export class SyncEngine implements SyncProvider {
                 id: vaultFileId,
                 name: VAULT_FILE_NAME,
                 mimeType: 'application/json',
+                version: this.lastDownloadedVersion,
                 etag: currentVaultEtag,
               },
+              version: this.lastDownloadedVersion,
               etag: currentVaultEtag,
             };
             break;
           }
 
-          // Build new upload content and re-attempt upload with the new ETag
+          // Build new upload content and re-attempt upload with the new version baseline
           const freshPayloadResult = await this.buildUploadContent(
             reconciliation.mergedSnapshot,
             shouldEncrypt,
@@ -1359,7 +1383,7 @@ export class SyncEngine implements SyncProvider {
             uploadContent,
             vaultFileId,
             VAULT_FILE_NAME,
-            currentVaultEtag,
+            this.lastDownloadedVersion,
           );
         }
 
@@ -1411,6 +1435,7 @@ export class SyncEngine implements SyncProvider {
         }
 
         vaultFileId = uploadResult.data.id;
+        this.lastDownloadedVersion = uploadResult.version ?? uploadResult.data.version ?? this.lastDownloadedVersion;
       }
 
       // Step 8: Update state to synced
