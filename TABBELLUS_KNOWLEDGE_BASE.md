@@ -56,18 +56,18 @@ tabbellus/
     │   ├── licensing/          # Entitlement validation, signature verification, and cache manager
     │   ├── sync/               # Cloud synchronization modules (Google Drive, E2EE)
     │   │   ├── api/            # Google Drive Auth & REST API client layer
-    │   │   │   ├── types.ts    # DriveFileMetadata, DriveFileListResponse, DriveApiResult<T>, VaultPayload
+    │   │   │   ├── types.ts    # DriveFileMetadata, DriveFileListResponse, DriveApiResult<T>, VaultPayload (ETag OCC & conflict support)
     │   │   │   ├── googleAuthClient.ts  # OAuth2 token lifecycle (chrome.identity wrapper)
-    │   │   │   ├── googleDriveClient.ts # Drive v3 REST client (appDataFolder CRUD, 401 auto-recovery)
+    │   │   │   ├── googleDriveClient.ts # Drive v3 REST client (appDataFolder CRUD, 401 auto-recovery, ETag If-Match OCC & HTTP 412/409 handling)
     │   │   │   ├── index.ts    # Barrel re-export
-    │   │   │   └── __tests__/  # googleAuthClient.test.ts (13 tests), googleDriveClient.test.ts (16 tests)
+    │   │   │   └── __tests__/  # googleAuthClient.test.ts (13 tests), googleDriveClient.test.ts (24 tests)
     │   │   ├── engine/         # Snapshot serialization & LWW reconciliation engine layer
     │   │   │   ├── types.ts    # SyncVaultSnapshot, ReconciliationResult, SyncStorageState
     │   │   │   ├── snapshotSerializer.ts # Dexie transaction extraction, atomic bulkPut updates, schema validation
     │   │   │   ├── diffEngine.ts         # Record-level LWW diffing, soft-delete tombstones, FK remapping
-    │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, storage state
+    │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, ETag OCC retry loop with jitter
     │   │   │   ├── index.ts    # Barrel re-export
-    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (7 tests), diffEngine.test.ts (16 tests), syncEngine.test.ts (15 tests)
+    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (7 tests), diffEngine.test.ts (16 tests), syncEngine.test.ts (31 tests)
     │   │   ├── crypto/         # Pure WebCrypto E2EE primitives & ephemeral session key store
     │   │   │   ├── types.ts    # EncryptedVaultEnvelope, KeyStoreRecord, CryptoErrorCode, CryptoEngineError
     │   │   │   ├── webCrypto.ts # WebCryptoEngine (PBKDF2 600k, AES-GCM 256, chunked Base64, auth tag validation)
@@ -1553,7 +1553,40 @@ The project has completed major refactoring phases to optimize performance, clea
     *   `npx tsc --noEmit`: 0 diagnostics.
     *   `npm run build`: Production build succeeded in 12.34s with zero bundle warnings.
 
-<!-- Last Updated: 2026-09-22 (Phase 50: Directive Autocomplete & Dynamic Typeahead Engine: 714 Unit Tests Passing across 58 Test Files) -->
+### Phase 51: Cross-Device Cloud Sync Concurrency Protection (If-Match ETag OCC & Jittered Retry Loop)
+*   **Context & Architectural Scope:**
+    *   In multi-device setups, concurrent synchronizations could overwrite remote state without detecting mid-flight mutations.
+    *   Implemented Optimistic Concurrency Control (OCC) using Google Drive v3 `If-Match` ETags on file upload (PATCH) and an exponential jittered retry loop in `SyncEngine`.
+    *   Strictly preserved Zero-Contamination Boundary: all modifications isolated to `src/pro/sync/` with zero Free Core alterations or new third-party dependencies.
+*   **Type System Extensions (`src/pro/sync/api/types.ts`):**
+    *   `DriveFileMetadata`: Extended with optional `etag?: string`.
+    *   `DriveApiResult<T>`: Extended discriminated union with optional `etag?: string` and `conflict?: boolean`.
+*   **Google Drive REST Client (`src/pro/sync/api/googleDriveClient.ts`):**
+    *   `downloadVaultFile`: Captures response ETag header (`ETag` or `etag`) or payload metadata object and forwards it in `DriveApiResult`.
+    *   `findVaultFile`: Explicitly requests `etag` in Google Drive query fields (`files(id, name, modifiedTime, size, mimeType, etag)`).
+    *   `uploadVaultFile`: Accepts optional `ifMatchEtag?: string`. For existing file updates (PATCH), sets `If-Match: ifMatchEtag` in HTTP headers.
+    *   `normalizeHttpError`: Detects HTTP 412 (Precondition Failed) and HTTP 409 (Conflict), classifying them into `conflict: true` with human-readable error descriptions.
+*   **Sync Engine Reconciliation & OCC Retry Loop (`src/pro/sync/engine/syncEngine.ts`):**
+    *   Extracted reusable helpers `decryptAndValidatePayload` and `buildUploadContent` to unify remote payload validation without code duplication.
+    *   Step 3 (Download): Tracks `currentVaultEtag` from remote vault result.
+    *   Step 7 (Upload): Passes `currentVaultEtag` to `uploadVaultFile`.
+    *   **OCC Conflict Retry Handler (`conflict === true`):**
+        *   Calculates a random backoff jitter between 250ms and 750ms (`250 + Math.floor(Math.random() * 501)`).
+        *   Re-downloads the latest remote vault and extracts the updated remote ETag.
+        *   Re-snapshots local Dexie tables (`spaces`, `tabs`, `bookmarks`, `archivedSpaces`) to capture any concurrent local writes.
+        *   Re-reconciles state via `DiffEngine.reconcile` (resolving conflicts via Last-Write-Wins and tombstone propagation).
+        *   Applies any new remote changes locally via `SnapshotSerializer.applyRemoteSnapshot`.
+        *   Re-encrypts payload and re-attempts upload with the fresh ETag.
+        *   Supports up to `MAX_CONFLICT_RETRIES = 3` (4 total upload attempts).
+        *   Convergence bypass: If re-reconciled state has no pending local mutations, terminates successfully without redundant upload.
+        *   Fail-Open Resilience: If retries are exhausted, fails gracefully with descriptive error without corrupting or rolling back local Dexie data.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/api/__tests__/googleDriveClient.test.ts`: Expanded to 24 tests (+8 tests for ETag capture, `If-Match` header attachment on PATCH, omission on POST, and HTTP 412/409 conflict classification).
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Expanded to 31 tests (+16 tests verifying `currentVaultEtag` forwarding, OCC retry on 412 conflict with backoff and fresh merge, and graceful fail-open on exceeding retry limits).
+    *   Full test suite raised to **722/722 passing tests across 58 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+
+<!-- Last Updated: 2026-09-24 (Phase 51: Cross-Device Cloud Sync Concurrency Protection: 722 Unit Tests Passing across 58 Test Files) -->
 
 
 

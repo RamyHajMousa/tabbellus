@@ -81,6 +81,22 @@ async function normalizeHttpError(response: Response): Promise<DriveApiResult<ne
   if (status === 401) {
     return { success: false, error: 'Authentication expired.', statusCode: 401, authExpired: true };
   }
+  if (status === 412) {
+    return {
+      success: false,
+      error: 'Precondition Failed: Remote file has been modified concurrently.',
+      statusCode: 412,
+      conflict: true,
+    };
+  }
+  if (status === 409) {
+    return {
+      success: false,
+      error: 'Conflict: Remote file version mismatch.',
+      statusCode: 409,
+      conflict: true,
+    };
+  }
   if (status === 429) {
     const retryAfterSeconds = parseRetryAfter(response, 60);
     return {
@@ -205,7 +221,19 @@ export class GoogleDriveClient {
 
       // Step 5: Parse the successful response
       const data = await parseResponse(response);
-      return { success: true, data };
+      const headerEtag = response.headers?.get?.('ETag') || response.headers?.get?.('etag') || undefined;
+      const dataEtag = (data && typeof data === 'object' && 'etag' in data && typeof (data as Record<string, unknown>).etag === 'string')
+        ? ((data as Record<string, unknown>).etag as string)
+        : undefined;
+      const etag = headerEtag || dataEtag;
+      if (etag && data && typeof data === 'object' && !('etag' in data)) {
+        (data as Record<string, unknown>).etag = etag;
+      }
+      return {
+        success: true,
+        data,
+        ...(etag ? { etag } : {}),
+      };
     } catch (err: unknown) {
       return normalizeNetworkError(err);
     }
@@ -225,7 +253,7 @@ export class GoogleDriveClient {
         fetch(
           `${DRIVE_API_BASE}?spaces=appDataFolder` +
             `&q=name='${fileName}' and trashed=false` +
-            `&fields=files(id,name,mimeType,modifiedTime,appProperties)`,
+            `&fields=files(id,name,mimeType,modifiedTime,appProperties,etag)`,
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -273,6 +301,7 @@ export class GoogleDriveClient {
     content: string,
     existingFileId?: string,
     fileName = 'tabbellus_vault.json',
+    ifMatchEtag?: string,
   ): Promise<DriveApiResult<DriveFileMetadata>> {
     const boundary = generateBoundary();
 
@@ -290,12 +319,18 @@ export class GoogleDriveClient {
 
         const method = existingFileId ? 'PATCH' : 'POST';
 
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        };
+
+        if (existingFileId && ifMatchEtag) {
+          headers['If-Match'] = ifMatchEtag;
+        }
+
         return fetch(url, {
           method,
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': `multipart/related; boundary=${boundary}`,
-          },
+          headers,
           body,
         });
       },

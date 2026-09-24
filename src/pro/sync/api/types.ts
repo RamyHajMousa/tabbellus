@@ -20,6 +20,7 @@ export interface DriveFileMetadata {
   mimeType: string;
   modifiedTime?: string;
   appProperties?: Record<string, string>;
+  etag?: string;
 }
 
 /** Paginated file list response from `files.list`. */
@@ -49,7 +50,12 @@ export interface DriveFileListResponse {
  * ```
  */
 export type DriveApiResult<T> =
-  | { success: true; data: T }
+  | {
+      success: true;
+      data: T;
+      etag?: string;
+      conflict?: false;
+    }
   | {
       success: false;
       error: string;
@@ -57,6 +63,8 @@ export type DriveApiResult<T> =
       authExpired?: boolean;
       rateLimited?: boolean;
       retryAfterSeconds?: number;
+      conflict?: boolean;
+      etag?: string;
     };
 
 // ---------------------------------------------------------------------------

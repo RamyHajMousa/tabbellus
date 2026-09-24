@@ -147,6 +147,30 @@ describe('GoogleDriveClient', () => {
         }),
       );
     });
+
+    it('captures ETag from response headers on download', async () => {
+      const vaultPayload = {
+        schemaVersion: '1.0.0',
+        clientTimestamp: '2026-08-27T10:00:00.000Z',
+        payload: '{}',
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name: string) => (name.toLowerCase() === 'etag' ? '"etag-abc-123"' : null),
+        },
+        json: () => Promise.resolve(vaultPayload),
+      });
+
+      const result = await client.downloadVaultFile('file-001');
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.etag).toBe('"etag-abc-123"');
+      }
+    });
   });
 
   // =========================================================================
@@ -241,6 +265,49 @@ describe('GoogleDriveClient', () => {
       expect(body).toContain(`--${boundary}--`);
       expect(body).toContain('Content-Type: application/json; charset=UTF-8');
     });
+
+    it('attaches If-Match header when ifMatchEtag is provided for existing file update (PATCH)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: 'existing-file-001', name: 'tabbellus_vault.json', mimeType: 'application/json' }),
+      });
+
+      const result = await client.uploadVaultFile('{"test":1}', 'existing-file-001', 'tabbellus_vault.json', '"etag-v1"');
+
+      expect(result.success).toBe(true);
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.method).toBe('PATCH');
+      expect(options.headers['If-Match']).toBe('"etag-v1"');
+    });
+
+    it('omits If-Match header when ifMatchEtag is not provided on PATCH', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: 'existing-file-001', name: 'tabbellus_vault.json', mimeType: 'application/json' }),
+      });
+
+      await client.uploadVaultFile('{"test":1}', 'existing-file-001');
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.method).toBe('PATCH');
+      expect(options.headers['If-Match']).toBeUndefined();
+    });
+
+    it('does not attach If-Match header on POST (create new file) even if ifMatchEtag is passed', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: 'new-file-001', name: 'tabbellus_vault.json', mimeType: 'application/json' }),
+      });
+
+      await client.uploadVaultFile('{"test":1}', undefined, 'tabbellus_vault.json', '"etag-v1"');
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.method).toBe('POST');
+      expect(options.headers['If-Match']).toBeUndefined();
+    });
   });
 
   // =========================================================================
@@ -312,6 +379,40 @@ describe('GoogleDriveClient', () => {
   // =========================================================================
   // HTTP Error Normalization
   describe('HTTP error normalization', () => {
+    it('normalizes 412 as conflict: true (Precondition Failed)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 412,
+        statusText: 'Precondition Failed',
+      });
+
+      const result = await client.uploadVaultFile('{}', 'existing-1', 'tabbellus_vault.json', '"etag-old"');
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.statusCode).toBe(412);
+        expect(result.conflict).toBe(true);
+        expect(result.error).toContain('Precondition Failed');
+      }
+    });
+
+    it('normalizes 409 as conflict: true (Conflict)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 409,
+        statusText: 'Conflict',
+      });
+
+      const result = await client.uploadVaultFile('{}', 'existing-1', 'tabbellus_vault.json', '"etag-old"');
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.statusCode).toBe(409);
+        expect(result.conflict).toBe(true);
+        expect(result.error).toContain('Conflict');
+      }
+    });
+
     it('normalizes 429 with Retry-After header as rate limit', async () => {
       mockFetch.mockResolvedValue({
         ok: false,

@@ -58,6 +58,7 @@ export class SyncEngine implements SyncProvider {
   private isSyncing = false;
   private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly AUTO_SYNC_DEBOUNCE_MS = 3000;
+  private readonly MAX_CONFLICT_RETRIES = 3;
   private mutationUnsubscribe: (() => void) | null = null;
   private rateLimitResetAt = 0;
 
@@ -584,6 +585,154 @@ export class SyncEngine implements SyncProvider {
   }
 
   /**
+   * Parses, decrypts (if necessary), and validates a downloaded remote vault payload.
+   */
+  private async decryptAndValidatePayload(
+    raw: unknown,
+  ): Promise<
+    | { success: true; remoteSnapshot: SyncVaultSnapshot }
+    | { success: false; error: string; isLocked?: boolean }
+  > {
+    let remoteSnapshot: SyncVaultSnapshot | null = null;
+    let potentialPayload: VaultPayload | null = null;
+
+    if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
+      potentialPayload = raw as unknown as VaultPayload;
+    } else if (SnapshotSerializer.validateSnapshot(raw)) {
+      remoteSnapshot = raw as unknown as SyncVaultSnapshot;
+    }
+
+    if (potentialPayload) {
+      const isRemoteEncrypted = Boolean(
+        potentialPayload.isEncrypted ||
+        (potentialPayload.iv && potentialPayload.salt),
+      );
+
+      if (isRemoteEncrypted) {
+        const salt = potentialPayload.salt;
+        await this.saveStorageState({
+          isEncrypted: true,
+          ...(salt ? { vaultSalt: salt } : {}),
+        });
+
+        const isUnlocked = await sessionKeyStore.isUnlocked();
+        if (!isUnlocked) {
+          return {
+            success: false,
+            error: 'Vault is locked. Passphrase required.',
+            isLocked: true,
+          };
+        }
+
+        const session = await sessionKeyStore.loadSession();
+        if (!session) {
+          return {
+            success: false,
+            error: 'Vault is locked. Passphrase required.',
+            isLocked: true,
+          };
+        }
+
+        try {
+          const decryptedStr = await WebCryptoEngine.decryptPayload(
+            {
+              version: 1,
+              salt: potentialPayload.salt ?? session.salt,
+              iv: potentialPayload.iv!,
+              ciphertext: potentialPayload.payload,
+              iterations: 600_000,
+            },
+            session.key,
+          );
+          const parsed = JSON.parse(decryptedStr);
+          if (SnapshotSerializer.validateSnapshot(parsed)) {
+            remoteSnapshot = parsed;
+          }
+        } catch (err: unknown) {
+          if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
+            return {
+              success: false,
+              error: 'INVALID_PASSPHRASE',
+            };
+          }
+          const msg = err instanceof Error ? err.message : 'Decryption failed';
+          return {
+            success: false,
+            error: msg,
+          };
+        }
+      } else {
+        // Legacy unencrypted payload
+        try {
+          const parsed = JSON.parse(potentialPayload.payload);
+          if (SnapshotSerializer.validateSnapshot(parsed)) {
+            remoteSnapshot = parsed;
+          }
+        } catch {
+          // Ignore corrupt payload
+        }
+      }
+    }
+
+    if (!remoteSnapshot) {
+      return {
+        success: false,
+        error: 'Remote vault payload is corrupt or invalid.',
+      };
+    }
+
+    return {
+      success: true,
+      remoteSnapshot,
+    };
+  }
+
+  /**
+   * Prepares and encrypts (if active) the snapshot payload for upload to Google Drive.
+   */
+  private async buildUploadContent(
+    snapshot: SyncVaultSnapshot,
+    shouldEncrypt: boolean,
+  ): Promise<
+    | { success: true; content: string }
+    | { success: false; error: string; isLocked?: boolean }
+  > {
+    if (shouldEncrypt) {
+      const session = await sessionKeyStore.loadSession();
+      if (!session) {
+        return {
+          success: false,
+          error: 'Vault is locked. Cannot encrypt changes without unlocked session.',
+          isLocked: true,
+        };
+      }
+
+      const jsonStr = JSON.stringify(snapshot);
+      const saltBytes = base64ToUint8Array(session.salt);
+      const envelope = await WebCryptoEngine.encryptPayload(jsonStr, session.key, saltBytes);
+
+      const vaultContent: VaultPayload = {
+        schemaVersion: '2.0.0-e2ee',
+        clientTimestamp: new Date().toISOString(),
+        payload: envelope.ciphertext,
+        iv: envelope.iv,
+        salt: envelope.salt,
+        isEncrypted: true,
+      };
+      return { success: true, content: JSON.stringify(vaultContent) };
+    }
+
+    const jsonStr = JSON.stringify(snapshot);
+    const vaultContent: VaultPayload = {
+      schemaVersion: '1.0.0',
+      clientTimestamp: new Date().toISOString(),
+      payload: jsonStr,
+      isEncrypted: false,
+    };
+    return { success: true, content: JSON.stringify(vaultContent) };
+  }
+
+  /**
    * Internal execution body for synchronization cycle.
    * Runs under withSyncLock to guarantee process-exclusive execution.
    */
@@ -678,6 +827,7 @@ export class SyncEngine implements SyncProvider {
 
       let remoteSnapshot: SyncVaultSnapshot | null = null;
       let vaultFileId: string | undefined = findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
+      let currentVaultEtag: string | undefined = findResult.data.files.length > 0 ? findResult.data.files[0].etag : undefined;
       const vaultExists = Boolean(vaultFileId);
 
       // Step 3: Download and decrypt remote snapshot if it exists
@@ -727,143 +877,47 @@ export class SyncEngine implements SyncProvider {
           };
         }
 
-          const raw = downloadResult.data as unknown as Record<string, unknown> | null;
+        if (downloadResult.etag) {
+          currentVaultEtag = downloadResult.etag;
+        }
 
-          let potentialPayload: VaultPayload | null = null;
-          if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
-            potentialPayload = raw as unknown as VaultPayload;
-          } else if (SnapshotSerializer.validateSnapshot(raw)) {
-            remoteSnapshot = raw as unknown as SyncVaultSnapshot;
-          }
-
-          if (potentialPayload) {
-            const isRemoteEncrypted = Boolean(
-              potentialPayload.isEncrypted ||
-              (potentialPayload.iv && potentialPayload.salt)
-            );
-
-            if (isRemoteEncrypted) {
-              const salt = potentialPayload.salt;
-              await this.saveStorageState({
-                isEncrypted: true,
-                ...(salt ? { vaultSalt: salt } : {}),
-              });
-
-              const isUnlocked = await sessionKeyStore.isUnlocked();
-              if (!isUnlocked) {
-                this.updateStatus({
-                  state: 'locked',
-                  isConnected: true,
-                  telemetry: {
-                    ...this.status.telemetry,
-                    encrypted: true,
-                  },
-                });
-                return {
-                  success: false,
-                  error: 'Vault is locked. Passphrase required.',
-                  timestamp: Date.now(),
-                };
-              }
-
-              const session = await sessionKeyStore.loadSession();
-              if (!session) {
-                this.updateStatus({
-                  state: 'locked',
-                  isConnected: true,
-                  telemetry: {
-                    ...this.status.telemetry,
-                    encrypted: true,
-                  },
-                });
-                return {
-                  success: false,
-                  error: 'Vault is locked. Passphrase required.',
-                  timestamp: Date.now(),
-                };
-              }
-
-              try {
-                const decryptedStr = await WebCryptoEngine.decryptPayload(
-                  {
-                    version: 1,
-                    salt: potentialPayload.salt ?? session.salt,
-                    iv: potentialPayload.iv!,
-                    ciphertext: potentialPayload.payload,
-                    iterations: 600_000,
-                  },
-                  session.key
-                );
-                const parsed = JSON.parse(decryptedStr);
-                if (SnapshotSerializer.validateSnapshot(parsed)) {
-                  remoteSnapshot = parsed;
-                }
-              } catch (err: unknown) {
-                if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
-                  this.updateStatus({
-                    state: 'error',
-                    telemetry: {
-                      ...this.status.telemetry,
-                      encrypted: true,
-                      lastError: 'INVALID_PASSPHRASE',
-                    },
-                  });
-                  await this.saveStorageState({ lastError: 'INVALID_PASSPHRASE' });
-                  return {
-                    success: false,
-                    error: 'INVALID_PASSPHRASE',
-                    timestamp: Date.now(),
-                  };
-                }
-                const msg = err instanceof Error ? err.message : 'Decryption failed';
-                this.updateStatus({
-                  state: 'error',
-                  telemetry: {
-                    ...this.status.telemetry,
-                    encrypted: true,
-                    lastError: msg,
-                  },
-                });
-                await this.saveStorageState({ lastError: msg });
-                return {
-                  success: false,
-                  error: msg,
-                  timestamp: Date.now(),
-                };
-              }
-            } else {
-              // Legacy unencrypted payload
-              try {
-                const parsed = JSON.parse(potentialPayload.payload);
-                if (SnapshotSerializer.validateSnapshot(parsed)) {
-                  remoteSnapshot = parsed;
-                }
-              } catch {
-                // Ignore corrupt payload
-              }
-            }
-          }
-
-          // Safety gate: If a remote vault exists on Google Drive but could not be parsed into a valid remoteSnapshot,
-          // abort sync cycle to prevent treating as initial upload and clobbering the remote vault.
-          if (!remoteSnapshot) {
-            const errorMsg = 'Remote vault payload is corrupt or invalid.';
-            console.warn('[SyncEngine]', errorMsg, 'Aborting sync cycle immediately.');
+        const parseResult = await this.decryptAndValidatePayload(downloadResult.data);
+        if (!parseResult.success) {
+          if (parseResult.isLocked) {
             this.updateStatus({
-              state: 'error',
+              state: 'locked',
+              isConnected: true,
               telemetry: {
                 ...this.status.telemetry,
-                lastError: errorMsg,
+                encrypted: true,
               },
             });
-            await this.saveStorageState({ lastError: errorMsg });
             return {
               success: false,
-              error: errorMsg,
+              error: parseResult.error,
               timestamp: Date.now(),
             };
           }
+
+          const isInvalidPassphrase = parseResult.error === 'INVALID_PASSPHRASE';
+          this.updateStatus({
+            state: 'error',
+            telemetry: {
+              ...this.status.telemetry,
+              encrypted: isInvalidPassphrase ? true : this.status.telemetry.encrypted,
+              lastError: parseResult.error,
+            },
+          });
+          await this.saveStorageState({ lastError: parseResult.error });
+          return {
+            success: false,
+            error: parseResult.error,
+            timestamp: Date.now(),
+          };
         }
+
+        remoteSnapshot = parseResult.remoteSnapshot;
+      }
 
       // Step 4: Create local snapshot
       const deviceId = await getOrCreateInstanceId();
@@ -871,7 +925,7 @@ export class SyncEngine implements SyncProvider {
 
       // Step 5: Reconcile snapshots using Record-Level LWW DiffEngine
       const currentStorageForSync = await this.loadStorageState();
-      const reconciliation = DiffEngine.reconcile(
+      let reconciliation = DiffEngine.reconcile(
         localSnapshot,
         remoteSnapshot,
         deviceId,
@@ -891,11 +945,12 @@ export class SyncEngine implements SyncProvider {
           !options?.forceUnencrypted && (currentStorage.isEncrypted || hasUnlockedSession)
         );
 
-        let uploadContent: string;
-
-        if (shouldEncrypt) {
-          const session = await sessionKeyStore.loadSession();
-          if (!session) {
+        const payloadResult = await this.buildUploadContent(
+          reconciliation.mergedSnapshot,
+          shouldEncrypt,
+        );
+        if (!payloadResult.success) {
+          if (payloadResult.isLocked) {
             this.updateStatus({
               state: 'locked',
               telemetry: {
@@ -903,44 +958,156 @@ export class SyncEngine implements SyncProvider {
                 encrypted: true,
               },
             });
+          }
+          return {
+            success: false,
+            error: payloadResult.error,
+            timestamp: Date.now(),
+          };
+        }
+
+        let uploadContent = payloadResult.content;
+
+        let uploadResult = await googleDriveClient.uploadVaultFile(
+          uploadContent,
+          vaultFileId,
+          VAULT_FILE_NAME,
+          currentVaultEtag,
+        );
+
+        // OCC Conflict Resolution Loop
+        let conflictRetries = 0;
+        while (!uploadResult.success && uploadResult.conflict && conflictRetries < this.MAX_CONFLICT_RETRIES) {
+          conflictRetries++;
+          console.warn(
+            `[SyncEngine] Vault conflict detected (HTTP 412/409). Attempting OCC retry ${conflictRetries}/${this.MAX_CONFLICT_RETRIES}...`,
+          );
+
+          // Apply random jitter delay (between 250ms and 750ms)
+          const jitterMs = Math.floor(Math.random() * (750 - 250 + 1)) + 250;
+          await new Promise((resolve) => setTimeout(resolve, jitterMs));
+
+          if (!vaultFileId) {
+            break;
+          }
+
+          // Re-download the remote vault and its new ETag
+          const retryDownload = await googleDriveClient.downloadVaultFile(vaultFileId);
+          if (!retryDownload.success) {
+            console.error(
+              '[SyncEngine] Conflict retry: Failed to re-download remote vault:',
+              retryDownload.error,
+            );
+            if (retryDownload.rateLimited) {
+              this.rateLimitResetAt = Date.now() + (retryDownload.retryAfterSeconds ?? 60) * 1000;
+            }
+            this.updateStatus({
+              state: retryDownload.authExpired ? 'error' : 'offline',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: retryDownload.error,
+              },
+            });
+            await this.saveStorageState({ lastError: retryDownload.error });
             return {
               success: false,
-              error: 'Vault is locked. Cannot encrypt changes without unlocked session.',
+              error: retryDownload.error ?? 'FAILED_REMOTE_DOWNLOAD_ON_RETRY',
               timestamp: Date.now(),
             };
           }
 
-          const jsonStr = JSON.stringify(reconciliation.mergedSnapshot);
-          const saltBytes = base64ToUint8Array(session.salt);
-          const envelope = await WebCryptoEngine.encryptPayload(jsonStr, session.key, saltBytes);
+          currentVaultEtag = retryDownload.etag ?? (retryDownload.data as { etag?: string })?.etag;
 
-          const vaultContent: VaultPayload = {
-            schemaVersion: '2.0.0-e2ee',
-            clientTimestamp: new Date().toISOString(),
-            payload: envelope.ciphertext,
-            iv: envelope.iv,
-            salt: envelope.salt,
-            isEncrypted: true,
-          };
-          uploadContent = JSON.stringify(vaultContent);
-        } else {
-          const jsonStr = JSON.stringify(reconciliation.mergedSnapshot);
-          const vaultContent: VaultPayload = {
-            schemaVersion: '1.0.0',
-            clientTimestamp: new Date().toISOString(),
-            payload: jsonStr,
-            isEncrypted: false,
-          };
-          uploadContent = JSON.stringify(vaultContent);
+          const freshParseResult = await this.decryptAndValidatePayload(retryDownload.data);
+          if (!freshParseResult.success) {
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: freshParseResult.error,
+              },
+            });
+            await this.saveStorageState({ lastError: freshParseResult.error });
+            return {
+              success: false,
+              error: freshParseResult.error,
+              timestamp: Date.now(),
+            };
+          }
+
+          remoteSnapshot = freshParseResult.remoteSnapshot;
+
+          // Re-create local snapshot and re-reconcile using DiffEngine
+          const freshLocalSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
+          const freshStorage = await this.loadStorageState();
+          reconciliation = DiffEngine.reconcile(
+            freshLocalSnapshot,
+            remoteSnapshot,
+            deviceId,
+            freshStorage.lastSyncedAt ?? 0,
+          );
+
+          // Apply incoming remote updates to Dexie if local changes exist
+          if (reconciliation.hasLocalChanges) {
+            await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
+          }
+
+          // If after re-reconciliation there are no remote changes left to upload (and not forceFull):
+          if (!reconciliation.hasRemoteChanges && !options?.forceFull) {
+            uploadResult = {
+              success: true,
+              data: {
+                id: vaultFileId,
+                name: VAULT_FILE_NAME,
+                mimeType: 'application/json',
+                etag: currentVaultEtag,
+              },
+              etag: currentVaultEtag,
+            };
+            break;
+          }
+
+          // Build new upload content and re-attempt upload with the new ETag
+          const freshPayloadResult = await this.buildUploadContent(
+            reconciliation.mergedSnapshot,
+            shouldEncrypt,
+          );
+          if (!freshPayloadResult.success) {
+            return {
+              success: false,
+              error: freshPayloadResult.error,
+              timestamp: Date.now(),
+            };
+          }
+
+          uploadContent = freshPayloadResult.content;
+          uploadResult = await googleDriveClient.uploadVaultFile(
+            uploadContent,
+            vaultFileId,
+            VAULT_FILE_NAME,
+            currentVaultEtag,
+          );
         }
 
-        const uploadResult = await googleDriveClient.uploadVaultFile(
-          uploadContent,
-          vaultFileId,
-          VAULT_FILE_NAME,
-        );
-
         if (!uploadResult.success) {
+          if (uploadResult.conflict) {
+            const conflictMsg = 'Sync conflict: Remote vault modified concurrently. Exceeded maximum retry attempts.';
+            console.error(`[SyncEngine] ${conflictMsg}`);
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: conflictMsg,
+              },
+            });
+            await this.saveStorageState({ lastError: conflictMsg });
+            return {
+              success: false,
+              error: conflictMsg,
+              timestamp: Date.now(),
+            };
+          }
+
           if (uploadResult.rateLimited) {
             this.rateLimitResetAt = Date.now() + (uploadResult.retryAfterSeconds ?? 60) * 1000;
             this.updateStatus({

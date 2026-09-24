@@ -216,6 +216,7 @@ describe('SyncEngine', () => {
       };
       mockedDrive.downloadVaultFile.mockResolvedValue({
         success: true,
+        etag: 'vault-etag-v1',
         data: remoteSnapshot as unknown as { schemaVersion: string; clientTimestamp: string; payload: string },
       });
 
@@ -226,6 +227,7 @@ describe('SyncEngine', () => {
           id: 'vault-file-001',
           name: 'tabbellus_vault.json',
           mimeType: 'application/json',
+          etag: 'vault-etag-v2',
         },
       });
 
@@ -244,11 +246,12 @@ describe('SyncEngine', () => {
       const allSpaces = await db.spaces.toArray();
       expect(allSpaces).toHaveLength(2);
 
-      // Verify Drive upload called with merged content
+      // Verify Drive upload called with merged content and currentVaultEtag
       expect(mockedDrive.uploadVaultFile).toHaveBeenCalledWith(
         expect.stringContaining('Remote Space'),
         'vault-file-001',
         'tabbellus_vault.json',
+        'vault-etag-v1',
       );
 
       // Verify state transitioned to synced
@@ -542,6 +545,176 @@ describe('SyncEngine', () => {
         expect(res1.success).toBe(true);
         expect(res2.success).toBe(false);
         expect(res2.error).toContain('already in progress');
+      });
+    });
+
+    describe('Optimistic Concurrency Control (OCC) & Conflict Retries', () => {
+      it('handles concurrent overwrite collision (HTTP 412), backs off with jitter, re-downloads fresh ETag, re-merges, and succeeds on retry', async () => {
+        mockedAuth.getAuthToken.mockResolvedValue({
+          success: true,
+          data: 'valid-token',
+        });
+
+        mockedDrive.findVaultFile.mockResolvedValue({
+          success: true,
+          data: {
+            files: [
+              {
+                id: 'vault-occ-file-01',
+                name: 'tabbellus_vault.json',
+                mimeType: 'application/json',
+                etag: 'etag-v1',
+              },
+            ],
+          },
+        });
+
+        // 1st download returns initial remote state with etag-v1
+        const initialRemoteSnapshot = {
+          version: 1,
+          clientTimestamp: 1000,
+          deviceId: 'remote-device-1',
+          spaces: [{ id: 1, name: 'Remote Space 1', createdAt: 1000 }],
+          tabs: [],
+          readLater: [],
+        };
+
+        // 2nd download (on conflict retry) returns updated remote state with etag-v2
+        const updatedRemoteSnapshot = {
+          version: 1,
+          clientTimestamp: 2500,
+          deviceId: 'remote-device-2',
+          spaces: [
+            { id: 1, name: 'Remote Space 1', createdAt: 1000 },
+            { id: 2, name: 'Concurrently Added Remote Space', createdAt: 2500 },
+          ],
+          tabs: [],
+          readLater: [],
+        };
+
+        mockedDrive.downloadVaultFile
+          .mockResolvedValueOnce({
+            success: true,
+            etag: 'etag-v1',
+            data: initialRemoteSnapshot as unknown as VaultPayload,
+          })
+          .mockResolvedValueOnce({
+            success: true,
+            etag: 'etag-v2',
+            data: updatedRemoteSnapshot as unknown as VaultPayload,
+          });
+
+        // 1st upload fails with HTTP 412 conflict; 2nd upload succeeds with etag-v3
+        mockedDrive.uploadVaultFile
+          .mockResolvedValueOnce({
+            success: false,
+            error: 'Precondition Failed: Remote file has been modified concurrently.',
+            statusCode: 412,
+            conflict: true,
+          })
+          .mockResolvedValueOnce({
+            success: true,
+            data: {
+              id: 'vault-occ-file-01',
+              name: 'tabbellus_vault.json',
+              mimeType: 'application/json',
+              etag: 'etag-v3',
+            },
+          });
+
+        // Local state has a distinct space
+        await db.spaces.add({
+          name: 'Local Unique Space',
+          createdAt: 2000,
+        });
+
+        const result = await engine.syncNow();
+
+        expect(result.success).toBe(true);
+        expect(mockedDrive.downloadVaultFile).toHaveBeenCalledTimes(2);
+        expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(2);
+
+        // 1st upload used etag-v1
+        expect(mockedDrive.uploadVaultFile.mock.calls[0][3]).toBe('etag-v1');
+        // 2nd upload used fresh etag-v2 from re-download
+        expect(mockedDrive.uploadVaultFile.mock.calls[1][3]).toBe('etag-v2');
+
+        // Merged state in Dexie contains local space, initial remote space, and concurrently added space
+        const localSpaces = await db.spaces.toArray();
+        expect(localSpaces.some((s) => s.name === 'Local Unique Space')).toBe(true);
+        expect(localSpaces.some((s) => s.name === 'Remote Space 1')).toBe(true);
+        expect(localSpaces.some((s) => s.name === 'Concurrently Added Remote Space')).toBe(true);
+
+        const status = await engine.getStatus();
+        expect(status.state).toBe('synced');
+        expect(status.telemetry.lastError).toBeUndefined();
+      });
+
+      it('exhausts MAX_CONFLICT_RETRIES (3 retries) and fails open safely without corrupting local Dexie state', async () => {
+        mockedAuth.getAuthToken.mockResolvedValue({
+          success: true,
+          data: 'valid-token',
+        });
+
+        mockedDrive.findVaultFile.mockResolvedValue({
+          success: true,
+          data: {
+            files: [
+              {
+                id: 'vault-conflict-forever',
+                name: 'tabbellus_vault.json',
+                mimeType: 'application/json',
+                etag: 'etag-start',
+              },
+            ],
+          },
+        });
+
+        const remoteSnapshot = {
+          version: 1,
+          clientTimestamp: 1000,
+          deviceId: 'remote-device',
+          spaces: [{ id: 1, name: 'Remote Baseline Space', createdAt: 1000 }],
+          tabs: [],
+          readLater: [],
+        };
+
+        mockedDrive.downloadVaultFile.mockResolvedValue({
+          success: true,
+          etag: 'etag-repeat',
+          data: remoteSnapshot as unknown as VaultPayload,
+        });
+
+        // uploadVaultFile constantly conflicts (412)
+        mockedDrive.uploadVaultFile.mockResolvedValue({
+          success: false,
+          error: 'Precondition Failed: Remote file has been modified concurrently.',
+          statusCode: 412,
+          conflict: true,
+        });
+
+        // Set up critical local data
+        await db.spaces.add({ id: 10, name: 'Critical Space Keep Safe', createdAt: 3000 });
+        await db.tabs.add({ id: 100, spaceId: 10, url: 'https://vital-tab.com', order: 0 });
+
+        const result = await engine.syncNow();
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sync conflict');
+        expect(result.error).toContain('Exceeded maximum retry attempts');
+
+        // Total calls: 1 initial attempt + 3 retries = 4 uploadVaultFile invocations
+        expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(4);
+
+        // Verify local Dexie state was NOT destroyed or corrupted
+        const allSpaces = await db.spaces.toArray();
+        expect(allSpaces.find((s) => s.name === 'Critical Space Keep Safe')).toBeDefined();
+        const allTabs = await db.tabs.toArray();
+        expect(allTabs.find((t) => t.url === 'https://vital-tab.com')).toBeDefined();
+
+        const status = await engine.getStatus();
+        expect(status.state).toBe('error');
+        expect(status.telemetry.lastError).toContain('Exceeded maximum retry attempts');
       });
     });
   });
