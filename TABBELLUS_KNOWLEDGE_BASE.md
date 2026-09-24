@@ -67,7 +67,7 @@ tabbellus/
     │   │   │   ├── diffEngine.ts         # Record-level LWW diffing, soft-delete tombstones, FK remapping
     │   │   │   ├── syncEngine.ts         # SyncProvider implementation, 8-step syncNow orchestration, ETag OCC retry loop with jitter
     │   │   │   ├── index.ts    # Barrel re-export
-    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (7 tests), diffEngine.test.ts (16 tests), syncEngine.test.ts (31 tests)
+    │   │   │   └── __tests__/  # snapshotSerializer.test.ts (7 tests), diffEngine.test.ts (16 tests), syncEngine.test.ts (33 tests)
     │   │   ├── crypto/         # Pure WebCrypto E2EE primitives & ephemeral session key store
     │   │   │   ├── types.ts    # EncryptedVaultEnvelope, KeyStoreRecord, CryptoErrorCode, CryptoEngineError
     │   │   │   ├── webCrypto.ts # WebCryptoEngine (PBKDF2 600k, AES-GCM 256, chunked Base64, auth tag validation)
@@ -1586,7 +1586,37 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **722/722 passing tests across 58 test files** (100% pass rate).
     *   `npx tsc --noEmit`: 0 diagnostics.
 
-<!-- Last Updated: 2026-09-24 (Phase 51: Cross-Device Cloud Sync Concurrency Protection: 722 Unit Tests Passing across 58 Test Files) -->
+### Phase 52: Data Loss Prevention on Encryption Teardown & Peer Auto-Downgrade Protocol
+*   **Context & Architectural Scope:**
+    *   Previously, `disableEncryption()` cleared the local session key and storage state before syncing, which caused the sync engine to skip downloading and decrypting the remote vault. Device A would then upload a local-only unencrypted snapshot, erasing all remote data from other devices.
+    *   Refactored `disableEncryption()` into a strict **converge-before-teardown** sequence and implemented a **Peer Auto-Downgrade Protocol** during Step 3 of synchronization.
+    *   Strictly preserved Zero-Contamination Boundary: all modifications isolated to `src/pro/sync/` with zero Free Core alterations or new dependencies.
+*   **Converge-Before-Teardown Protocol (`src/pro/sync/engine/syncEngine.ts`):**
+    *   `disableEncryption`:
+        *   Asserts `this.status.isConnected`.
+        *   Asserts `this.sessionKeyStore.isUnlocked()`. If locked, throws descriptive error: `'Cannot disable encryption while vault is locked. Please unlock first.'`.
+        *   Holds the active session key while downloading the remote vault file from Google Drive.
+        *   Decrypts the remote snapshot using `WebCryptoEngine.decryptPayload` and the active session key.
+        *   Serializes local Dexie state via `SnapshotSerializer.createLocalSnapshot()`.
+        *   Reconciles local and remote snapshots using `DiffEngine.reconcile()`.
+        *   Persists remote changes to local Dexie via `SnapshotSerializer.applyRemoteUpdates()`.
+        *   Only after reconciliation and local persistence succeed: purges session keys (`sessionKeyStore.clearSession()`), resets storage state (`isEncrypted: false`), and updates telemetry.
+        *   Uploads the unified `mergedSnapshot` as unencrypted plaintext JSON (`schemaVersion: '1.0.0'`, `isEncrypted: false`) to Google Drive.
+        *   Transitions state to `'synced'` and notifies subscribers.
+*   **Peer Auto-Downgrade Protocol (`src/pro/sync/engine/syncEngine.ts` Step 3 & Conflict Retry):**
+    *   During remote vault download in Step 3 and OCC conflict retries:
+        *   Inspects downloaded remote payload to determine if `remotePayload.isEncrypted === false` or `schemaVersion === '1.0.0'`.
+        *   Checks if local storage state or telemetry currently has encryption active.
+        *   If remote is unencrypted while local is encrypted: automatically clears `sessionKeyStore.clearSession()`, updates storage state (`isEncrypted: false`, `vaultSalt: undefined`), and sets `telemetry.encrypted = false`.
+        *   Proceeds with reconciliation using the unencrypted remote snapshot, ensuring the peer device does not re-encrypt the remote vault on upload.
+*   **Preserved Emergency Override:**
+    *   Verified `resetCloudVault()` continues to serve as the emergency override when passphrases are lost, bypassing remote decryption and uploading local unencrypted state.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Added tests verifying converge-before-teardown data preservation, locked vault error throwing, and peer auto-downgrade without re-encryption (33 tests).
+    *   Full test suite raised to **724/724 passing tests across 58 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+
+<!-- Last Updated: 2026-09-24 (Phase 52: Encryption Teardown Data Loss Fix & Peer Auto-Downgrade Protocol: 724 Unit Tests Passing across 58 Test Files) -->
 
 
 

@@ -45,6 +45,8 @@ const SYNC_STORAGE_KEY = 'tabbellus_sync_state';
 const VAULT_FILE_NAME = 'tabbellus_vault.json';
 
 export class SyncEngine implements SyncProvider {
+  readonly sessionKeyStore = sessionKeyStore;
+
   private status: SyncStatus = {
     state: 'idle',
     isConnected: false,
@@ -291,8 +293,11 @@ export class SyncEngine implements SyncProvider {
   }
 
   /**
-   * Disables end-to-end encryption, purging active session keys, reverting storage
-   * state to unencrypted, and forcing a full unencrypted sync upload.
+   * Disables end-to-end encryption with a converge-before-teardown protocol:
+   * 1. Downloads and decrypts remote vault using active session key.
+   * 2. Reconciles local and remote snapshots and applies remote changes to local Dexie.
+   * 3. Purges active session keys and resets storage state to unencrypted.
+   * 4. Uploads unified mergedSnapshot as unencrypted plaintext JSON.
    */
   async disableEncryption(): Promise<void> {
     return this.withSyncLock(
@@ -302,17 +307,131 @@ export class SyncEngine implements SyncProvider {
           return;
         }
 
-        // 1. Purge active encryption keys
-        await sessionKeyStore.clearSession();
+        const isUnlocked = await this.sessionKeyStore.isUnlocked();
+        if (!isUnlocked) {
+          throw new Error('Cannot disable encryption while vault is locked. Please unlock first.');
+        }
 
-        // 2. Reset storage state
+        const session = await this.sessionKeyStore.loadSession();
+        if (!session) {
+          throw new Error('Cannot disable encryption while vault is locked. Please unlock first.');
+        }
+
+        this.updateStatus({ state: 'syncing' });
+
+        // 1. Download remote vault file if it exists
+        const findResult = await googleDriveClient.findVaultFile(VAULT_FILE_NAME);
+        if (!findResult.success) {
+          this.updateStatus({
+            state: 'error',
+            telemetry: {
+              ...this.status.telemetry,
+              lastError: findResult.error,
+            },
+          });
+          await this.saveStorageState({ lastError: findResult.error });
+          throw new Error(`Failed to query remote vault: ${findResult.error}`);
+        }
+
+        let vaultFileId: string | undefined =
+          findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
+        let currentVaultEtag: string | undefined =
+          findResult.data.files.length > 0 ? findResult.data.files[0].etag : undefined;
+
+        let remoteSnapshot: SyncVaultSnapshot | null = null;
+
+        if (vaultFileId) {
+          const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
+          if (!downloadResult.success) {
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: downloadResult.error,
+              },
+            });
+            await this.saveStorageState({ lastError: downloadResult.error });
+            throw new Error(`Failed to download remote vault: ${downloadResult.error}`);
+          }
+
+          if (downloadResult.etag) {
+            currentVaultEtag = downloadResult.etag;
+          }
+
+          const raw = downloadResult.data;
+          let potentialPayload: VaultPayload | null = null;
+          if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
+            potentialPayload = raw as unknown as VaultPayload;
+          } else if (SnapshotSerializer.validateSnapshot(raw)) {
+            remoteSnapshot = raw as unknown as SyncVaultSnapshot;
+          }
+
+          if (potentialPayload) {
+            const isRemoteEncrypted = Boolean(
+              potentialPayload.isEncrypted ||
+              (potentialPayload.iv && potentialPayload.salt),
+            );
+
+            if (isRemoteEncrypted) {
+              const decryptedStr = await WebCryptoEngine.decryptPayload(
+                {
+                  version: 1,
+                  salt: potentialPayload.salt ?? session.salt,
+                  iv: potentialPayload.iv!,
+                  ciphertext: potentialPayload.payload,
+                  iterations: 600_000,
+                },
+                session.key,
+              );
+              const parsed = JSON.parse(decryptedStr);
+              if (SnapshotSerializer.validateSnapshot(parsed)) {
+                remoteSnapshot = parsed;
+              } else {
+                throw new Error('Remote vault snapshot schema is invalid after decryption.');
+              }
+            } else {
+              try {
+                const parsed = JSON.parse(potentialPayload.payload);
+                if (SnapshotSerializer.validateSnapshot(parsed)) {
+                  remoteSnapshot = parsed;
+                }
+              } catch {
+                throw new Error('Remote vault payload is corrupt or invalid.');
+              }
+            }
+          }
+        }
+
+        // 2. Serialize local Dexie state via snapshotSerializer.createLocalSnapshot()
+        const deviceId = await getOrCreateInstanceId();
+        const localSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
+
+        // 3. Reconcile local and remote snapshots using DiffEngine.reconcile()
+        const storage = await this.loadStorageState();
+        const reconciliation = DiffEngine.reconcile(
+          localSnapshot,
+          remoteSnapshot,
+          deviceId,
+          storage.lastSyncedAt ?? 0,
+        );
+
+        // 4. Persist remote changes to local Dexie via snapshotSerializer.applyRemoteUpdates()
+        if (reconciliation.hasLocalChanges) {
+          await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
+        }
+
+        // 5. Only after reconciliation and local Dexie persistence succeed:
+        // Purge active encryption keys
+        await this.sessionKeyStore.clearSession();
+
+        // Reset storage state
         await this.saveStorageState({
           isEncrypted: false,
           vaultSalt: undefined,
           lastError: undefined,
         });
 
-        // 3. Update in-memory telemetry immediately
+        // Update in-memory telemetry immediately
         this.updateStatus({
           telemetry: {
             ...this.status.telemetry,
@@ -321,14 +440,50 @@ export class SyncEngine implements SyncProvider {
           },
         });
 
-        // 4. Force a full sync upload without encryption
-        await this.executeSync({ forceFull: true, forceUnencrypted: true });
+        // 6. Upload unified mergedSnapshot as unencrypted plaintext JSON (schemaVersion: '1.0.0', isEncrypted: false)
+        const unencryptedVaultContent: VaultPayload = {
+          schemaVersion: '1.0.0',
+          clientTimestamp: new Date().toISOString(),
+          payload: JSON.stringify(reconciliation.mergedSnapshot),
+          isEncrypted: false,
+        };
 
-        // 5. Transition state to 'synced' and notify subscribers
+        const uploadResult = await googleDriveClient.uploadVaultFile(
+          JSON.stringify(unencryptedVaultContent),
+          vaultFileId,
+          VAULT_FILE_NAME,
+          currentVaultEtag,
+        );
+
+        if (!uploadResult.success) {
+          this.updateStatus({
+            state: 'error',
+            telemetry: {
+              ...this.status.telemetry,
+              lastError: uploadResult.error,
+            },
+          });
+          await this.saveStorageState({ lastError: uploadResult.error });
+          throw new Error(`Failed to upload unencrypted vault: ${uploadResult.error}`);
+        }
+
+        const now = Date.now();
+        await this.saveStorageState({
+          syncEnabled: true,
+          lastSyncedAt: now,
+          lastVaultFileId: uploadResult.data.id,
+          lastError: undefined,
+          isEncrypted: false,
+        });
+
+        // 7. Transition state to 'synced' and notify subscribers
         this.updateStatus({
           state: 'synced',
+          isConnected: true,
           telemetry: {
             ...this.status.telemetry,
+            lastSyncedAt: now,
+            pendingMutations: 0,
             encrypted: false,
             lastError: undefined,
           },
@@ -881,6 +1036,38 @@ export class SyncEngine implements SyncProvider {
           currentVaultEtag = downloadResult.etag;
         }
 
+        // Peer Auto-Downgrade: If remote vault was downgraded to unencrypted on another device,
+        // and local state currently has encryption active, auto-downgrade local state to unencrypted.
+        let isRemoteExplicitlyUnencrypted = false;
+        const rawRemote = downloadResult.data;
+        if (rawRemote && typeof rawRemote === 'object') {
+          const maybePayload = rawRemote as Partial<VaultPayload>;
+          if (
+            maybePayload.isEncrypted === false ||
+            maybePayload.schemaVersion === '1.0.0'
+          ) {
+            isRemoteExplicitlyUnencrypted = true;
+          }
+        }
+
+        const currentLocalState = await this.loadStorageState();
+        if (
+          (currentLocalState.isEncrypted || this.status.telemetry.encrypted) &&
+          isRemoteExplicitlyUnencrypted
+        ) {
+          await this.sessionKeyStore.clearSession();
+          await this.saveStorageState({
+            isEncrypted: false,
+            vaultSalt: undefined,
+          });
+          this.updateStatus({
+            telemetry: {
+              ...this.status.telemetry,
+              encrypted: false,
+            },
+          });
+        }
+
         const parseResult = await this.decryptAndValidatePayload(downloadResult.data);
         if (!parseResult.success) {
           if (parseResult.isLocked) {
@@ -940,8 +1127,8 @@ export class SyncEngine implements SyncProvider {
       // Step 7: Upload reconciled merged snapshot to Drive if remote changes exist
       if (reconciliation.hasRemoteChanges || options?.forceFull) {
         const currentStorage = await this.loadStorageState();
-        const hasUnlockedSession = await sessionKeyStore.isUnlocked();
-        const shouldEncrypt = Boolean(
+        const hasUnlockedSession = await this.sessionKeyStore.isUnlocked();
+        let shouldEncrypt = Boolean(
           !options?.forceUnencrypted && (currentStorage.isEncrypted || hasUnlockedSession)
         );
 
@@ -1017,6 +1204,37 @@ export class SyncEngine implements SyncProvider {
           }
 
           currentVaultEtag = retryDownload.etag ?? (retryDownload.data as { etag?: string })?.etag;
+
+          let isRetryExplicitlyUnencrypted = false;
+          const rawRetry = retryDownload.data;
+          if (rawRetry && typeof rawRetry === 'object') {
+            const maybePayload = rawRetry as Partial<VaultPayload>;
+            if (
+              maybePayload.isEncrypted === false ||
+              maybePayload.schemaVersion === '1.0.0'
+            ) {
+              isRetryExplicitlyUnencrypted = true;
+            }
+          }
+
+          const retryLocalState = await this.loadStorageState();
+          if (
+            (retryLocalState.isEncrypted || this.status.telemetry.encrypted) &&
+            isRetryExplicitlyUnencrypted
+          ) {
+            await this.sessionKeyStore.clearSession();
+            await this.saveStorageState({
+              isEncrypted: false,
+              vaultSalt: undefined,
+            });
+            this.updateStatus({
+              telemetry: {
+                ...this.status.telemetry,
+                encrypted: false,
+              },
+            });
+            shouldEncrypt = false;
+          }
 
           const freshParseResult = await this.decryptAndValidatePayload(retryDownload.data);
           if (!freshParseResult.success) {

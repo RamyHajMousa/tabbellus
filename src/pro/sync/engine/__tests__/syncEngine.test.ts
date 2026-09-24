@@ -20,6 +20,7 @@ import {
   WebCryptoEngine,
   sessionKeyStore,
   base64ToUint8Array,
+  uint8ArrayToBase64,
 } from '../../crypto';
 import type { VaultPayload } from '../../api/types';
 import type { SyncVaultSnapshot } from '../types';
@@ -1039,49 +1040,254 @@ describe('SyncEngine', () => {
       expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
     });
 
-    it('disableEncryption() purges session key, clears vaultSalt, and uploads unencrypted schemaVersion 1.0.0 payload', async () => {
+    it('disableEncryption downloads, decrypts, and merges remote data into local Dexie before uploading unencrypted snapshot', async () => {
       mockedAuth.getAuthToken.mockResolvedValue({
         success: true,
         data: 'valid-token',
       });
+
+      const passphrase = 'disable-e2ee-passphrase';
+      const saltBytes = WebCryptoEngine.generateSalt();
+      const saltBase64 = uint8ArrayToBase64(saltBytes);
+      const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+
+      // Populate local Dexie with Space A
+      await db.spaces.add({
+        name: 'Local Only Space',
+        createdAt: 1000,
+        updatedAt: 1000,
+      });
+
+      // Prepare remote encrypted vault with Space B
+      const remoteSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: 'remote-device-x',
+        spaces: [{ id: 99, name: 'Remote Encrypted Space', createdAt: 2000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const envelope = await WebCryptoEngine.encryptPayload(
+        JSON.stringify(remoteSnapshot),
+        key,
+        saltBytes,
+      );
+
+      const remoteEncryptedPayload: VaultPayload = {
+        schemaVersion: '2.0.0-e2ee',
+        clientTimestamp: new Date().toISOString(),
+        payload: envelope.ciphertext,
+        iv: envelope.iv,
+        salt: envelope.salt,
+        isEncrypted: true,
+      };
+
       mockedDrive.findVaultFile.mockResolvedValue({
         success: true,
-        data: { files: [{ id: 'vault-file-123', name: 'tabbellus_vault.json', modifiedTime: '2026-09-03T10:00:00Z', mimeType: 'application/json' }] },
+        data: {
+          files: [
+            {
+              id: 'vault-file-123',
+              name: 'tabbellus_vault.json',
+              modifiedTime: '2026-09-03T10:00:00Z',
+              mimeType: 'application/json',
+              etag: 'remote-etag-123',
+            },
+          ],
+        },
       });
+
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: remoteEncryptedPayload,
+        etag: 'remote-etag-123',
+      });
+
       mockedDrive.uploadVaultFile.mockResolvedValue({
         success: true,
         data: { id: 'vault-file-123', name: 'tabbellus_vault.json', mimeType: 'application/json' },
       });
 
-      // Start with encrypted and unlocked vault
-      await engine.setupEncryption('disable-e2ee-passphrase');
-      expect(await sessionKeyStore.isUnlocked()).toBe(true);
-      expect((await engine.getStatus()).telemetry.encrypted).toBe(true);
+      // Connect and save session key
+      await engine.connect();
+      await sessionKeyStore.saveSession(key, saltBase64);
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        },
+      });
 
       mockedDrive.uploadVaultFile.mockClear();
+      mockedDrive.downloadVaultFile.mockClear();
 
-      // Disable encryption
+      // Execute disableEncryption
       await engine.disableEncryption();
 
-      // Verify session key purged
-      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      // Verify remote vault was downloaded and decrypted
+      expect(mockedDrive.downloadVaultFile).toHaveBeenCalledWith('vault-file-123');
 
-      // Verify status updated to synced and unencrypted
+      // Verify that items present only in remote encrypted vault (Space 99) and local (Local Only Space) are in local Dexie
+      const localSpaces = await db.spaces.toArray();
+      const localNames = localSpaces.map((s) => s.name);
+      expect(localNames).toContain('Local Only Space');
+      expect(localNames).toContain('Remote Encrypted Space');
+
+      // Verify session key was purged and storage state is unencrypted
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
       const status = await engine.getStatus();
       expect(status.state).toBe('synced');
       expect(status.telemetry.encrypted).toBe(false);
 
-      // Verify uploadVaultFile was called with unencrypted schemaVersion 1.0.0 payload
+      // Verify unencrypted upload took place and contains both spaces
       expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
-      const uploadedContent = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]);
+      const [uploadedRaw, fileId, fileName, ifMatchEtag] = mockedDrive.uploadVaultFile.mock.calls[0];
+      expect(fileId).toBe('vault-file-123');
+      expect(fileName).toBe('tabbellus_vault.json');
+      expect(ifMatchEtag).toBe('remote-etag-123');
+
+      const uploadedContent = JSON.parse(uploadedRaw) as VaultPayload;
       expect(uploadedContent.schemaVersion).toBe('1.0.0');
       expect(uploadedContent.isEncrypted).toBe(false);
       expect(uploadedContent.iv).toBeUndefined();
       expect(uploadedContent.salt).toBeUndefined();
-      expect(typeof uploadedContent.payload).toBe('string');
-      // Payload should be valid unencrypted snapshot JSON
-      const parsedSnapshot = JSON.parse(uploadedContent.payload);
-      expect(parsedSnapshot.spaces).toBeDefined();
+
+      const mergedSnapshot = JSON.parse(uploadedContent.payload) as SyncVaultSnapshot;
+      const uploadedNames = mergedSnapshot.spaces.map((s) => s.name);
+      expect(uploadedNames).toContain('Local Only Space');
+      expect(uploadedNames).toContain('Remote Encrypted Space');
+    });
+
+    it('disableEncryption throws descriptive error if called while vault is locked', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+
+      await engine.connect();
+      await sessionKeyStore.clearSession();
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+        },
+      });
+
+      mockedDrive.uploadVaultFile.mockClear();
+
+      await expect(engine.disableEncryption()).rejects.toThrow(
+        'Cannot disable encryption while vault is locked. Please unlock first.',
+      );
+
+      expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
+    });
+
+    it('peer device auto-downgrades to unencrypted when discovering remote vault has isEncrypted === false', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+
+      const passphrase = 'peer-device-pass';
+      const saltBytes = WebCryptoEngine.generateSalt();
+      const saltBase64 = uint8ArrayToBase64(saltBytes);
+      const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+
+      // Local Dexie has Device B's space
+      await db.spaces.add({
+        name: 'Device B Space',
+        createdAt: 1500,
+        updatedAt: 1500,
+      });
+
+      // Peer device has active encryption session
+      await engine.connect();
+      await sessionKeyStore.saveSession(key, saltBase64);
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        },
+      });
+
+      // Remote vault was downgraded to unencrypted by Device A
+      const remoteSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: 'device-a-id',
+        spaces: [{ id: 50, name: 'Device A Plain Space', createdAt: 2000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const unencryptedRemotePayload: VaultPayload = {
+        schemaVersion: '1.0.0',
+        clientTimestamp: new Date().toISOString(),
+        payload: JSON.stringify(remoteSnapshot),
+        isEncrypted: false,
+      };
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          files: [
+            {
+              id: 'remote-unencrypted-vault',
+              name: 'tabbellus_vault.json',
+              mimeType: 'application/json',
+              etag: 'unenc-etag-1',
+            },
+          ],
+        },
+      });
+
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: unencryptedRemotePayload,
+        etag: 'unenc-etag-1',
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'remote-unencrypted-vault', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      mockedDrive.uploadVaultFile.mockClear();
+
+      // Trigger sync on Device B
+      const result = await engine.syncNow();
+      expect(result.success).toBe(true);
+
+      // Verify Device B cleared its session keys and updated storage state to unencrypted
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      const status = await engine.getStatus();
+      expect(status.state).toBe('synced');
+      expect(status.telemetry.encrypted).toBe(false);
+
+      // Verify local Dexie has both spaces
+      const localSpaces = await db.spaces.toArray();
+      const localNames = localSpaces.map((s) => s.name);
+      expect(localNames).toContain('Device B Space');
+      expect(localNames).toContain('Device A Plain Space');
+
+      // Verify that upload is unencrypted and NOT re-encrypted
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+      const uploadedContent = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]) as VaultPayload;
+      expect(uploadedContent.schemaVersion).toBe('1.0.0');
+      expect(uploadedContent.isEncrypted).toBe(false);
+      expect(uploadedContent.iv).toBeUndefined();
+      expect(uploadedContent.salt).toBeUndefined();
+
+      // Subsequent sync also stays unencrypted
+      mockedDrive.uploadVaultFile.mockClear();
+      await engine.syncNow({ forceFull: true });
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+      const secondUpload = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]) as VaultPayload;
+      expect(secondUpload.isEncrypted).toBe(false);
+      expect(secondUpload.schemaVersion).toBe('1.0.0');
     });
 
     it('resetCloudVault() overwrites locked remote vault with unencrypted snapshot and returns to synced state', async () => {
