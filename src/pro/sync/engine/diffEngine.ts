@@ -135,12 +135,10 @@ export class DiffEngine {
     const remoteToLocalSpaceId = new Map<number, number>();
     const matchedSpacePairs = new Map<number, { localSpace: Space; remoteSpace: Space }>();
     const matchedLocalSpaceIds = new Set<number>();
-    const processedSpaceFps = new Set<string>();
 
     // 1. Match remote spaces against local spaces: UUID first, then fingerprint fallback
     for (const remoteSpace of remote.spaces) {
       const remoteFp = getSpaceFingerprint(remoteSpace);
-      processedSpaceFps.add(remoteFp);
 
       let localSpace: Space | undefined;
       // Primary matching: Match by immutable UUID when present
@@ -366,14 +364,16 @@ export class DiffEngine {
       if (localSpace.id !== undefined && matchedLocalSpaceIds.has(localSpace.id)) {
         continue;
       }
-      const fp = getSpaceFingerprint(localSpace);
-      if (!processedSpaceFps.has(fp)) {
-        mergedSpaces.push({
-          ...localSpace,
-          uuid: localSpace.uuid || crypto.randomUUID(),
-          updatedAt: toEpochMs(localSpace.updatedAt ?? localSpace.createdAt),
-        });
+      const localSpaceId = localSpace.id ?? ++maxLocalSpaceId;
+      if (localSpace.id !== undefined) {
+        matchedLocalSpaceIds.add(localSpace.id);
       }
+      mergedSpaces.push({
+        ...localSpace,
+        id: localSpaceId,
+        uuid: localSpace.uuid || crypto.randomUUID(),
+        updatedAt: toEpochMs(localSpace.updatedAt ?? localSpace.createdAt),
+      });
     }
 
     return {
@@ -397,6 +397,7 @@ export class DiffEngine {
     localClientTimestamp: number | string,
     remoteClientTimestamp: number | string,
     localLastSyncedAt: number | string = 0,
+    mergedSpaceIds?: Set<number>,
   ): {
     mergedTabs: Tab[];
     localTabUpdates: Tab[];
@@ -455,7 +456,12 @@ export class DiffEngine {
     const remoteNormalizedUrlsByResolvedSpaceId = new Map<number, Set<string>>();
 
     for (const remoteTab of cleansedRemoteTabs) {
-      const resolvedSpaceId = spaceIdMap.get(remoteTab.spaceId) ?? remoteTab.spaceId;
+      const targetSpaceId = spaceIdMap.get(remoteTab.spaceId);
+      if (targetSpaceId === undefined) {
+        console.warn(`[DiffEngine] Dropping orphan remote tab with unmapped spaceId ${remoteTab.spaceId}: ${remoteTab.url}`);
+        continue;
+      }
+      const resolvedSpaceId = targetSpaceId;
 
       const rList = remoteTabsByResolvedSpaceId.get(resolvedSpaceId) ?? [];
       rList.push(remoteTab);
@@ -516,7 +522,11 @@ export class DiffEngine {
     const matchedLocalTabIds = new Set<number>();
 
     for (const remoteTab of cleansedRemoteTabs) {
-      const resolvedSpaceId = spaceIdMap.get(remoteTab.spaceId) ?? remoteTab.spaceId;
+      const targetSpaceId = spaceIdMap.get(remoteTab.spaceId);
+      if (targetSpaceId === undefined) {
+        continue;
+      }
+      const resolvedSpaceId = targetSpaceId;
       const normRemoteUrl = remoteTabNormalizedUrls.get(remoteTab) ?? normalizeTabUrl(remoteTab.url);
       const compositeKey = `${resolvedSpaceId}:::${normRemoteUrl}`;
 
@@ -674,6 +684,10 @@ export class DiffEngine {
           continue;
         }
       }
+      if (mergedSpaceIds && !mergedSpaceIds.has(localTab.spaceId)) {
+        console.warn(`[DiffEngine] Dropping orphan local tab with unmapped spaceId ${localTab.spaceId}: ${localTab.url}`);
+        continue;
+      }
       mergedTabs.push({
         ...localTab,
         createdAt: localTab.createdAt ?? toEpochMs(localClientTimestamp),
@@ -681,8 +695,12 @@ export class DiffEngine {
       });
     }
 
+    const finalMergedTabs = mergedSpaceIds
+      ? mergedTabs.filter((t) => mergedSpaceIds.has(t.spaceId))
+      : mergedTabs;
+
     return {
-      mergedTabs,
+      mergedTabs: finalMergedTabs,
       localTabUpdates,
       tabIdsToDelete,
     };
@@ -1188,6 +1206,10 @@ export class DiffEngine {
     const spacesResult = DiffEngine.reconcileSpaces(local, remote);
     localUpdates.spaces = spacesResult.localSpaceUpdates;
 
+    const mergedSpaceIds = new Set<number>(
+      spacesResult.mergedSpaces.map((s) => s.id).filter((id): id is number => id !== undefined),
+    );
+
     // -----------------------------------------------------------------------
     // 2. Reconcile Tabs
     // -----------------------------------------------------------------------
@@ -1199,6 +1221,7 @@ export class DiffEngine {
       local.clientTimestamp,
       remote.clientTimestamp,
       localLastSyncedAt,
+      mergedSpaceIds,
     );
     localUpdates.tabs = tabsResult.localTabUpdates;
     if (tabsResult.tabIdsToDelete.length > 0) {
@@ -1288,7 +1311,10 @@ export class DiffEngine {
     if (!tabsDiffer) {
       const remoteTabMap = new Map<string, Tab>();
       for (const rt of remote.tabs) {
-        const resolvedSpaceId = spacesResult.remoteToLocalSpaceId.get(rt.spaceId) ?? rt.spaceId;
+        const resolvedSpaceId = spacesResult.remoteToLocalSpaceId.get(rt.spaceId);
+        if (resolvedSpaceId === undefined) {
+          continue;
+        }
         const key = `${resolvedSpaceId}::${normalizeTabUrl(rt.url)}`;
         remoteTabMap.set(key, rt);
       }

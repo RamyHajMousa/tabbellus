@@ -2007,5 +2007,124 @@ describe('DiffEngine', () => {
       expect(result.mergedSnapshot.schemaVersion).toBe('1.2.0');
     });
   });
+
+  describe('Imported Space Sync Omission & Tab Grafting Prevention', () => {
+    it('preserves two local spaces sharing the same createdAt and name (fingerprint collision) into mergedSpaces', () => {
+      const createdAt = 1000;
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [
+          { id: 1, uuid: 'space-uuid-1', name: 'Duplicate Name', createdAt },
+          { id: 2, uuid: 'space-uuid-2', name: 'Duplicate Name', createdAt },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 10, uuid: 'space-uuid-1', name: 'Duplicate Name', createdAt },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Both spaces must survive in mergedSpaces
+      expect(result.mergedSnapshot.spaces).toHaveLength(2);
+      const spaceUuids = result.mergedSnapshot.spaces.map((s) => s.uuid);
+      expect(spaceUuids).toContain('space-uuid-1');
+      expect(spaceUuids).toContain('space-uuid-2');
+    });
+
+    it('drops remote tab with an unmapped spaceId and does NOT graft onto local space with that raw number ID', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [
+          // Local space happens to have auto-increment ID 5
+          { id: 5, uuid: 'local-space-5', name: 'Local Space Five', createdAt: 1000 },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          // Remote space has ID 100 (which maps to new local space ID, NOT 5)
+          { id: 100, uuid: 'remote-space-100', name: 'Remote Space Hundred', createdAt: 2000 },
+        ],
+        tabs: [
+          // Orphan remote tab pointing to spaceId 5, but space 5 does not exist on remote
+          { id: 999, spaceId: 5, url: 'https://orphan-tab.com', title: 'Orphan Tab', order: 0 },
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Tab must NOT be added to local space 5
+      const graftedTabs = result.localUpdates.tabs.filter((t) => t.spaceId === 5);
+      expect(graftedTabs).toHaveLength(0);
+
+      // Tab must NOT be in mergedSnapshot.tabs because its parent space 5 on remote is unmapped
+      const orphanInMerged = result.mergedSnapshot.tabs.filter((t) => t.url === 'https://orphan-tab.com');
+      expect(orphanInMerged).toHaveLength(0);
+    });
+
+    it('syncs tabs belonging to local-only spaces with identical fingerprints properly to mergedTabs', () => {
+      const createdAt = 2000;
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: localDeviceId,
+        spaces: [
+          { id: 1, uuid: 'space-uuid-a', name: 'Fingerprint Match', createdAt },
+          { id: 2, uuid: 'space-uuid-b', name: 'Fingerprint Match', createdAt },
+        ],
+        tabs: [
+          { id: 10, spaceId: 1, url: 'https://tab-space-1.com', title: 'Tab 1', order: 0 },
+          { id: 20, spaceId: 2, url: 'https://tab-space-2.com', title: 'Tab 2', order: 0 },
+        ],
+        readLater: [],
+      };
+
+      // Remote only knows about space-uuid-a
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 4000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 100, uuid: 'space-uuid-a', name: 'Fingerprint Match', createdAt },
+        ],
+        tabs: [
+          { id: 1000, spaceId: 100, url: 'https://tab-space-1.com', title: 'Tab 1', order: 0 },
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Both spaces in mergedSnapshot
+      expect(result.mergedSnapshot.spaces).toHaveLength(2);
+
+      // Both tabs survive into mergedTabs
+      expect(result.mergedSnapshot.tabs).toHaveLength(2);
+      const tabUrls = result.mergedSnapshot.tabs.map((t) => t.url);
+      expect(tabUrls).toContain('https://tab-space-1.com');
+      expect(tabUrls).toContain('https://tab-space-2.com');
+    });
+  });
 });
+
 

@@ -554,6 +554,115 @@ describe('DataService — Backup & Restore Integration', () => {
       const importedItem = readLaterItems[0] as unknown as Record<string, unknown>;
       expect(importedItem.readingTime).toBe(12);
     });
+
+    it('preserves UUID and createdAt when importing into an empty database', async () => {
+      const specificUuid = '12345678-abcd-4ef0-9123-123456789abc';
+      const specificCreatedAt = 1600000000000;
+
+      const backupPayload = {
+        version: 1,
+        spaces: [
+          {
+            id: 1,
+            uuid: specificUuid,
+            name: 'Disaster Recovery Space',
+            createdAt: specificCreatedAt,
+          },
+        ],
+        tabs: [
+          {
+            id: 10,
+            spaceId: 1,
+            url: 'https://recovered.com',
+            title: 'Recovered Tab',
+            order: 0,
+          },
+        ],
+        readLater: [],
+      };
+
+      const file = {
+        name: 'backup.json',
+        text: vi.fn().mockResolvedValue(JSON.stringify(backupPayload)),
+      } as any;
+
+      const result = await dataService.importData(file);
+      expect(result.spacesImported).toBe(1);
+      expect(result.tabsImported).toBe(1);
+
+      const spaces = await db.spaces.toArray();
+      expect(spaces).toHaveLength(1);
+      expect(spaces[0].uuid).toBe(specificUuid);
+      expect(spaces[0].createdAt).toBe(specificCreatedAt);
+
+      const tabs = await db.tabs.toArray();
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0].spaceId).toBe(spaces[0].id);
+    });
+
+    it('generates a fresh UUID and fresh createdAt when importing a space whose UUID already exists locally', async () => {
+      const collidingUuid = 'colliding-uuid-9999-8888-777766665555';
+      const originalCreatedAt = 1500000000000;
+
+      // Seed local space with this UUID
+      await db.spaces.add({
+        uuid: collidingUuid,
+        name: 'Pre-existing Local Space',
+        createdAt: originalCreatedAt,
+        updatedAt: originalCreatedAt,
+      });
+
+      const backupPayload = {
+        version: 1,
+        spaces: [
+          {
+            id: 1,
+            uuid: collidingUuid,
+            name: 'Imported Copy of Space',
+            createdAt: originalCreatedAt,
+          },
+        ],
+        tabs: [
+          {
+            id: 10,
+            spaceId: 1,
+            url: 'https://copy-tab.com',
+            title: 'Copy Tab',
+            order: 0,
+          },
+        ],
+        readLater: [],
+      };
+
+      const file = {
+        name: 'backup.json',
+        text: vi.fn().mockResolvedValue(JSON.stringify(backupPayload)),
+      } as any;
+
+      const beforeImportTime = Date.now();
+      const result = await dataService.importData(file);
+      expect(result.spacesImported).toBe(1);
+
+      const allSpaces = await db.spaces.toArray();
+      expect(allSpaces).toHaveLength(2);
+
+      const importedSpace = allSpaces.find((s) => s.name === 'Imported Copy of Space')!;
+      expect(importedSpace).toBeDefined();
+
+      // Must generate fresh UUID to prevent unique index collision
+      expect(importedSpace.uuid).not.toBe(collidingUuid);
+      expect(importedSpace.uuid).toBeDefined();
+
+      // Must generate fresh createdAt
+      expect(importedSpace.createdAt).not.toBe(originalCreatedAt);
+      expect(importedSpace.createdAt).toBeGreaterThanOrEqual(beforeImportTime);
+
+      // Child tab must map to the new space ID
+      const tabs = await db.tabs.toArray();
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0].spaceId).toBe(importedSpace.id);
+    });
   });
 });
+
 

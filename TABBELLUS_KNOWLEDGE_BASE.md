@@ -1686,7 +1686,44 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **738/738 passing tests across 58 test files** (100% pass rate).
     *   `npx tsc --noEmit`: 0 diagnostics.
 
-<!-- Last Updated: 2026-09-24 (Phase 54: Schema Forward-Compatibility, Unknown Collection Pass-Through & Winner Spreading: 738 Unit Tests Passing across 58 Test Files) -->
+### Phase 55: Fix Imported Space Sync Omission & Prevent Tab Grafting
+*   **Context & Architectural Scope:**
+    *   Addressed a critical space sync omission and tab grafting bug occurring during backup restoration and space duplication:
+        1. When importing a backup, spaces previously were assigned fresh UUIDs while preserving `name` and `createdAt`.
+        2. In `DiffEngine.reconcileSpaces`, the local-only space loop previously skipped spaces whose `createdAt_name` fingerprint had already been processed (`if (processedSpaceFps.has(fp)) continue`). As a result, imported spaces sharing a fingerprint with an existing or remote space were completely omitted from `mergedSpaces` and never synced to Google Drive.
+        3. However, child tabs belonging to those imported spaces were still uploaded, referencing an unmapped `spaceId`.
+        4. On peer devices, `DiffEngine.reconcileTabs` previously fell back to `spaceIdMap.get(remoteTab.spaceId) ?? remoteTab.spaceId`. This grafted incoming remote tabs directly onto whichever unrelated local space happened to share that raw integer ID.
+*   **Fix Local-Only Space Ingestion (`src/pro/sync/engine/diffEngine.ts`):**
+    *   Completely eliminated `processedSpaceFps` and the fingerprint collision skip in `reconcileSpaces`.
+    *   Accurately tracks all matched local space IDs via `matchedLocalSpaceIds = new Set<number>()` across both UUID matching and legacy fingerprint/adoption fallbacks.
+    *   The local-only spaces loop iterates through `local.spaces`, skips only if `matchedLocalSpaceIds.has(localSpace.id!)`, and includes all unmatched local spaces into `mergedSpaces` preserving their local IDs, UUIDs, and timestamps.
+*   **Eradicate Raw Number Fallback & Prevent Tab Grafting (`src/pro/sync/engine/diffEngine.ts`):**
+    *   In `reconcileTabs`, removed `?? remoteTab.spaceId` completely:
+        *   Checks `const targetSpaceId = spaceIdMap.get(remoteTab.spaceId);`
+        *   If `targetSpaceId === undefined`: logs `[DiffEngine] Dropping orphan remote tab with unmapped spaceId ${remoteTab.spaceId}: ${remoteTab.url}` and continues, dropping the orphan tab immediately.
+        *   Under NO circumstances does `targetSpaceId` fall back to the raw `remoteTab.spaceId`.
+    *   Enforces parent space existence in `mergedTabs`:
+        *   Accepts optional `mergedSpaceIds?: Set<number>` parameter in `reconcileTabs` (derived from `spacesResult.mergedSpaces.map(s => s.id)` in `reconcile`).
+        *   Guards local-only tabs against orphan space references and filters `finalMergedTabs` to strictly retain tabs whose `spaceId` exists in `mergedSpaceIds`.
+        *   Also removes `?? rt.spaceId` in `tabsDiffer` when mapping remote tabs.
+*   **Collision-Aware Import Identity (`src/lib/dataService.ts`):**
+    *   In `importData`, queries `await db.spaces.where('uuid').equals(space.uuid).first()` for each space in the backup:
+        *   If the UUID does not exist locally (e.g. disaster recovery / fresh install): preserves `space.uuid` and `space.createdAt`.
+        *   If the UUID already exists locally or in the current import batch (importing a copy or duplicate): generates fresh `crypto.randomUUID()` and assigns fresh `createdAt: Date.now() + index` to guarantee unique index safety and distinct sync fingerprints.
+    *   Strictly maintains Zero-Contamination Boundary (no imports from `src/pro/`).
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added tests verifying:
+        1. Two local spaces sharing the same `createdAt` and `name` (fingerprint collision) both survive into `mergedSpaces`.
+        2. Remote tab with unmapped `spaceId` is dropped from `localUpdates.tabs` and does NOT graft onto local space with that raw number ID.
+        3. Tabs belonging to local-only spaces with identical fingerprints sync properly to `mergedTabs`.
+    *   `src/lib/__tests__/dataService.test.ts`: Added tests verifying:
+        1. `importData` preserves UUID and `createdAt` when importing into an empty database.
+        2. `importData` generates fresh UUID and fresh `createdAt` when importing a space whose UUID already exists locally.
+    *   Full test suite raised to **743/743 passing tests across 58 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+    *   Production build (`npm run build`): clean build in 9.51s.
+
+<!-- Last Updated: 2026-09-24 (Phase 55: Fix Imported Space Sync Omission & Prevent Tab Grafting: 743 Unit Tests Passing across 58 Test Files) -->
 
 
 

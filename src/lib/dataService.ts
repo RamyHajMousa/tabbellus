@@ -175,16 +175,42 @@ export const dataService = {
             await db.transaction('rw', db.spaces, db.tabs, db.readLater, async () => {
                 // 1. Import Spaces & Build ID Map
                 const spaceIdMap = new Map<number, number>();
+                const usedUuids = new Set<string>();
 
-                for (const s of spacesRaw) {
+                for (let index = 0; index < spacesRaw.length; index++) {
+                    const s = spacesRaw[index];
                     const { id: oldId, ...rest } = s;
                     const now = Date.now();
+
+                    let resolvedUuid: string;
+                    let resolvedCreatedAt: number;
+
+                    if (rest.uuid && typeof rest.uuid === 'string') {
+                        const existing = await db.spaces.where('uuid').equals(rest.uuid).first();
+                        if (!existing && !usedUuids.has(rest.uuid)) {
+                            // Preserved on fresh install / disaster recovery
+                            resolvedUuid = rest.uuid;
+                            resolvedCreatedAt = typeof rest.createdAt === 'number' ? rest.createdAt : now;
+                        } else {
+                            // Collision detected: space with this UUID already exists locally or in this batch
+                            resolvedUuid = crypto.randomUUID();
+                            resolvedCreatedAt = now + index;
+                        }
+                    } else {
+                        // Missing UUID (legacy export)
+                        resolvedUuid = crypto.randomUUID();
+                        resolvedCreatedAt = typeof rest.createdAt === 'number' ? rest.createdAt : now;
+                    }
+                    usedUuids.add(resolvedUuid);
+
                     const spaceToInsert: Space = {
                         ...rest,
-                        uuid: crypto.randomUUID(), // Guard: fresh UUID to prevent unique index collisions
+                        uuid: resolvedUuid,
                         name: rest.name.trim(),
-                        createdAt: typeof rest.createdAt === 'number' ? rest.createdAt : now,
-                        updatedAt: typeof rest.updatedAt === 'number' ? rest.updatedAt : now,
+                        createdAt: resolvedCreatedAt,
+                        updatedAt: typeof rest.updatedAt === 'number'
+                            ? Math.max(rest.updatedAt, resolvedCreatedAt)
+                            : resolvedCreatedAt,
                         ...(rest.color ? { color: rest.color } : {}),
                         ...(rest.isPinned ? { isPinned: true } : {}),
                         ...(rest.deletedAt ? { deletedAt: rest.deletedAt } : {}),
