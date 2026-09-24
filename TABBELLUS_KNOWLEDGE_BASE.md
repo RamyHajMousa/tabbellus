@@ -1738,22 +1738,28 @@ The project has completed major refactoring phases to optimize performance, clea
         *   If the fetched remote `version !== expectedVersion`, aborts upload immediately and returns `{ success: false, conflict: true, version: remoteVersion }`.
         *   On actual upload PATCH, appends `fields=id,name,version,modifiedTime` and returns the updated `version` in the response result.
 *   **Sync Engine Jittered Retry Loop (`src/pro/sync/engine/syncEngine.ts`):**
-    *   Step 3 (Download): Records `this.lastDownloadedVersion = remoteMetadata.version`.
-    *   Step 7 (Upload): Passes `this.lastDownloadedVersion` as `expectedVersion` to `uploadVaultFile`.
+    *   Baseline: a cycle-scoped local `baselineVersion`, taken from the fresh `findVaultFile` listing (`remoteMetadata.version`) **before** any download, so downloaded content is always equal-or-newer than the baseline (conflicts err toward retry, never overwrite). Also applies to `forceUnencrypted` cycles (`resetCloudVault`), which skip the download. No engine instance state carries a version between cycles.
+    *   Step 7 (Upload): Passes `baselineVersion` as `expectedVersion` to `uploadVaultFile`.
     *   **Version Conflict Retry Loop (`result.conflict === true`):**
         *   Waits with randomized jitter: `250ms + Math.random() * 500ms`.
-        *   Re-downloads the remote vault file and captures the new `version`.
+        *   Advances `baselineVersion` to the version reported by the pre-flight check (`uploadResult.version`, read before the re-download), keeping the previous baseline if none was reported.
+        *   Re-downloads the remote vault file.
         *   Re-reconciles state using `DiffEngine.reconcile()`.
         *   Applies any local updates to Dexie.
         *   Re-attempts upload with the new version baseline, up to `MAX_CONFLICT_RETRIES = 3`.
         *   Fails open safely without crashing or corrupting local Dexie state if retries are exhausted.
+*   **Follow-up Fix (Version Source Hardening):**
+    *   `executeWithAuth` no longer derives `version` from parsed response bodies. For `alt=media` downloads the body is the vault file itself; a bare snapshot's schema `version: 1` was being mistaken for the Drive file version, causing a permanent conflict loop. `version` is now surfaced only from metadata responses (`findVaultFile` listing, pre-flight check, and `uploadVaultFile`, which returns `version` from its `fields=id,name,version,modifiedTime` response).
+    *   Removed HTTP `ETag` fallbacks as a version baseline (an ETag can never equal a Drive `version`) in both `executeSync` and `disableEncryption`.
+    *   Replaced the stale `this.lastDownloadedVersion` instance field with the cycle-scoped `baselineVersion`, fixing `resetCloudVault` comparing against a version left over from an earlier cycle.
+    *   Known limitation: the pre-flight check and the PATCH are two requests (Drive has no atomic conditional write), so a narrow check-to-commit race window remains.
 *   **Testing & Quality Metrics:**
     *   `src/pro/sync/api/__tests__/googleDriveClient.test.ts`: Verified that `findVaultFile` and `uploadVaultFile` do not request `etag` in `fields`, `uploadVaultFile` returns `conflict: true` on version mismatch, and proceeds to upload on matching version (24/24 passing).
     *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Verified that when upload returns `conflict: true`, the engine backs off with jitter, re-downloads the updated remote snapshot, re-merges, and successfully uploads on retry, and aborts safely if `MAX_CONFLICT_RETRIES` is exceeded (35/35 passing).
     *   Full test suite: **743/743 passing tests across 58 test files** (100% pass rate).
     *   `npx tsc --noEmit`: 0 diagnostics.
 
-<!-- Last Updated: 2026-09-24 (Phase 56: Fix Cross-Device Cloud Sync Overwrite using Drive v3 Version Guard: 743 Unit Tests Passing across 58 Test Files) -->
+<!-- Last Updated: 2026-09-24 (Phase 56 follow-up: Drive Version Source Hardening: 746 Unit Tests Passing across 58 Test Files) -->
 
 
 

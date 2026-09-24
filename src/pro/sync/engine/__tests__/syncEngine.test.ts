@@ -201,6 +201,7 @@ describe('SyncEngine', () => {
               id: 'vault-file-001',
               name: 'tabbellus_vault.json',
               mimeType: 'application/json',
+              version: '1',
             },
           ],
         },
@@ -252,7 +253,7 @@ describe('SyncEngine', () => {
         expect.stringContaining('Remote Space'),
         'vault-file-001',
         'tabbellus_vault.json',
-        'vault-etag-v1',
+        '1', // Drive metadata version from files.list; the download's HTTP ETag is ignored
       );
 
       // Verify state transitioned to synced
@@ -593,15 +594,14 @@ describe('SyncEngine', () => {
           readLater: [],
         };
 
+        // Media downloads carry no Drive version (the body is the vault file itself)
         mockedDrive.downloadVaultFile
           .mockResolvedValueOnce({
             success: true,
-            version: '1',
             data: initialRemoteSnapshot as unknown as VaultPayload,
           })
           .mockResolvedValueOnce({
             success: true,
-            version: '2',
             data: updatedRemoteSnapshot as unknown as VaultPayload,
           });
 
@@ -638,7 +638,7 @@ describe('SyncEngine', () => {
 
         // 1st upload used initial version '1'
         expect(mockedDrive.uploadVaultFile.mock.calls[0][3]).toBe('1');
-        // 2nd upload used fresh version '2' from re-download
+        // 2nd upload used version '2' observed by the pre-flight check (read before re-download)
         expect(mockedDrive.uploadVaultFile.mock.calls[1][3]).toBe('2');
 
         // Merged state in Dexie contains local space, initial remote space, and concurrently added space
@@ -716,6 +716,89 @@ describe('SyncEngine', () => {
         const status = await engine.getStatus();
         expect(status.state).toBe('error');
         expect(status.telemetry.lastError).toContain('Exceeded maximum retry attempts');
+      });
+
+      it('uses the Drive metadata version as baseline even when the vault body carries its own `version` field', async () => {
+        mockedAuth.getAuthToken.mockResolvedValue({ success: true, data: 'valid-token' });
+
+        mockedDrive.findVaultFile.mockResolvedValue({
+          success: true,
+          data: {
+            files: [
+              { id: 'vault-bare-snapshot', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '57' },
+            ],
+          },
+        });
+
+        // Bare (unwrapped) snapshot vault: its schema `version: 1` must never be used as the Drive version
+        mockedDrive.downloadVaultFile.mockResolvedValue({
+          success: true,
+          data: {
+            version: 1,
+            clientTimestamp: 1000,
+            deviceId: 'remote-device',
+            spaces: [{ id: 1, name: 'Remote Space', createdAt: 1000 }],
+            tabs: [],
+            readLater: [],
+          } as unknown as VaultPayload,
+        });
+
+        mockedDrive.uploadVaultFile.mockResolvedValue({
+          success: true,
+          data: { id: 'vault-bare-snapshot', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '58' },
+        });
+
+        await db.spaces.add({ name: 'Local Space', createdAt: 2000 });
+
+        const result = await engine.syncNow();
+
+        expect(result.success).toBe(true);
+        expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+        expect(mockedDrive.uploadVaultFile.mock.calls[0][3]).toBe('57');
+      });
+
+      it('resetCloudVault uses the fresh listing version, not a baseline left over from an earlier cycle', async () => {
+        mockedAuth.getAuthToken.mockResolvedValue({ success: true, data: 'valid-token' });
+
+        const remoteSnapshot = {
+          version: 1,
+          clientTimestamp: 1000,
+          deviceId: 'remote-device',
+          spaces: [{ id: 1, name: 'Remote Space', createdAt: 1000 }],
+          tabs: [],
+          readLater: [],
+        };
+        mockedDrive.downloadVaultFile.mockResolvedValue({
+          success: true,
+          data: remoteSnapshot as unknown as VaultPayload,
+        });
+        mockedDrive.uploadVaultFile.mockResolvedValue({
+          success: true,
+          data: { id: 'vault-reset', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        });
+
+        // 1st cycle observes version '5'
+        mockedDrive.findVaultFile.mockResolvedValue({
+          success: true,
+          data: { files: [{ id: 'vault-reset', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '5' }] },
+        });
+        await db.spaces.add({ name: 'Local Space', createdAt: 2000 });
+        await engine.syncNow();
+
+        // Another device writes; the vault is now at version '9'
+        mockedDrive.findVaultFile.mockResolvedValue({
+          success: true,
+          data: { files: [{ id: 'vault-reset', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '9' }] },
+        });
+        mockedDrive.uploadVaultFile.mockClear();
+        mockedDrive.downloadVaultFile.mockClear();
+
+        await engine.resetCloudVault();
+
+        // Reset skips the download, but its baseline is the fresh '9', not the stale '5'
+        expect(mockedDrive.downloadVaultFile).not.toHaveBeenCalled();
+        expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+        expect(mockedDrive.uploadVaultFile.mock.calls[0][3]).toBe('9');
       });
     });
   });
@@ -1092,7 +1175,7 @@ describe('SyncEngine', () => {
               name: 'tabbellus_vault.json',
               modifiedTime: '2026-09-03T10:00:00Z',
               mimeType: 'application/json',
-              etag: 'remote-etag-123',
+              version: '42',
             },
           ],
         },
@@ -1143,10 +1226,11 @@ describe('SyncEngine', () => {
 
       // Verify unencrypted upload took place and contains both spaces
       expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
-      const [uploadedRaw, fileId, fileName, ifMatchEtag] = mockedDrive.uploadVaultFile.mock.calls[0];
+      const [uploadedRaw, fileId, fileName, expectedVersion] = mockedDrive.uploadVaultFile.mock.calls[0];
       expect(fileId).toBe('vault-file-123');
       expect(fileName).toBe('tabbellus_vault.json');
-      expect(ifMatchEtag).toBe('remote-etag-123');
+      // Baseline comes from Drive metadata (files.list `version`), never from an HTTP ETag
+      expect(expectedVersion).toBe('42');
 
       const uploadedContent = JSON.parse(uploadedRaw) as VaultPayload;
       expect(uploadedContent.schemaVersion).toBe('1.0.0');

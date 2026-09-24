@@ -69,7 +69,6 @@ export class SyncEngine implements SyncProvider {
   private readonly MAX_CONFLICT_RETRIES = 3;
   private mutationUnsubscribe: (() => void) | null = null;
   private rateLimitResetAt = 0;
-  private lastDownloadedVersion?: string;
 
   constructor() {
     this.initFromStorage();
@@ -342,10 +341,10 @@ export class SyncEngine implements SyncProvider {
 
         let vaultFileId: string | undefined =
           findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
-        let currentVaultVersion: string | undefined =
-          findResult.data.files.length > 0
-            ? (findResult.data.files[0].version ?? findResult.data.files[0].etag)
-            : undefined;
+        // Drive version baseline, captured from metadata BEFORE downloading so the
+        // downloaded content can only be equal-or-newer (conflicts err toward retry).
+        const currentVaultVersion: string | undefined =
+          findResult.data.files.length > 0 ? findResult.data.files[0].version : undefined;
 
         let remoteSnapshot: SyncVaultSnapshot | null = null;
 
@@ -361,12 +360,6 @@ export class SyncEngine implements SyncProvider {
             });
             await this.saveStorageState({ lastError: downloadResult.error });
             throw new Error(`Failed to download remote vault: ${downloadResult.error}`);
-          }
-
-          if (downloadResult.version) {
-            currentVaultVersion = downloadResult.version;
-          } else if (!currentVaultVersion && downloadResult.etag) {
-            currentVaultVersion = downloadResult.etag;
           }
 
           const raw = downloadResult.data;
@@ -1005,9 +998,14 @@ export class SyncEngine implements SyncProvider {
       let currentVaultEtag: string | undefined = remoteMetadata?.etag;
       const vaultExists = Boolean(vaultFileId);
 
+      // Drive version baseline for the pre-upload conflict check. Scoped to this
+      // cycle and taken from the fresh metadata listing BEFORE any download, so the
+      // downloaded content is always equal-or-newer than the baseline. Also applies
+      // to forceUnencrypted cycles (e.g. resetCloudVault), which skip the download.
+      let baselineVersion: string | undefined = remoteMetadata?.version;
+
       // Step 3: Download and decrypt remote snapshot if it exists
       if (vaultExists && !options?.forceUnencrypted) {
-        this.lastDownloadedVersion = remoteMetadata?.version ?? remoteMetadata?.etag;
         const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId!);
         if (!downloadResult.success) {
           console.error(
@@ -1051,12 +1049,6 @@ export class SyncEngine implements SyncProvider {
             error: downloadResult.error ?? 'FAILED_REMOTE_DOWNLOAD',
             timestamp: Date.now(),
           };
-        }
-
-        if (downloadResult.version) {
-          this.lastDownloadedVersion = downloadResult.version;
-        } else if (!this.lastDownloadedVersion && downloadResult.etag) {
-          this.lastDownloadedVersion = downloadResult.etag;
         }
 
         if (downloadResult.etag) {
@@ -1207,7 +1199,7 @@ export class SyncEngine implements SyncProvider {
           uploadContent,
           vaultFileId,
           VAULT_FILE_NAME,
-          this.lastDownloadedVersion,
+          baselineVersion,
         );
 
         // OCC Conflict Resolution Loop
@@ -1226,7 +1218,13 @@ export class SyncEngine implements SyncProvider {
             break;
           }
 
-          // Re-download the remote vault file (and capture the new version)
+          // Advance the baseline to the version the pre-flight check just observed.
+          // It was read BEFORE the re-download below, so the re-downloaded content is
+          // equal-or-newer. If no version was reported, keep the previous baseline:
+          // it is older still, so the worst case is another conflict, never an overwrite.
+          baselineVersion = uploadResult.version ?? baselineVersion;
+
+          // Re-download the remote vault file
           const retryDownload = await googleDriveClient.downloadVaultFile(vaultFileId);
           if (!retryDownload.success) {
             console.error(
@@ -1250,15 +1248,6 @@ export class SyncEngine implements SyncProvider {
               timestamp: Date.now(),
             };
           }
-
-          // Capture the new version baseline
-          this.lastDownloadedVersion =
-            retryDownload.version ??
-            uploadResult.version ??
-            ((retryDownload.data as unknown as Record<string, unknown>)?.version !== undefined
-              ? String((retryDownload.data as unknown as Record<string, unknown>).version)
-              : undefined) ??
-            retryDownload.etag;
 
           currentVaultEtag = retryDownload.etag ?? (retryDownload.data as { etag?: string })?.etag;
 
@@ -1356,10 +1345,10 @@ export class SyncEngine implements SyncProvider {
                 id: vaultFileId,
                 name: VAULT_FILE_NAME,
                 mimeType: 'application/json',
-                version: this.lastDownloadedVersion,
+                version: baselineVersion,
                 etag: currentVaultEtag,
               },
-              version: this.lastDownloadedVersion,
+              version: baselineVersion,
               etag: currentVaultEtag,
             };
             break;
@@ -1383,7 +1372,7 @@ export class SyncEngine implements SyncProvider {
             uploadContent,
             vaultFileId,
             VAULT_FILE_NAME,
-            this.lastDownloadedVersion,
+            baselineVersion,
           );
         }
 
@@ -1435,7 +1424,6 @@ export class SyncEngine implements SyncProvider {
         }
 
         vaultFileId = uploadResult.data.id;
-        this.lastDownloadedVersion = uploadResult.version ?? uploadResult.data.version ?? this.lastDownloadedVersion;
       }
 
       // Step 8: Update state to synced

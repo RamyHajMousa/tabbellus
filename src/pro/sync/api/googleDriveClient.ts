@@ -229,15 +229,14 @@ export class GoogleDriveClient {
       if (etag && data && typeof data === 'object' && !('etag' in data)) {
         (data as Record<string, unknown>).etag = etag;
       }
-      const dataVersion = (data && typeof data === 'object' && 'version' in data && (data as Record<string, unknown>).version != null)
-        ? String((data as Record<string, unknown>).version)
-        : undefined;
-
+      // NOTE: Drive `version` is deliberately NOT derived from the parsed body here.
+      // For `alt=media` downloads the body is the vault file itself, whose own
+      // `version` key (snapshot schema number) must never be mistaken for the Drive
+      // file version. Metadata-returning methods expose `version` on `data` instead.
       return {
         success: true,
         data,
         ...(etag ? { etag } : {}),
-        ...(dataVersion ? { version: dataVersion } : {}),
       };
     } catch (err: unknown) {
       return normalizeNetworkError(err);
@@ -355,7 +354,7 @@ export class GoogleDriveClient {
 
     const body = buildMultipartBody(metadata, content, boundary);
 
-    return this.executeWithAuth(
+    const uploadResult = await this.executeWithAuth(
       (token) => {
         const url = existingFileId
           ? `${DRIVE_UPLOAD_BASE}/${existingFileId}?uploadType=multipart&fields=id,name,version,modifiedTime`
@@ -382,6 +381,13 @@ export class GoogleDriveClient {
         } as DriveFileMetadata;
       },
     );
+
+    // The upload response is file metadata (fields=id,name,version,...), so its
+    // `version` is the genuine Drive file version and is safe to surface.
+    if (uploadResult.success && uploadResult.data.version) {
+      return { ...uploadResult, version: uploadResult.data.version };
+    }
+    return uploadResult;
   }
 }
 

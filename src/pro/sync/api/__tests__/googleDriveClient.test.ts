@@ -171,6 +171,23 @@ describe('GoogleDriveClient', () => {
         expect(result.etag).toBe('"etag-abc-123"');
       }
     });
+
+    it('does not expose the vault body `version` field as the Drive file version', async () => {
+      // Bare snapshot body: `version` is the snapshot schema number, not Drive metadata
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: () => Promise.resolve({ version: 1, clientTimestamp: 1000, deviceId: 'd', spaces: [], tabs: [], readLater: [] }),
+      });
+
+      const result = await client.downloadVaultFile('file-001');
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.version).toBeUndefined();
+      }
+    });
   });
 
   // =========================================================================
