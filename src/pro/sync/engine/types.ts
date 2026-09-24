@@ -23,11 +23,33 @@ export interface SyncedSettings {
   updatedAt: number;
 }
 
+export const CURRENT_SCHEMA_MAJOR = 1;
+export const CURRENT_SCHEMA_MINOR = 0;
+export const SNAPSHOT_SCHEMA_VERSION = `${CURRENT_SCHEMA_MAJOR}.${CURRENT_SCHEMA_MINOR}`;
+
+/**
+ * Parses a semver-like schema version (e.g., "1.2", "1.5.0", 1) into numeric major and minor components.
+ */
+export function parseSchemaVersion(version?: string | number): { major: number; minor: number } {
+  if (typeof version === 'string') {
+    const parts = version.trim().split('.');
+    const major = parseInt(parts[0], 10);
+    const minor = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    if (!isNaN(major)) {
+      return { major, minor: isNaN(minor) ? 0 : minor };
+    }
+  } else if (typeof version === 'number' && !isNaN(version)) {
+    return { major: Math.floor(version), minor: 0 };
+  }
+  return { major: CURRENT_SCHEMA_MAJOR, minor: CURRENT_SCHEMA_MINOR };
+}
+
 /**
  * Normalized snapshot of user domain data stored in the cloud vault.
  */
 export interface SyncVaultSnapshot {
   version: number;
+  schemaVersion?: string;
   clientTimestamp: number | string;
   deviceId: string;
   spaces: Space[];
@@ -35,6 +57,7 @@ export interface SyncVaultSnapshot {
   readLater: ReadLaterItem[];
   rules?: TabRule[];
   settings?: SyncedSettings;
+  [key: string]: unknown;
 }
 
 /**

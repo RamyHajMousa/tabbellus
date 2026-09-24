@@ -1473,5 +1473,131 @@ describe('SyncEngine', () => {
       expect(syncNowSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe('Schema Forward-Compatibility & Version Guarding', () => {
+    it('aborts sync, does not mutate local Dexie, and sets UPDATE_REQUIRED error when remote has future major version', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          files: [
+            {
+              id: 'vault-file-001',
+              name: 'tabbellus_vault.json',
+              mimeType: 'application/json',
+              etag: 'vault-etag-v1',
+            },
+          ],
+        },
+      });
+
+      const remoteSnapshot = {
+        version: 2,
+        schemaVersion: '2.0.0',
+        clientTimestamp: 3000,
+        deviceId: 'future-device',
+        spaces: [{ id: 99, name: 'Future Space', createdAt: 3000 }],
+        tabs: [],
+        readLater: [],
+      };
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        etag: 'vault-etag-v1',
+        data: remoteSnapshot as any,
+      });
+
+      await db.spaces.add({
+        name: 'Local Space',
+        createdAt: 1000,
+      });
+
+      const result = await engine.syncNow();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('UPDATE_REQUIRED');
+
+      const status = await engine.getStatus();
+      expect(status.state).toBe('error');
+      expect(status.telemetry.lastError).toBe(
+        'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.',
+      );
+
+      // Verify local Dexie was NOT mutated
+      const spaces = await db.spaces.toArray();
+      expect(spaces).toHaveLength(1);
+      expect(spaces[0].name).toBe('Local Space');
+
+      // Verify no upload attempted
+      expect(mockedDrive.uploadVaultFile).not.toHaveBeenCalled();
+    });
+
+    it('successfully reconciles and preserves newer minor schemaVersion on upload', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          files: [
+            {
+              id: 'vault-file-001',
+              name: 'tabbellus_vault.json',
+              mimeType: 'application/json',
+              etag: 'vault-etag-v1',
+            },
+          ],
+        },
+      });
+
+      const remoteSnapshot = {
+        version: 1,
+        schemaVersion: '1.5.0',
+        clientTimestamp: 1000,
+        deviceId: 'remote-device',
+        spaces: [{ id: 10, name: 'Remote Space', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        etag: 'vault-etag-v1',
+        data: remoteSnapshot as any,
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          id: 'vault-file-001',
+          name: 'tabbellus_vault.json',
+          mimeType: 'application/json',
+          etag: 'vault-etag-v2',
+        },
+      });
+
+      await db.spaces.add({
+        name: 'Local Space',
+        createdAt: 2000,
+      });
+
+      const result = await engine.syncNow();
+
+      expect(result.success).toBe(true);
+
+      // Verify Dexie received the remote space
+      const allSpaces = await db.spaces.toArray();
+      expect(allSpaces).toHaveLength(2);
+
+      // Verify upload was called with preserved schemaVersion: '1.5.0' on both envelope and inner snapshot
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalled();
+      const uploadedVault = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]);
+      expect(uploadedVault.schemaVersion).toBe('1.5.0');
+      const innerSnapshot = JSON.parse(uploadedVault.payload);
+      expect(innerSnapshot.schemaVersion).toBe('1.5.0');
+    });
+  });
 });
 

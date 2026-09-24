@@ -11,11 +11,18 @@
  */
 
 import { db } from '@/lib/db';
+import type { TabRule } from '@/core/contracts/rules';
 import { loadRules } from '@/pro/rules/storage/ruleStorage';
 import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
 import { useAppStore } from '@/store/appStore';
-import type { TabRule } from '@/core/contracts/rules';
-import type { SyncVaultSnapshot, ReconciliationResult, SyncedSettings } from './types';
+import {
+  CURRENT_SCHEMA_MAJOR,
+  SNAPSHOT_SCHEMA_VERSION,
+  parseSchemaVersion,
+  type SyncVaultSnapshot,
+  type ReconciliationResult,
+  type SyncedSettings,
+} from './types';
 
 export const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -65,7 +72,8 @@ export class SnapshotSerializer {
     };
 
     return {
-      version: 1,
+      version: CURRENT_SCHEMA_MAJOR,
+      schemaVersion: SNAPSHOT_SCHEMA_VERSION,
       clientTimestamp: now,
       deviceId,
       spaces: compactedSpaces,
@@ -159,9 +167,12 @@ export class SnapshotSerializer {
     }
 
     const candidate = data as Partial<SyncVaultSnapshot>;
+    const parsedVersion = typeof candidate.version === 'number'
+      ? candidate.version
+      : (candidate.schemaVersion ? parseSchemaVersion(candidate.schemaVersion).major : undefined);
 
     const baseValid = (
-      typeof candidate.version === 'number' &&
+      typeof parsedVersion === 'number' &&
       (typeof candidate.clientTimestamp === 'number' || typeof candidate.clientTimestamp === 'string') &&
       typeof candidate.deviceId === 'string' &&
       Array.isArray(candidate.spaces) &&
@@ -170,6 +181,9 @@ export class SnapshotSerializer {
     );
 
     if (!baseValid) return false;
+    if (candidate.version === undefined && typeof parsedVersion === 'number') {
+      candidate.version = parsedVersion;
+    }
 
     // Resilient deep validation: filter out malformed entities with warnings
     candidate.spaces = candidate.spaces!.filter((s) => {

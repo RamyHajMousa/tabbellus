@@ -38,7 +38,13 @@ import {
 } from '../crypto';
 import { SnapshotSerializer } from './snapshotSerializer';
 import { DiffEngine } from './diffEngine';
-import type { SyncStorageState, SyncVaultSnapshot } from './types';
+import {
+  CURRENT_SCHEMA_MAJOR,
+  SNAPSHOT_SCHEMA_VERSION,
+  parseSchemaVersion,
+  type SyncStorageState,
+  type SyncVaultSnapshot,
+} from './types';
 import { getOrCreateInstanceId } from '@/pro/licensing/storage/instanceManager';
 
 const SYNC_STORAGE_KEY = 'tabbellus_sync_state';
@@ -440,9 +446,13 @@ export class SyncEngine implements SyncProvider {
           },
         });
 
-        // 6. Upload unified mergedSnapshot as unencrypted plaintext JSON (schemaVersion: '1.0.0', isEncrypted: false)
+        // 6. Upload unified mergedSnapshot as unencrypted plaintext JSON (isEncrypted: false)
         const unencryptedVaultContent: VaultPayload = {
-          schemaVersion: '1.0.0',
+          schemaVersion:
+            reconciliation.mergedSnapshot.schemaVersion &&
+            reconciliation.mergedSnapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION
+              ? reconciliation.mergedSnapshot.schemaVersion
+              : '1.0.0',
           clientTimestamp: new Date().toISOString(),
           payload: JSON.stringify(reconciliation.mergedSnapshot),
           isEncrypted: false,
@@ -878,8 +888,12 @@ export class SyncEngine implements SyncProvider {
     }
 
     const jsonStr = JSON.stringify(snapshot);
+    const vaultSchemaVersion =
+      snapshot.schemaVersion && snapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION
+        ? snapshot.schemaVersion
+        : '1.0.0';
     const vaultContent: VaultPayload = {
-      schemaVersion: '1.0.0',
+      schemaVersion: vaultSchemaVersion,
       clientTimestamp: new Date().toISOString(),
       payload: jsonStr,
       isEncrypted: false,
@@ -1104,6 +1118,27 @@ export class SyncEngine implements SyncProvider {
         }
 
         remoteSnapshot = parseResult.remoteSnapshot;
+
+        if (remoteSnapshot) {
+          const remoteSchema = parseSchemaVersion(remoteSnapshot.schemaVersion ?? remoteSnapshot.version);
+          if (remoteSchema.major > CURRENT_SCHEMA_MAJOR) {
+            const updateErrorMsg =
+              'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.';
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: updateErrorMsg,
+              },
+            });
+            await this.saveStorageState({ lastError: updateErrorMsg });
+            return {
+              success: false,
+              error: 'UPDATE_REQUIRED',
+              timestamp: Date.now(),
+            };
+          }
+        }
       }
 
       // Step 4: Create local snapshot
@@ -1254,6 +1289,27 @@ export class SyncEngine implements SyncProvider {
           }
 
           remoteSnapshot = freshParseResult.remoteSnapshot;
+
+          if (remoteSnapshot) {
+            const retryRemoteSchema = parseSchemaVersion(remoteSnapshot.schemaVersion ?? remoteSnapshot.version);
+            if (retryRemoteSchema.major > CURRENT_SCHEMA_MAJOR) {
+              const updateErrorMsg =
+                'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.';
+              this.updateStatus({
+                state: 'error',
+                telemetry: {
+                  ...this.status.telemetry,
+                  lastError: updateErrorMsg,
+                },
+              });
+              await this.saveStorageState({ lastError: updateErrorMsg });
+              return {
+                success: false,
+                error: 'UPDATE_REQUIRED',
+                timestamp: Date.now(),
+              };
+            }
+          }
 
           // Re-create local snapshot and re-reconcile using DiffEngine
           const freshLocalSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);

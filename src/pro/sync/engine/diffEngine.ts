@@ -24,8 +24,16 @@
  */
 
 import type { Space, Tab, ReadLaterItem } from '@/lib/db';
+import {
+  CURRENT_SCHEMA_MAJOR,
+  CURRENT_SCHEMA_MINOR,
+  SNAPSHOT_SCHEMA_VERSION,
+  parseSchemaVersion,
+  type SyncVaultSnapshot,
+  type ReconciliationResult,
+  type SyncedSettings,
+} from './types';
 import { normalizeTabUrl } from '@/lib/tabService';
-import type { SyncVaultSnapshot, ReconciliationResult, SyncedSettings } from './types';
 import type { TabRule } from '@/core/contracts/rules';
 
 export { normalizeTabUrl };
@@ -46,6 +54,42 @@ export function toEpochMs(timestamp: string | number | undefined | null): number
  */
 function getSpaceFingerprint(space: Space): string {
   return `${toEpochMs(space.createdAt)}_${space.name.trim()}`;
+}
+
+const KNOWN_SPACE_KEYS = new Set([
+  'id', 'uuid', 'name', 'color', 'createdAt', 'updatedAt', 'deletedAt', 'isPinned',
+]);
+
+const KNOWN_TAB_KEYS = new Set([
+  'id', 'spaceId', 'url', 'title', 'favicon', 'order', 'createdAt', 'updatedAt', 'deletedAt',
+]);
+
+const KNOWN_READ_LATER_KEYS = new Set([
+  'id', 'url', 'title', 'favicon', 'addedAt', 'updatedAt', 'deletedAt', 'status',
+]);
+
+const KNOWN_RULE_KEYS = new Set([
+  'id', 'name', 'enabled', 'priority', 'matchAll', 'conditions', 'actions', 'createdAt', 'updatedAt', 'deletedAt',
+]);
+
+/**
+ * Compares two objects specifically for UNKNOWN or ARBITRARY property differences
+ * (ignoring all known schema keys for that entity type).
+ */
+function hasUnknownFieldDiff(a: object, b: object, knownKeys: Set<string>): boolean {
+  const recA = a as unknown as Record<string, unknown>;
+  const recB = b as unknown as Record<string, unknown>;
+  for (const k of Object.keys(recA)) {
+    if (!knownKeys.has(k) && recA[k] !== recB[k]) {
+      return true;
+    }
+  }
+  for (const k of Object.keys(recB)) {
+    if (!knownKeys.has(k) && recA[k] !== recB[k]) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export class DiffEngine {
@@ -201,7 +245,10 @@ export class DiffEngine {
             ? Math.max(mergedUpdatedAt, mergedDeletedAt)
             : mergedUpdatedAt;
 
+        const winner = remoteWins ? remoteSpace : localSpace;
+
         const mergedSpace: Space = {
+          ...winner,
           id: localSpaceId,
           uuid: resolvedUuid,
           name: remoteWins ? remoteSpace.name : localSpace.name,
@@ -215,6 +262,11 @@ export class DiffEngine {
             ? (remoteSpace.color ?? localSpace.color)
             : (localSpace.color ?? remoteSpace.color),
         };
+        if (mergedDeletedAt === undefined) {
+          delete (mergedSpace as Partial<Space>).deletedAt;
+        }
+
+        const hasExtraFieldDiff = hasUnknownFieldDiff(mergedSpace, localSpace, KNOWN_SPACE_KEYS);
 
         // Check if local space needs database update
         if (
@@ -224,7 +276,8 @@ export class DiffEngine {
           localSpace.isPinned !== mergedSpace.isPinned ||
           localSpace.createdAt !== mergedSpace.createdAt ||
           (localSpace.updatedAt !== undefined && toEpochMs(localSpace.updatedAt) !== toEpochMs(mergedSpace.updatedAt)) ||
-          (localSpace.uuid !== undefined && localSpace.uuid !== mergedSpace.uuid)
+          (localSpace.uuid !== undefined && localSpace.uuid !== mergedSpace.uuid) ||
+          hasExtraFieldDiff
         ) {
           localSpaceUpdates.push(mergedSpace);
         }
@@ -539,8 +592,11 @@ export class DiffEngine {
                 ? remoteTabUpdatedMs
                 : (remoteWins ? remoteTabMutation : localTabMutation);
 
+        const winner = remoteWins ? remoteTab : existingLocalTab;
+
         // Set tabToUpsert.id = existingLocalTab.id to preserve Dexie primary key
         const tabToUpsert: Tab = {
+          ...winner,
           id: existingLocalTab.id,
           spaceId: resolvedSpaceId,
           url: remoteWins ? remoteTab.url : existingLocalTab.url,
@@ -555,6 +611,11 @@ export class DiffEngine {
           ...(tabUpdatedAt > 0 ? { updatedAt: tabUpdatedAt } : {}),
           ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),
         };
+        if (resolvedDeletedAt === undefined) {
+          delete (tabToUpsert as Partial<Tab>).deletedAt;
+        }
+
+        const hasExtraFieldDiff = hasUnknownFieldDiff(tabToUpsert, existingLocalTab, KNOWN_TAB_KEYS);
 
         if (
           existingLocalTab.title !== tabToUpsert.title ||
@@ -562,7 +623,8 @@ export class DiffEngine {
           existingLocalTab.order !== tabToUpsert.order ||
           existingLocalTab.url !== tabToUpsert.url ||
           existingLocalTab.deletedAt !== tabToUpsert.deletedAt ||
-          (existingLocalTab.updatedAt !== undefined && toEpochMs(existingLocalTab.updatedAt) !== toEpochMs(tabToUpsert.updatedAt))
+          (existingLocalTab.updatedAt !== undefined && toEpochMs(existingLocalTab.updatedAt) !== toEpochMs(tabToUpsert.updatedAt)) ||
+          hasExtraFieldDiff
         ) {
           localTabUpdates.push(tabToUpsert);
         }
@@ -574,6 +636,7 @@ export class DiffEngine {
           // Do NOT insert into local Dexie (omit from localTabUpdates).
           // Retain in mergedTabs for tombstone propagation.
           const remoteTombstone: Tab = {
+            ...remoteTab,
             spaceId: resolvedSpaceId,
             url: remoteTab.url,
             title: remoteTab.title,
@@ -583,10 +646,12 @@ export class DiffEngine {
             updatedAt: toEpochMs(remoteTab.updatedAt ?? remoteTab.createdAt ?? remoteClientTimestamp),
             deletedAt: remoteTab.deletedAt,
           };
+          delete (remoteTombstone as Partial<Tab>).id;
           mergedTabs.push(remoteTombstone);
         } else {
           // Active remote tab: insert into local Dexie (omit id for auto-increment)
           const incomingTab: Tab = {
+            ...remoteTab,
             spaceId: resolvedSpaceId,
             url: remoteTab.url,
             title: remoteTab.title,
@@ -595,6 +660,7 @@ export class DiffEngine {
             createdAt: remoteTab.createdAt ?? toEpochMs(remoteClientTimestamp),
             updatedAt: toEpochMs(remoteTab.updatedAt ?? remoteTab.createdAt ?? remoteClientTimestamp),
           };
+          delete (incomingTab as Partial<Tab>).id;
           localTabUpdates.push(incomingTab);
           mergedTabs.push(incomingTab);
         }
@@ -755,7 +821,10 @@ export class DiffEngine {
           ? Math.max(localUpdated, remoteUpdated)
           : undefined;
 
+        const winner = remoteWins ? remoteItem : localItem;
+
         const mergedItem: ReadLaterItem = {
+          ...winner,
           id: localItemId,
           url: remoteWins ? remoteItem.url : localItem.url,
           title: remoteWins ? (remoteItem.title ?? localItem.title) : (localItem.title ?? remoteItem.title),
@@ -765,6 +834,11 @@ export class DiffEngine {
           ...(maxUpdatedAt !== undefined ? { updatedAt: maxUpdatedAt } : {}),
           ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),
         };
+        if (resolvedDeletedAt === undefined) {
+          delete (mergedItem as Partial<ReadLaterItem>).deletedAt;
+        }
+
+        const hasExtraFieldDiff = hasUnknownFieldDiff(mergedItem, localItem, KNOWN_READ_LATER_KEYS);
 
         if (
           localItem.status !== mergedItem.status ||
@@ -772,7 +846,8 @@ export class DiffEngine {
           localItem.favicon !== mergedItem.favicon ||
           localItem.addedAt !== mergedItem.addedAt ||
           localItem.deletedAt !== mergedItem.deletedAt ||
-          localItem.updatedAt !== mergedItem.updatedAt
+          localItem.updatedAt !== mergedItem.updatedAt ||
+          hasExtraFieldDiff
         ) {
           localReadLaterUpdates.push(mergedItem);
         }
@@ -897,6 +972,7 @@ export class DiffEngine {
         const fallback = remoteWins ? localRule : remoteRule;
 
         const mergedRule: TabRule = {
+          ...winner,
           id: localRule.id,
           name: winner.name ?? fallback.name,
           enabled: winner.enabled !== undefined ? winner.enabled : fallback.enabled,
@@ -908,6 +984,9 @@ export class DiffEngine {
           updatedAt: mergedUpdatedAt,
           ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),
         };
+        if (resolvedDeletedAt === undefined) {
+          delete (mergedRule as Partial<TabRule>).deletedAt;
+        }
         mergedMap.set(id, mergedRule);
       } else {
         // Remote rule does not exist locally
@@ -967,6 +1046,8 @@ export class DiffEngine {
           hasLocalRulesChanges = true;
           break;
         }
+        const hasExtraFieldDiff = hasUnknownFieldDiff(mr, lr, KNOWN_RULE_KEYS);
+
         if (
           lr.name !== mr.name ||
           lr.enabled !== mr.enabled ||
@@ -975,7 +1056,8 @@ export class DiffEngine {
           lr.deletedAt !== mr.deletedAt ||
           toEpochMs(lr.updatedAt) !== toEpochMs(mr.updatedAt) ||
           JSON.stringify(lr.conditions) !== JSON.stringify(mr.conditions) ||
-          JSON.stringify(lr.actions) !== JSON.stringify(mr.actions)
+          JSON.stringify(lr.actions) !== JSON.stringify(mr.actions) ||
+          hasExtraFieldDiff
         ) {
           hasLocalRulesChanges = true;
           break;
@@ -1058,7 +1140,8 @@ export class DiffEngine {
           tabIdsToDelete: [],
         },
         mergedSnapshot: {
-          version: 1,
+          version: CURRENT_SCHEMA_MAJOR,
+          schemaVersion: SNAPSHOT_SCHEMA_VERSION,
           clientTimestamp: timestamp,
           deviceId,
           spaces: [...local.spaces],
@@ -1072,6 +1155,25 @@ export class DiffEngine {
         hasChanges: true,
       };
     }
+
+    const {
+      spaces: _remoteSpaces,
+      tabs: _remoteTabs,
+      readLater: _remoteReadLater,
+      rules: _remoteRules,
+      settings: _remoteSettings,
+      version: _remoteVersion,
+      schemaVersion: _remoteSchemaVersion,
+      clientTimestamp: _remoteClientTimestamp,
+      deviceId: _remoteDeviceId,
+      ...unknownRemoteCollections
+    } = remote;
+
+    const parsedRemoteSchema = parseSchemaVersion(remote.schemaVersion ?? remote.version);
+    const resolvedSchemaVersion =
+      parsedRemoteSchema.minor > CURRENT_SCHEMA_MINOR && typeof remote.schemaVersion === 'string'
+        ? remote.schemaVersion
+        : SNAPSHOT_SCHEMA_VERSION;
 
     const localUpdates: ReconciliationResult['localUpdates'] = {
       spaces: [],
@@ -1164,6 +1266,7 @@ export class DiffEngine {
       }
       for (const ms of spacesResult.mergedSpaces) {
         const rs = (ms.uuid ? remoteSpaceMap.get(ms.uuid) : undefined) ?? remoteSpaceMap.get(getSpaceFingerprint(ms));
+        const hasExtraFieldDiff = rs ? hasUnknownFieldDiff(ms, rs, KNOWN_SPACE_KEYS) : false;
         if (
           !rs ||
           ms.name !== rs.name ||
@@ -1171,7 +1274,8 @@ export class DiffEngine {
           ms.isPinned !== rs.isPinned ||
           ms.deletedAt !== rs.deletedAt ||
           (ms.updatedAt !== undefined && rs.updatedAt !== undefined && toEpochMs(ms.updatedAt) !== toEpochMs(rs.updatedAt)) ||
-          (ms.uuid && rs.uuid && ms.uuid !== rs.uuid)
+          (ms.uuid && rs.uuid && ms.uuid !== rs.uuid) ||
+          hasExtraFieldDiff
         ) {
           spacesDiffer = true;
           break;
@@ -1191,13 +1295,15 @@ export class DiffEngine {
       for (const mt of tabsResult.mergedTabs) {
         const key = `${mt.spaceId}::${normalizeTabUrl(mt.url)}`;
         const rt = remoteTabMap.get(key);
+        const hasExtraFieldDiff = rt ? hasUnknownFieldDiff(mt, rt, KNOWN_TAB_KEYS) : false;
         if (
           !rt ||
           mt.order !== rt.order ||
           mt.title !== rt.title ||
           mt.favicon !== rt.favicon ||
           mt.deletedAt !== rt.deletedAt ||
-          (mt.updatedAt !== undefined && rt.updatedAt !== undefined && toEpochMs(mt.updatedAt) !== toEpochMs(rt.updatedAt))
+          (mt.updatedAt !== undefined && rt.updatedAt !== undefined && toEpochMs(mt.updatedAt) !== toEpochMs(rt.updatedAt)) ||
+          hasExtraFieldDiff
         ) {
           tabsDiffer = true;
           break;
@@ -1214,13 +1320,15 @@ export class DiffEngine {
       }
       for (const mr of readLaterResult.mergedReadLater) {
         const rr = remoteReadLaterMap.get(normalizeTabUrl(mr.url));
+        const hasExtraFieldDiff = rr ? hasUnknownFieldDiff(mr, rr, KNOWN_READ_LATER_KEYS) : false;
         if (
           !rr ||
           mr.status !== rr.status ||
           mr.title !== rr.title ||
           mr.favicon !== rr.favicon ||
           mr.deletedAt !== rr.deletedAt ||
-          (mr.updatedAt !== undefined && rr.updatedAt !== undefined && toEpochMs(mr.updatedAt) !== toEpochMs(rr.updatedAt))
+          (mr.updatedAt !== undefined && rr.updatedAt !== undefined && toEpochMs(mr.updatedAt) !== toEpochMs(rr.updatedAt)) ||
+          hasExtraFieldDiff
         ) {
           readLaterDiffer = true;
           break;
@@ -1241,6 +1349,7 @@ export class DiffEngine {
       }
       for (const mr of mergedRules) {
         const rr = remoteRuleMap.get(mr.id);
+        const hasExtraFieldDiff = rr ? hasUnknownFieldDiff(mr, rr, KNOWN_RULE_KEYS) : false;
         if (
           !rr ||
           mr.name !== rr.name ||
@@ -1250,7 +1359,8 @@ export class DiffEngine {
           mr.deletedAt !== rr.deletedAt ||
           toEpochMs(mr.updatedAt) !== toEpochMs(rr.updatedAt) ||
           JSON.stringify(mr.conditions) !== JSON.stringify(rr.conditions) ||
-          JSON.stringify(mr.actions) !== JSON.stringify(rr.actions)
+          JSON.stringify(mr.actions) !== JSON.stringify(rr.actions) ||
+          hasExtraFieldDiff
         ) {
           rulesDiffer = true;
           break;
@@ -1295,7 +1405,9 @@ export class DiffEngine {
     return {
       localUpdates,
       mergedSnapshot: {
-        version: 1,
+        ...unknownRemoteCollections,
+        version: CURRENT_SCHEMA_MAJOR,
+        schemaVersion: resolvedSchemaVersion,
         clientTimestamp: timestamp,
         deviceId,
         spaces: spacesResult.mergedSpaces,

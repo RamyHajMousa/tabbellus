@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { DiffEngine, normalizeTabUrl, toEpochMs } from '../diffEngine';
 import type { SyncVaultSnapshot } from '../types';
-import type { Space, Tab } from '@/lib/db';
+import type { Space, Tab, ReadLaterItem } from '@/lib/db';
 import type { TabRule } from '@/core/contracts/rules';
 
 describe('DiffEngine', () => {
@@ -1841,6 +1841,170 @@ describe('DiffEngine', () => {
       expect(result.mergedTabs).toHaveLength(500);
       expect(result.localTabUpdates).toHaveLength(500);
       expect(elapsed).toBeLessThan(15);
+    });
+  });
+
+  describe('Forward Compatibility & Unknown Field Preservation', () => {
+    it('preserves unknown extra fields on spaces in mergedSpaces and localUpdates.spaces', () => {
+      const createdAt = 1000;
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Project Space', createdAt }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          {
+            id: 10,
+            name: 'Project Space',
+            createdAt,
+            notes: 'Future note attribute',
+            iconUrl: 'https://example.com/icon.png',
+          } as Space & { notes: string; iconUrl: string },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.localUpdates.spaces).toHaveLength(1);
+      const localSpace = result.localUpdates.spaces[0] as Space & { notes?: string; iconUrl?: string };
+      expect(localSpace.notes).toBe('Future note attribute');
+      expect(localSpace.iconUrl).toBe('https://example.com/icon.png');
+
+      const mergedSpace = result.mergedSnapshot.spaces[0] as Space & { notes?: string; iconUrl?: string };
+      expect(mergedSpace.notes).toBe('Future note attribute');
+      expect(mergedSpace.iconUrl).toBe('https://example.com/icon.png');
+    });
+
+    it('preserves unknown extra fields on tabs in mergedTabs and localTabUpdates', () => {
+      const spaceUuid = crypto.randomUUID();
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, uuid: spaceUuid, name: 'Main Space', createdAt: 1000 }],
+        tabs: [
+          { id: 101, spaceId: 1, url: 'https://example.com', title: 'Example', order: 0, createdAt: 1000, updatedAt: 1500 },
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 10, uuid: spaceUuid, name: 'Main Space', createdAt: 1000 }],
+        tabs: [
+          {
+            id: 201,
+            spaceId: 10,
+            url: 'https://example.com',
+            title: 'Example',
+            order: 0,
+            createdAt: 1000,
+            updatedAt: 2500,
+            customTag: 'work',
+            pinnedIndex: 3,
+          } as Tab & { customTag: string; pinnedIndex: number },
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.localUpdates.tabs).toHaveLength(1);
+      const updatedTab = result.localUpdates.tabs[0] as Tab & { customTag?: string; pinnedIndex?: number };
+      expect(updatedTab.customTag).toBe('work');
+      expect(updatedTab.pinnedIndex).toBe(3);
+
+      const mergedTab = result.mergedSnapshot.tabs[0] as Tab & { customTag?: string; pinnedIndex?: number };
+      expect(mergedTab.customTag).toBe('work');
+      expect(mergedTab.pinnedIndex).toBe(3);
+    });
+
+    it('preserves unknown extra fields on Read Later items', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [
+          { id: 1, url: 'https://article.com', addedAt: 1000, status: 'unread', updatedAt: 1000 },
+        ],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [],
+        tabs: [],
+        readLater: [
+          {
+            id: 10,
+            url: 'https://article.com',
+            addedAt: 1000,
+            status: 'read',
+            updatedAt: 2500,
+            readingTimeMinutes: 5,
+            highlightCount: 2,
+          } as unknown as ReadLaterItem,
+        ],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.localUpdates.readLater).toHaveLength(1);
+      const updatedItem = result.localUpdates.readLater[0] as unknown as Record<string, unknown>;
+      expect(updatedItem.readingTimeMinutes).toBe(5);
+      expect(updatedItem.highlightCount).toBe(2);
+
+      const mergedItem = result.mergedSnapshot.readLater[0] as unknown as Record<string, unknown>;
+      expect(mergedItem.readingTimeMinutes).toBe(5);
+      expect(mergedItem.highlightCount).toBe(2);
+    });
+
+    it('preserves unknown top-level collections on remoteSnapshot in mergedSnapshot', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'S1', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        schemaVersion: '1.2.0',
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 10, name: 'S1', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+        tags: [{ id: 'tag-1', name: 'dev', color: '#ff0000' }],
+        workspaces: [{ id: 'ws-1', title: 'Main Workspace' }],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect((result.mergedSnapshot as unknown as Record<string, unknown>).tags).toEqual([
+        { id: 'tag-1', name: 'dev', color: '#ff0000' },
+      ]);
+      expect((result.mergedSnapshot as unknown as Record<string, unknown>).workspaces).toEqual([
+        { id: 'ws-1', title: 'Main Workspace' },
+      ]);
+      expect(result.mergedSnapshot.schemaVersion).toBe('1.2.0');
     });
   });
 });

@@ -31,6 +31,8 @@ export class BackupValidationError extends BackupError {
     }
 }
 
+export const CURRENT_BACKUP_VERSION = 1;
+
 export interface ImportResult {
     spacesImported: number;
     tabsImported: number;
@@ -53,7 +55,7 @@ export const dataService = {
         const readLater = await db.readLater.filter(r => !r.deletedAt).toArray();
 
         const backup = {
-            version: 1,
+            version: CURRENT_BACKUP_VERSION,
             date: new Date().toISOString(),
             spaces,
             tabs,
@@ -84,7 +86,7 @@ export const dataService = {
         const tabs = await db.tabs.where('spaceId').equals(spaceId).filter(t => !t.deletedAt).toArray();
 
         const backup = {
-            version: 1,
+            version: CURRENT_BACKUP_VERSION,
             date: new Date().toISOString(),
             space,
             tabs,
@@ -121,6 +123,10 @@ export const dataService = {
 
         if (!data || typeof data !== 'object' || Array.isArray(data)) {
             throw new BackupValidationError('Invalid backup file: Payload is not a valid JSON object.');
+        }
+
+        if (typeof data.version === 'number' && data.version > CURRENT_BACKUP_VERSION) {
+            throw new BackupValidationError('This backup was created with a newer version of TabBellus. Please update your extension to restore this file.');
         }
 
         // Support both multi-space backups (data.spaces) and single-space exports (data.space)
@@ -174,6 +180,7 @@ export const dataService = {
                     const { id: oldId, ...rest } = s;
                     const now = Date.now();
                     const spaceToInsert: Space = {
+                        ...rest,
                         uuid: crypto.randomUUID(), // Guard: fresh UUID to prevent unique index collisions
                         name: rest.name.trim(),
                         createdAt: typeof rest.createdAt === 'number' ? rest.createdAt : now,
@@ -209,6 +216,7 @@ export const dataService = {
                     if (targetSpaceId !== undefined) {
                         const now = Date.now();
                         tabsToImport.push({
+                            ...rest,
                             spaceId: targetSpaceId,
                             url: rest.url.trim(),
                             title: typeof rest.title === 'string' ? rest.title : 'Untitled',
@@ -230,6 +238,7 @@ export const dataService = {
                     const readLaterToImport: ReadLaterItem[] = readLaterRaw.map((r: any) => {
                         const { id, ...rest } = r;
                         return {
+                            ...rest,
                             url: rest.url.trim(),
                             title: typeof rest.title === 'string' ? rest.title : undefined,
                             ...(rest.favicon ? { favicon: rest.favicon } : {}),

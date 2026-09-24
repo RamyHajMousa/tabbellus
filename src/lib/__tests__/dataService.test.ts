@@ -472,5 +472,88 @@ describe('DataService — Backup & Restore Integration', () => {
     expect(importedSpaces[0].uuid).not.toBe(existingUuid);
     expect(importedSpaces[1].uuid).toBeDefined();
   });
+
+  describe('Forward Compatibility & Unknown Field Preservation', () => {
+    it('rejects backup with future version with descriptive update requirement error', async () => {
+      const futureBackup = {
+        version: 99,
+        spaces: [
+          { id: 1, name: 'Future Space', createdAt: 1000 },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const file = {
+        name: 'backup-v99.json',
+        text: vi.fn().mockResolvedValue(JSON.stringify(futureBackup)),
+      } as any;
+
+      await expect(dataService.importData(file)).rejects.toThrow(
+        'This backup was created with a newer version of TabBellus. Please update your extension to restore this file.',
+      );
+    });
+
+    it('preserves unknown properties on spaces, tabs, and read-later items from compatible backups', async () => {
+      const backupPayload = {
+        version: 1,
+        spaces: [
+          {
+            id: 1,
+            name: 'Space with Custom Fields',
+            createdAt: 1000,
+            notes: 'Space specific note',
+            customIcon: 'folder-star',
+          },
+        ],
+        tabs: [
+          {
+            id: 10,
+            spaceId: 1,
+            url: 'https://example.com',
+            title: 'Example',
+            order: 0,
+            customTag: 'research',
+            rating: 5,
+          },
+        ],
+        readLater: [
+          {
+            id: 100,
+            url: 'https://readlater.com',
+            title: 'Article',
+            status: 'unread',
+            readingTime: 12,
+          },
+        ],
+      };
+
+      const file = {
+        name: 'backup.json',
+        text: vi.fn().mockResolvedValue(JSON.stringify(backupPayload)),
+      } as any;
+
+      const result = await dataService.importData(file);
+      expect(result.spacesImported).toBe(1);
+      expect(result.tabsImported).toBe(1);
+
+      const spaces = await db.spaces.toArray();
+      expect(spaces).toHaveLength(1);
+      const importedSpace = spaces[0] as unknown as Record<string, unknown>;
+      expect(importedSpace.notes).toBe('Space specific note');
+      expect(importedSpace.customIcon).toBe('folder-star');
+
+      const tabs = await db.tabs.toArray();
+      expect(tabs).toHaveLength(1);
+      const importedTab = tabs[0] as unknown as Record<string, unknown>;
+      expect(importedTab.customTag).toBe('research');
+      expect(importedTab.rating).toBe(5);
+
+      const readLaterItems = await db.readLater.toArray();
+      expect(readLaterItems).toHaveLength(1);
+      const importedItem = readLaterItems[0] as unknown as Record<string, unknown>;
+      expect(importedItem.readingTime).toBe(12);
+    });
+  });
 });
 

@@ -1650,7 +1650,43 @@ The project has completed major refactoring phases to optimize performance, clea
     *   Full test suite raised to **730/730 passing tests across 58 test files** (100% pass rate).
     *   `npx tsc --noEmit`: 0 diagnostics.
 
-<!-- Last Updated: 2026-09-24 (Phase 53: Persistent Cascade Space Tombstones & 4-Case Tombstone LWW: 730 Unit Tests Passing across 58 Test Files) -->
+### Phase 54: Schema Forward-Compatibility, Unknown Collection Pass-Through & Winner Spreading
+*   **Context & Architectural Scope:**
+    *   Addressed a critical forward-compatibility flaw: previously, records were reconstructed field-by-field and `version: 1` was hardcoded. When an older extension version synced after a newer client version introduced new fields (e.g., space notes, tab tags, custom icons) or new top-level collections, the older client stripped unknown attributes and overwrote the cloud vault with lossy data.
+    *   Implemented Semantic Schema Versioning (Major/Minor), top-level unknown collection pass-through, record-level winner spreading (`{ ...winner, ...resolvedFields }`), unknown attribute diff detection against known key sets (`KNOWN_*_KEYS`), major version lockout guards, and forward-compatible backup validation.
+    *   Strictly preserved Zero-Contamination Boundary: `src/lib/dataService.ts` defines its own `CURRENT_BACKUP_VERSION = 1` and never imports from `src/pro/`.
+*   **Schema Versioning Primitives (`src/pro/sync/engine/types.ts`):**
+    *   `CURRENT_SCHEMA_MAJOR = 1`, `CURRENT_SCHEMA_MINOR = 0`, `SNAPSHOT_SCHEMA_VERSION = '1.0'`.
+    *   `SyncVaultSnapshot` extended with `schemaVersion?: string` and index signature `[key: string]: unknown` allowing arbitrary top-level collections.
+    *   `parseSchemaVersion(version?: string | number)`: parses semver-like strings (e.g. `"1.2"`, `"1.5.0"` into `{ major: 1, minor: 2 }`, numbers into `{ major: 1, minor: 0 }`, and defaults to `{ major: 1, minor: 0 }`).
+*   **Major Version Lockout Guard (`src/pro/sync/engine/syncEngine.ts`):**
+    *   In Step 3 of `executeSync` and during OCC retry loops:
+        *   Parses `remoteSchema = parseSchemaVersion(remoteSnapshot.schemaVersion ?? remoteSnapshot.version)`.
+        *   If `remoteSchema.major > CURRENT_SCHEMA_MAJOR`: immediately aborts sync before reconciliation or Dexie mutation.
+        *   Transitions state to `'error'` with `telemetry.lastError: 'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.'`.
+        *   Returns `{ success: false, error: 'UPDATE_REQUIRED' }`.
+*   **Top-Level Unknown Collection Pass-Through (`src/pro/sync/engine/diffEngine.ts`):**
+    *   Destructures known collections (`spaces`, `tabs`, `readLater`, `rules`, `settings`, `version`, `schemaVersion`, `clientTimestamp`, `deviceId`) and captures `...unknownRemoteCollections`.
+    *   Spreads `...unknownRemoteCollections` directly into `mergedSnapshot`.
+    *   For `mergedSnapshot.schemaVersion`: retains `remoteSnapshot.schemaVersion` if `parsedRemoteSchema.minor > CURRENT_SCHEMA_MINOR`, otherwise defaults to `SNAPSHOT_SCHEMA_VERSION`.
+*   **Record-Level Winner Spreading & Unknown Attribute Diffing (`src/pro/sync/engine/diffEngine.ts`):**
+    *   In `reconcileSpaces`: spreads `...winner` first (where `winner = remoteWins ? remoteSpace : localSpace`) before applying resolved fields (`id: localSpaceId`, `uuid`, `name`, etc.).
+    *   In `reconcileTabs`: spreads `...winner` first before applying resolved fields (`id: existingLocalTab.id`, `spaceId`, `url`, etc.).
+    *   In `reconcileReadLater`: spreads `...winner` first before applying resolved fields (`id: localItemId`, `url`, `title`, etc.).
+    *   In `reconcileRules`: spreads `...winner` first before applying resolved fields (`id: localRule.id`, `name`, `priority`, etc.).
+    *   `hasUnknownFieldDiff(a, b, knownKeys: Set<string>)`: verifies whether any non-schema property differs between merged and local/remote records against `KNOWN_SPACE_KEYS`, `KNOWN_TAB_KEYS`, `KNOWN_READ_LATER_KEYS`, and `KNOWN_RULE_KEYS`. Triggers local persistence in `localUpdates` and cloud upload in `hasRemoteChanges` whenever new or modified custom attributes appear.
+*   **Backup Forward-Compatibility (`src/lib/dataService.ts`):**
+    *   Defines `export const CURRENT_BACKUP_VERSION = 1`.
+    *   `importData`: throws `BackupValidationError('This backup was created with a newer version of TabBellus. Please update your extension to restore this file.')` when `typeof data.version === 'number' && data.version > CURRENT_BACKUP_VERSION`.
+    *   Spreads `...rest` during space, tab, and read-later import so custom fields survive backup/restore cycles.
+*   **Testing & Quality Metrics:**
+    *   `src/pro/sync/engine/__tests__/diffEngine.test.ts`: Added tests verifying unknown extra fields on spaces, tabs, and read-later items survive reconciliation, and unknown top-level collections are preserved intact (52 tests).
+    *   `src/pro/sync/engine/__tests__/syncEngine.test.ts`: Added tests verifying future major version lockout (`UPDATE_REQUIRED`) without local Dexie mutations, and newer minor schema version preservation on upload (35 tests).
+    *   `src/lib/__tests__/dataService.test.ts`: Added tests verifying future backup version rejection and preservation of unknown properties on spaces, tabs, and read-later items (13 tests).
+    *   Full test suite raised to **738/738 passing tests across 58 test files** (100% pass rate).
+    *   `npx tsc --noEmit`: 0 diagnostics.
+
+<!-- Last Updated: 2026-09-24 (Phase 54: Schema Forward-Compatibility, Unknown Collection Pass-Through & Winner Spreading: 738 Unit Tests Passing across 58 Test Files) -->
 
 
 
