@@ -5,7 +5,6 @@ This document provides a comprehensive list of all custom agent skills available
 | Skill | Description |
 | :--- | :--- |
 | **`brooks-lint`** | Code reviewer grounded in classic software engineering books for catching design smells, coupling issues, and architectural risks. |
-| **`codebase-audit-pre-push`** | Deep audit tool run before a GitHub push to remove junk files, dead code, security holes, and optimization issues. |
 | **`diagnosing-bugs`** | Diagnosis loop for hard-to-reproduce bugs, performance regressions, and unexpected runtime failures. |
 | **`frontend-api-integration-patterns`** | Production-ready patterns for frontend API integrations (race conditions, cancellation, retry strategies, error normalization). |
 | **`improve-codebase-architecture`** | Scans codebase for deepening opportunities and architectural friction, presenting findings as an interactive HTML report. |
