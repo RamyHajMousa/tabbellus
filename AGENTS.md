@@ -63,7 +63,7 @@ TabBellus is a Chrome Extension (Manifest V3) tab and workspace manager with a F
 
 ## 4. UI Standards (details: `.agents/rules/ui.md`)
 
-- `DESIGN.md` is the only design source; design skills never override it.
+- `DESIGN.md` is the design authority; token values live in `src/index.css` and `tailwind.config.ts`. Design skills never override either.
 - `src/components/ui/` primitives are owned source: never run `npx shadcn add` or other generators over them.
 
 ## 5. Security (absolute)
