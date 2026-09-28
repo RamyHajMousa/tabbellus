@@ -472,6 +472,8 @@ class SpaceService {
             });
 
             if (win.id) {
+                // 3500ms temporary window lock prevents background tab listeners (onCreated, onRemoved)
+                // from triggering premature tab tombstoning or re-indexing while staggered tabs are materializing.
                 await setWindowRestoring(win.id, 3500);
                 this.emitRestore(spaceId, win.id);
 
@@ -485,7 +487,8 @@ class SpaceService {
                     console.warn('[SpaceService] Failed to set sidePanel options:', err);
                 }
 
-                // Automatically open the side panel when a space is fully generated
+                // Automatically open the side panel when a space is fully generated.
+                // Wrapped in try/catch to fail open gracefully if the user gesture token expired.
                 try {
                     await chrome.sidePanel.open({ windowId: win.id });
                 } catch (err) {

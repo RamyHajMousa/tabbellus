@@ -46,6 +46,9 @@ export const ActiveSession = () => {
     }, [toggleAllGroupsCollapse, areAllGroupsCollapsed]);
 
     // ── 1D Topology Flattening for Virtuoso ──────────────────────────────────
+    // Virtuoso requires a 1D flat list to compute windowing offsets and item heights accurately.
+    // We flatten the 2D hierarchy of tabs and tab groups into a single discriminated union array
+    // (`VirtualRow`), enabling 60 FPS scrolling and zero-jank dragging for 1,000+ open tabs.
     const flatList = useMemo<VirtualRow[]>(() => {
         const result: VirtualRow[] = [];
         const processedGroups = new Set<number>();
@@ -463,6 +466,8 @@ export const ActiveSession = () => {
         const ids = groupTabs.map(t => t.id).filter((id): id is number => id !== undefined);
         if (ids.length === 0) return;
 
+        // Snapshot full group metadata (title, color, member URLs) in closure because
+        // chrome.sessions API does not restore tab group groupings or colors upon reopen.
         const title = group.title || 'Group';
         const color = group.color;
         const tabUrls = groupTabs

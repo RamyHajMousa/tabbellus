@@ -92,6 +92,8 @@ export const DraggableTabItem = memo(({
                     const relativeY = input.clientY - rect.top;
                     const height = rect.height;
 
+                    // Tri-state drop hitbox: Top 30% = insert above, Bottom 30% = insert below,
+                    // Center 40% = drop into tab grouping / group association.
                     let edge: 'top' | 'bottom' | null = null;
                     if (relativeY < height * 0.30) {
                         edge = 'top';

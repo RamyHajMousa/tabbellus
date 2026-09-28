@@ -1,34 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-04T22:10:05.000Z",
+  "updatedAt": "2026-09-28T12:24:59.000Z",
   "entries": [
-    "ai-interface-reviewer",
     "brooks-lint",
-    "bug-hunter",
     "codebase-audit-pre-push",
-    "design-taste-frontend",
     "diagnosing-bugs",
-    "emil-design-eng",
-    "flow-checker",
     "frontend-api-integration-patterns",
-    "full-output-enforcement",
     "improve-codebase-architecture",
-    "interface-auditor",
     "logic-lens",
-    "minimalist-ui",
     "performance-optimizer",
-    "prototype",
-    "redesign-existing-projects",
-    "review-animations",
     "shadcn",
-    "skill-check",
-    "squirrel",
-    "stitch-design-taste",
     "tdd",
-    "typescript-expert",
-    "unship",
-    "uxui-evaluator",
-    "uxui-principles",
-    "vibe-coding-advisor"
+    "typescript-expert"
   ]
 }

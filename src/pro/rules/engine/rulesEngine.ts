@@ -37,8 +37,8 @@ export class RulesEngine implements RulesContract {
    *
    * Required because the background service worker and the sidepanel each
    * hold their own separate `RulesEngine` singleton — one per JS execution
-   * context, each hydrated once at construction (see
-   * TABBELLUS_KNOWLEDGE_BASE.md Phase 42.5/42.6). Without this listener, a
+   * context, each hydrated once at construction (see docs/architecture/ADR-004.md
+   * and docs/history/phase-log.md § Phase 42.5/42.6). Without this listener, a
    * rule added/edited/removed via the sidepanel UI would update that
    * instance's own copy and storage, but the background's separate
    * instance — the one that actually drives live tab automation — would

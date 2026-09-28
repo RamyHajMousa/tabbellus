@@ -85,7 +85,7 @@ These exist to prevent duplicated/inconsistent UI patterns. Do not bypass them:
 - E2E: Playwright, headed Chromium, specs in `tests/e2e/` (`spaces.spec.ts`, `capture.spec.ts`, `performance.spec.ts`); `npm run test:e2e` builds the extension first.
 - List primitives (`TabRow`, `GroupRow`, `SpaceItem`, `ReadLaterItem`) rely on custom `arePropsEqual` memo comparators for virtualization performance — preserve these when touching props shapes.
 
-## Engineering conventions (from `.agents/AGENTS.md`)
+## Engineering conventions (from `AGENTS.md`)
 
 - **Verify before writing:** cross-reference property names against `.context.md`/`types.ts` before use (e.g. confirm `isPinned` vs. an assumed `pinned`) — don't trust suggested pseudo-code property names blindly.
 - **Safe-Edit Protocol:** prefer surgical, uniquely-anchored patches over full-file rewrites; when refactoring, verify pre-existing safety checks, validation, and edge-case handling (e.g. undo timers, empty states) are preserved, not just replicated in spirit.
@@ -95,4 +95,4 @@ These exist to prevent duplicated/inconsistent UI patterns. Do not bypass them:
 
 ## Updating context docs
 
-Per `.agents/AGENTS.md` §2, `.context.md` and `TABBELLUS_KNOWLEDGE_BASE.md` must both be updated (with a refreshed "Last Updated" timestamp) whenever: the Dexie schema or Zustand state shape changes, a new feature domain/file/core service is added or refactored, or a new custom UI component/hook/abstraction is created (also add it to the Mandatory Abstractions list above and in `.context.md` §3).
+Per `AGENTS.md` §2, `.context.md` and `TABBELLUS_KNOWLEDGE_BASE.md` must both be updated (with a refreshed "Last Updated" timestamp) whenever: the Dexie schema or Zustand state shape changes, a new feature domain/file/core service is added or refactored, or a new custom UI component/hook/abstraction is created (also add it to the Mandatory Abstractions list above and in `.context.md` §3).

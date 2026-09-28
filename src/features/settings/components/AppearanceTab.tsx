@@ -5,6 +5,7 @@ import { isEdge, openAppearanceSettings } from '@/lib/platform';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 
 export const AppearanceTab: React.FC = () => {
+    // Atomic single-property selectors isolate re-renders so changes to unrelated settings do not re-render this tab
     const theme = useAppStore((state) => state.settings.theme);
     const showDomain = useAppStore((state) => state.settings.showDomain);
     const badgeMode = useAppStore((state) => state.settings.badgeMode);

@@ -6,6 +6,10 @@ import { contractRegistry } from '@/core/contracts/registry';
  * lazy-loaded React components. Each slot's `component` is expected to be
  * a dynamic-import loader function (`() => import('./SomeCard')`); the
  * loader's default export (or a named export matching the module) is used.
+ *
+ * Rationale: Preserves Zero-Contamination. The dynamic-import loader functions are supplied
+ * exclusively by Pro slot registrations (`src/pro/index.ts`) and invoked by Free views only after
+ * the Pro subsystem has been loaded at runtime. Free core never specifies or contains imports to `@/pro/*`.
  */
 export function useSlotComponents(slotId: string): React.LazyExoticComponent<React.FC>[] {
     return useMemo(() => {

@@ -28,7 +28,10 @@ export function useCommandExecutor() {
                 copy,
             };
 
-            // Specialized Pro Command Dispatcher for Tab Rules
+            // Specialized Pro Command Dispatcher for Tab Rules:
+            // Under Zero-Contamination rules, Free search UI cannot statically import the Pro rules
+            // engine. Instead, it checks entitlements via contractRegistry and delegates rule execution
+            // to the background service worker via APPLY_RULES_TO_WINDOW runtime message.
             if (command.id === 'apply-tab-rules') {
                 const entitlement = contractRegistry.getEntitlementSnapshot();
                 if (!entitlement.isPro) {

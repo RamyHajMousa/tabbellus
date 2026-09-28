@@ -120,6 +120,8 @@ export const DataTab: React.FC<DataTabProps> = ({ onImportSuccess, onClearSucces
         }
     };
 
+    // Non-blocking 3-second double-confirmation safety guard: prevents accidental wipes
+    // of all IndexedDB data without using blocking native window.confirm() dialogs.
     const handleClearData = async () => {
         if (!isClearing) {
             setIsClearing(true);

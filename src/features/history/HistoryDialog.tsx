@@ -136,7 +136,10 @@ export const HistoryDialog = () => {
         });
     }, [sessions, spacesWithTabs]);
 
-    // 4. Fold consecutive closed group tabs with identical timestamps
+    // 4. Fold consecutive closed group tabs with identical timestamps:
+    // When a tab group or multiple tabs are closed simultaneously, chrome.sessions.getRecentlyClosed()
+    // exposes them as separate entries with identical lastModified timestamps. Folding clusters them
+    // back into a single coherent visual group in the history list.
     const foldedSessions = useMemo((): FoldedHistorySession[] => {
         if (enrichedSessions.length === 0) return [];
 
@@ -212,7 +215,10 @@ export const HistoryDialog = () => {
         return result;
     }, [enrichedSessions]);
 
-    // 5. Restore handler with smart routing
+    // 5. Restore handler with smart "Focus-If-Open" routing:
+    // Prevents duplicate windows and tabs. If the clicked history item corresponds to a space
+    // that is already active in an open window, or a tab URL that is already open in any window,
+    // we focus that existing window/tab rather than restoring a redundant duplicate.
     const handleRestore = async (item: FoldedHistorySession) => {
         const { isFoldedGroup, sessionIds, matchedSpaceId, session } = item;
 

@@ -99,6 +99,8 @@ export const DraggableGroupHeader = memo(({
                     const relativeY = input.clientY - rect.top;
                     const height = rect.height;
 
+                    // Tri-state drop hitbox: Top 30% = move above group, Bottom 30% = move below group,
+                    // Center 40% = join dragged tab directly into this group via chrome.tabs.group.
                     let edge: 'top' | 'bottom' | null = null;
                     if (relativeY < height * 0.30) {
                         edge = 'top';

@@ -243,6 +243,8 @@ export class DiffEngine {
             ? Math.max(mergedUpdatedAt, mergedDeletedAt)
             : mergedUpdatedAt;
 
+        // Spread winning side's fields as baseline, then explicitly bind local auto-increment PK,
+        // cross-device UUID, and reconciled LWW timestamps/tombstones.
         const winner = remoteWins ? remoteSpace : localSpace;
 
         const mergedSpace: Space = {
@@ -433,7 +435,9 @@ export class DiffEngine {
       }
     }
 
-    // 2. Index local tabs by local spaceId and composite `${spaceId}:::${normalizedUrl}`
+    // 2. Index local tabs by local spaceId and composite `${spaceId}:::${normalizedUrl}`:
+    // Enables O(N) map-based tab matching and deduplication across spaces rather than
+    // O(N^2) pairwise URL scans during sync reconciliation.
     const localTabsBySpaceId = new Map<number, Tab[]>();
     const localTabsBySpaceAndUrl = new Map<string, Tab[]>();
     const localTabNormalizedUrls = new Map<Tab, string>();
