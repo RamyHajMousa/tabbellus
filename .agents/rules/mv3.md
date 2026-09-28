@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Manifest V3 Rules
 
 Scoped rules for TabBellus. `AGENTS.md` at the repo root is the parent document: its precedence (§0) and absolute rules apply here too. Apply these when touching `manifest.config.ts`, `src/background/*`, `src/content/*`, or any `chrome.runtime` messaging.

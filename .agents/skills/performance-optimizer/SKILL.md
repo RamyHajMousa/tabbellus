@@ -385,7 +385,6 @@ Easy optimizations with big impact:
 ## Related Skills
 
 - `@database-design` - Query optimization
-- `@codebase-audit-pre-push` - Code review
 - `@bug-hunter` - Debugging
 
 ## Limitations

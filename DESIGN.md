@@ -8,38 +8,33 @@ TabBellus is a high-density, flat-utility workspace and tab manager for power us
 ## 1. Visual & Design Tokens
 
 ### Harmony Color Palette
-We utilize a clean, high-contrast, flat monochromatic HSL color palette optimized for rendering speed and visual clarity. The theme eliminates all translucent blurs and ambient shadows, relying on solid opaque fills and sharp 1px structural lines, offset with a single Monochrome focus accent.
+A clean, high-contrast, flat monochromatic palette optimized for rendering speed and visual clarity. No translucent blurs or ambient shadows: solid opaque fills, sharp 1px structural lines, and a single monochrome focus accent.
 
-*   **Background (Light Mode):** `hsl(0 0% 100%)` (Pure Solid White)
-*   **Background (Dark Mode):** `hsl(0 0% 0%)` (Pure Pitch Black Base)
-*   **Card/Surface (Dark Mode):** `hsl(0 0% 3%)` (Solid Flat Matte Charcoal)
-*   **Popover/Dialogs (Dark Mode):** `hsl(0 0% 5%)` (Solid High-Contrast Floating Overlay Base)
-*   **Foreground / Primary Text:** `hsl(0 0% 98%)` (Pure White text)
-*   **Secondary Text:** `hsl(0 0% 63.9%)` (Muted Zinc Silver)
-*   **Accent / Focus Color (Light Mode):** `hsl(0 0% 9%)` (Solid dark charcoal sole focus accent)
-*   **Accent / Focus Color (Dark Mode):** `hsl(0 0% 98%)` (Pure white/silver sole focus accent)
-*   **Border / Divider:** `hsl(0 0% 15%)` (Crisp 1px Structural Divider Line)
-*   **Hover State (Dark Mode):** `hsl(0 0% 9%)` (Dense Hover Row State)
-*   **Group Badges (Chrome colors mapping):**
-    *   *Grey:* `hsl(240 5% 40%)`
-    *   *Blue:* `hsl(217 91% 60%)`
-    *   *Red:* `hsl(0 84% 60%)`
-    *   *Yellow:* `hsl(48 96% 53%)`
-    *   *Green:* `hsl(142 70% 45%)`
-    *   *Pink:* `hsl(330 81% 60%)`
-    *   *Purple:* `hsl(270 67% 60%)`
-    *   *Cyan:* `hsl(188 86% 53%)`
-    *   *Orange:* `hsl(24 95% 53%)`
+> **Source of truth for values:** CSS variables in `src/index.css` (`:root` = light, `.dark` = dark), exposed as Tailwind colors in `tailwind.config.ts`. This document defines each token's *role*. If a value here and the code ever disagree, the code wins; update this document.
+
+| Role | Token / class | Intent |
+| :--- | :--- | :--- |
+| App background | `--background` / `bg-background` | Pure white (light); pure pitch-black OLED base (dark) |
+| Cards & surfaces | `--card` / `bg-card` | Flat matte surface, one step off the background |
+| Popovers & dialogs | `--popover` / `bg-popover` | Solid, high-contrast floating overlay base |
+| Primary text | `--foreground` / `text-foreground` | Maximum-contrast text |
+| Secondary text | `--muted-foreground` / `text-muted-foreground` | Muted zinc-silver metadata text |
+| Focus / active accent | `--primary` / `bg-primary`, `--ring` | The sole accent: near-black (light) / near-white (dark) |
+| Hover & dense row state | `--muted`, `--accent` / `bg-muted`, `bg-accent` | Dense hover rows and subtle fills |
+| Structural lines | `--border` / `border-border` | Crisp 1px dividers only |
+| Destructive | `--destructive` / `bg-destructive` | Delete / irreversible actions |
+
+**Tab group colors (Chrome color mapping):** defined in `src/lib/colors.ts` (`GROUP_COLORS`) using Tailwind's `*-500` palette for badges, text, and guide lines, with `/10` (light) and `/20` (dark) tints for row backgrounds. Always resolve via `getGroupColorClasses()`; never hardcode group colors.
 
 ### Structural vs. Interactive Token Separation Matrix
-Interactive control surfaces (switch tracks, checkbox boxes, slider rails, radio groups, menu controls) are strictly decoupled from structural layout tokens (`--input`, `--border`, `--background`, `--muted`) to prevent contrast collapse on pitch-black OLED dark cards (`--card: 0 0% 3%`) or pure white light themes (`--background: 0 0% 100%`). Radix/shadcn UI primitives in `src/components/ui/` own explicit high-contrast utility classes directly in JSX:
+Interactive control surfaces (switch tracks, checkbox boxes, slider rails, radio groups, menu controls) are strictly decoupled from structural layout tokens (`--input`, `--border`, `--background`, `--muted`) to prevent contrast collapse on pitch-black OLED dark cards (`--card`) or pure white light themes (`--background`). Radix/shadcn UI primitives in `src/components/ui/` own explicit high-contrast utility classes directly in JSX; the primitives are the source of truth for exact classes, including hover and disabled variants:
 
 *   **Structural CSS Variables (Layouts & Containers):**
     *   `--background`, `--card`, `--popover`, `--border` are reserved strictly for layout containers, cards, dialogs, popovers, and 1px structural dividing lines.
 *   **Authoritative Interactive Palette (Control Affordances):**
     *   **Unchecked Tracks/Rails:** `bg-zinc-300` (Light) / `dark:bg-zinc-700` (Dark) ensuring WCAG AA `≥ 3.0:1` contrast against card surfaces (`--card` / `bg-card`).
     *   **Tactile Thumbs/Indicators:** `bg-white` (Light) / `dark:bg-zinc-100` (Dark unchecked) / `dark:bg-black` (Dark checked against white primary fill) with `shadow-sm ring-1 ring-black/10 dark:ring-white/10` ensuring clear physical depth and affordance.
-    *   **Active Fills:** `bg-primary` (`hsl(0 0% 9%)` light, `hsl(0 0% 98%)` dark) for maximum visual contrast on active state transitions.
+    *   **Active Fills:** `bg-primary` (near-black light / near-white dark) for maximum visual contrast on active state transitions.
     *   **Focus Rings:** `focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background` preserving accessible keyboard navigation.
 
 ### Typography
@@ -96,7 +91,7 @@ graph TD
 ## 3. Visual Constraints & Rendering Performance
 
 *   **No Alpha Blurs or Filters:** Background structures use solid, opaque colors. No `backdrop-filter` or layout transparency overlays are permitted, maximizing scroll rendering performance under memory-constrained Chrome sidebar panels.
-*   **Solid Opaque Fields:** Dialog popups and command lists use high-contrast solid backgrounds (`bg-popover` / `hsl(0 0% 5%)`) to float cleanly over background contents without drop shadows.
+*   **Solid Opaque Fields:** Dialog popups and command lists use high-contrast solid backgrounds (`bg-popover`) to float cleanly over background contents without drop shadows.
 *   **Sharp 1px Borders:** Spatial separation is established using clean, 1px border lines (`border-border`) rather than ambient glow layers or shadow filters.
 *   **GPU-Accelerated Rounded Geometry:** The layout utilizes standard tailwind radius classes (`rounded-md`, `rounded-lg`) mapped to a fixed `--radius: 0.5rem` design token, maintaining smooth geometric contours with zero layout overhead.
 *   **Transition Limits:** All micro-interactions use color or opacity transitions (`transition-colors`, `transition-opacity`) instead of costly layout property transitions (`transition-all`), avoiding expensive layout reflow triggers.

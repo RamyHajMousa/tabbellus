@@ -3,7 +3,6 @@
   "updatedAt": "2026-09-28T12:24:59.000Z",
   "entries": [
     "brooks-lint",
-    "codebase-audit-pre-push",
     "diagnosing-bugs",
     "frontend-api-integration-patterns",
     "improve-codebase-architecture",
