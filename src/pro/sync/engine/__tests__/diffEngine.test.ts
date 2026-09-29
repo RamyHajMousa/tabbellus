@@ -9,10 +9,12 @@
  * - Read Later status convergence toward 'archived'
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { DiffEngine, normalizeTabUrl, toEpochMs } from '../diffEngine';
+import { SnapshotSerializer } from '../snapshotSerializer';
 import type { SyncVaultSnapshot } from '../types';
-import type { Space, Tab, ReadLaterItem } from '@/lib/db';
+import { db, type Space, type Tab, type ReadLaterItem } from '@/lib/db';
+import { spaceService } from '@/lib/spaceService';
 import type { TabRule } from '@/core/contracts/rules';
 
 describe('DiffEngine', () => {
@@ -2123,6 +2125,283 @@ describe('DiffEngine', () => {
       const tabUrls = result.mergedSnapshot.tabs.map((t) => t.url);
       expect(tabUrls).toContain('https://tab-space-1.com');
       expect(tabUrls).toContain('https://tab-space-2.com');
+    });
+  });
+
+  describe('Tombstoned Space Tab Cascade & Phantom ID Prevention', () => {
+    beforeEach(async () => {
+      await db.spaces.clear();
+      await db.tabs.clear();
+      await db.readLater.clear();
+    });
+
+    it('T1: Local {space id 1}; remote {tombstoned space id 7 + one ACTIVE tab in it} → localUpdates.tabs is empty; mergedTabs contains that tab tombstoned with the space\'s deletedAt; hasRemoteChanges true', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Local Space', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 7, name: 'Remote Tombstoned Space', createdAt: 500, updatedAt: 2000, deletedAt: 2000 },
+        ],
+        tabs: [
+          { id: 701, spaceId: 7, url: 'https://example.com/tab', title: 'Active Tab In Deleted Space', order: 0, createdAt: 600, updatedAt: 600 },
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Local must not receive the tab under phantom space ID
+      expect(result.localUpdates.tabs).toHaveLength(0);
+
+      // Merged tabs must contain the tab tombstoned with the space's deletedAt
+      expect(result.mergedSnapshot.tabs).toHaveLength(1);
+      const mergedTab = result.mergedSnapshot.tabs[0];
+      expect(mergedTab.url).toBe('https://example.com/tab');
+      expect(mergedTab.deletedAt).toBe(2000);
+      expect(mergedTab.updatedAt).toBe(2000); // max(existing 600, space.deletedAt 2000)
+
+      // Remote cloud vault was invalid (active tab in deleted space); healing must mark hasRemoteChanges = true
+      expect(result.hasRemoteChanges).toBe(true);
+    });
+
+    it('T2 (end-to-end, fake IndexedDB): apply T1\'s result via applyRemoteUpdates, then create a new space via the normal service path → the new space has zero tabs', async () => {
+      // 1. Seed local Dexie with space 1
+      await db.spaces.add({ id: 1, name: 'Local Space', createdAt: 1000, updatedAt: 1000 });
+
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Local Space', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 7, name: 'Remote Tombstoned Space', createdAt: 500, updatedAt: 2000, deletedAt: 2000 },
+        ],
+        tabs: [
+          { id: 701, spaceId: 7, url: 'https://example.com/tab', title: 'Active Tab In Deleted Space', order: 0, createdAt: 600, updatedAt: 600 },
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // 2. Ingest reconciliation result into Dexie
+      await SnapshotSerializer.applyRemoteUpdates(result.localUpdates);
+
+      // 3. User creates a new space via spaceService
+      const newSpaceId = await spaceService.createEmptySpace('Newly Created User Space');
+
+      // 4. Assert new space has zero tabs
+      const tabsInNewSpace = await spaceService.getTabsForSpace(newSpaceId);
+      expect(tabsInNewSpace).toHaveLength(0);
+
+      const allTabsInDexie = await db.tabs.where('spaceId').equals(newSpaceId).toArray();
+      expect(allTabsInDexie).toHaveLength(0);
+    });
+
+    it('T3: Matched space where the remote tombstone wins; local tab in it is active and updated after the deletion → tab is tombstoned in localTabUpdates and mergedTabs', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: localDeviceId,
+        spaces: [
+          { id: 1, uuid: 'matched-space-uuid', name: 'Matched Space', createdAt: 1000, updatedAt: 1000 },
+        ],
+        tabs: [
+          { id: 101, spaceId: 1, url: 'https://example.com/tab-a', title: 'Local Active Tab', order: 0, createdAt: 1000, updatedAt: 4000 },
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 10, uuid: 'matched-space-uuid', name: 'Matched Space', createdAt: 1000, updatedAt: 3000, deletedAt: 3000 },
+        ],
+        tabs: [
+          { id: 1001, spaceId: 10, url: 'https://example.com/tab-a', title: 'Remote Tab', order: 0, createdAt: 1000, updatedAt: 2000 },
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Space is tombstoned in merged snapshot
+      expect(result.mergedSnapshot.spaces[0].deletedAt).toBe(3000);
+
+      // Tab must be tombstoned in mergedTabs
+      expect(result.mergedSnapshot.tabs).toHaveLength(1);
+      expect(result.mergedSnapshot.tabs[0].deletedAt).toBe(3000);
+
+      // Local row was active; localTabUpdates must receive the tombstone
+      expect(result.localUpdates.tabs).toHaveLength(1);
+      expect(result.localUpdates.tabs[0].id).toBe(101);
+      expect(result.localUpdates.tabs[0].deletedAt).toBe(3000);
+      expect(result.localUpdates.tabs[0].updatedAt).toBe(4000); // max(4000, 3000)
+    });
+
+    it('T4: Local-only active tab in a space whose merged result is deleted → tombstoned', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: localDeviceId,
+        spaces: [
+          { id: 1, uuid: 'matched-space-uuid', name: 'Matched Space', createdAt: 1000, updatedAt: 1000 },
+        ],
+        tabs: [
+          { id: 102, spaceId: 1, url: 'https://example.com/local-only', title: 'Local Only Tab', order: 0, createdAt: 1000, updatedAt: 1000 },
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 10, uuid: 'matched-space-uuid', name: 'Matched Space', createdAt: 1000, updatedAt: 3000, deletedAt: 3000 },
+        ],
+        tabs: [],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Space is tombstoned in merged snapshot
+      expect(result.mergedSnapshot.spaces[0].deletedAt).toBe(3000);
+
+      // Tab must be tombstoned in mergedTabs
+      expect(result.mergedSnapshot.tabs).toHaveLength(1);
+      expect(result.mergedSnapshot.tabs[0].deletedAt).toBe(3000);
+
+      // Tab must be tombstoned in localTabUpdates
+      expect(result.localUpdates.tabs).toHaveLength(1);
+      expect(result.localUpdates.tabs[0].id).toBe(102);
+      expect(result.localUpdates.tabs[0].deletedAt).toBe(3000);
+    });
+
+    it('T5 (regression): Active space with active tabs, and a revived space (remote update newer than deletion) → tabs untouched', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [
+          { id: 1, uuid: 'space-active', name: 'Active Space', createdAt: 1000, updatedAt: 1000 },
+          { id: 2, uuid: 'space-revived', name: 'Revived Space', createdAt: 1000, updatedAt: 2000, deletedAt: 2000 },
+        ],
+        tabs: [
+          { id: 10, spaceId: 1, url: 'https://example.com/active-tab', title: 'Active Tab', order: 0, createdAt: 1000, updatedAt: 1000 },
+          { id: 20, spaceId: 2, url: 'https://example.com/revived-tab', title: 'Revived Tab', order: 0, createdAt: 1000, updatedAt: 1000 },
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3500,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 100, uuid: 'space-active', name: 'Active Space', createdAt: 1000, updatedAt: 1000 },
+          { id: 200, uuid: 'space-revived', name: 'Revived Space', createdAt: 1000, updatedAt: 3500 }, // revived by remote newer update!
+        ],
+        tabs: [
+          { id: 1000, spaceId: 100, url: 'https://example.com/active-tab', title: 'Active Tab', order: 0, createdAt: 1000, updatedAt: 1000 },
+          { id: 2000, spaceId: 200, url: 'https://example.com/revived-tab', title: 'Revived Tab', order: 0, createdAt: 1000, updatedAt: 3500 },
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Both spaces must be active in mergedSnapshot
+      expect(result.mergedSnapshot.spaces[0].deletedAt).toBeUndefined();
+      expect(result.mergedSnapshot.spaces[1].deletedAt).toBeUndefined();
+
+      // Both tabs must remain active (untouched)
+      expect(result.mergedSnapshot.tabs).toHaveLength(2);
+      expect(result.mergedSnapshot.tabs[0].deletedAt).toBeUndefined();
+      expect(result.mergedSnapshot.tabs[1].deletedAt).toBeUndefined();
+    });
+
+    it('T6: Dexie contains a tab whose spaceId has no space row → removed by applyRemoteUpdates; tabs in valid spaces untouched', async () => {
+      // 1. Seed valid space and valid tab
+      await db.spaces.add({ id: 1, name: 'Valid Space', createdAt: 1000, updatedAt: 1000 });
+      await db.tabs.add({ id: 10, spaceId: 1, url: 'https://example.com/valid', title: 'Valid Tab', order: 0 });
+
+      // 2. Seed orphan tab referencing non-existent space 999
+      await db.tabs.add({ id: 99, spaceId: 999, url: 'https://example.com/orphan', title: 'Orphan Tab', order: 0 });
+
+      // 3. Apply remote updates (empty cycle)
+      await SnapshotSerializer.applyRemoteUpdates({
+        spaces: [],
+        tabs: [],
+        readLater: [],
+        tabIdsToDelete: [],
+      });
+
+      // 4. Valid tab untouched
+      const validTab = await db.tabs.get(10);
+      expect(validTab).toBeDefined();
+      expect(validTab?.url).toBe('https://example.com/valid');
+
+      // 5. Orphan tab deleted
+      const orphanTab = await db.tabs.get(99);
+      expect(orphanTab).toBeUndefined();
+    });
+
+    it('T7: Reconcile the healed output of T1 as the new remote → no local or remote changes (idempotent)', () => {
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Local Space', createdAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const remoteUnhealed: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: remoteDeviceId,
+        spaces: [
+          { id: 7, name: 'Remote Tombstoned Space', createdAt: 500, updatedAt: 2000, deletedAt: 2000 },
+        ],
+        tabs: [
+          { id: 701, spaceId: 7, url: 'https://example.com/tab', title: 'Active Tab In Deleted Space', order: 0, createdAt: 600, updatedAt: 600 },
+        ],
+        readLater: [],
+      };
+
+      // Pass 1: Heals the remote vault
+      const result1 = DiffEngine.reconcile(local, remoteUnhealed, localDeviceId);
+      expect(result1.hasRemoteChanges).toBe(true);
+
+      // Pass 2: The healed snapshot is now the remote vault
+      const healedRemote = result1.mergedSnapshot;
+      const result2 = DiffEngine.reconcile(local, healedRemote, localDeviceId);
+
+      expect(result2.hasLocalChanges).toBe(false);
+      expect(result2.hasRemoteChanges).toBe(false);
+      expect(result2.hasChanges).toBe(false);
     });
   });
 });

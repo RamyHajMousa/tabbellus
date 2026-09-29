@@ -198,6 +198,12 @@ describe('SnapshotSerializer', () => {
     });
 
     it('atomically deletes pruned tabs via bulkDelete', async () => {
+      await db.spaces.add({
+        id: 1,
+        name: 'Test Space',
+        createdAt: 1000,
+        updatedAt: 1000,
+      });
       const tab1Id = await db.tabs.add({
         spaceId: 1,
         url: 'https://example.com/1',

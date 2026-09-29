@@ -400,6 +400,8 @@ export class DiffEngine {
     remoteClientTimestamp: number | string,
     localLastSyncedAt: number | string = 0,
     mergedSpaceIds?: Set<number>,
+    tombstonedSpaceDeletedAtBySpaceId?: Map<number, number>,
+    validLocalSpaceIds?: Set<number>,
   ): {
     mergedTabs: Tab[];
     localTabUpdates: Tab[];
@@ -487,6 +489,9 @@ export class DiffEngine {
 
     if (normRemoteClientTs > normLocalLastSyncedAt) {
       for (const [resolvedLocalSpaceId] of matchedSpacePairs) {
+        if (tombstonedSpaceDeletedAtBySpaceId?.has(resolvedLocalSpaceId)) {
+          continue;
+        }
         const localTabsInSpace = localTabsBySpaceId.get(resolvedLocalSpaceId) ?? [];
         const remoteUrls =
           remoteNormalizedUrlsByResolvedSpaceId.get(resolvedLocalSpaceId) ??
@@ -531,6 +536,7 @@ export class DiffEngine {
         continue;
       }
       const resolvedSpaceId = targetSpaceId;
+      const spaceDeletedAt = tombstonedSpaceDeletedAtBySpaceId?.get(resolvedSpaceId);
       const normRemoteUrl = remoteTabNormalizedUrls.get(remoteTab) ?? normalizeTabUrl(remoteTab.url);
       const compositeKey = `${resolvedSpaceId}:::${normRemoteUrl}`;
 
@@ -578,6 +584,11 @@ export class DiffEngine {
           resolvedDeletedAt = undefined;
         }
 
+        // R1(b): Matched tab whose resolved result is active in a tombstoned space: resolve as tombstone
+        if (spaceDeletedAt !== undefined && resolvedDeletedAt === undefined) {
+          resolvedDeletedAt = spaceDeletedAt;
+        }
+
         const localHasTabUpdated = existingLocalTab.updatedAt !== undefined;
         const remoteHasTabUpdated = remoteTab.updatedAt !== undefined;
         const localTabUpdatedMs = toEpochMs(existingLocalTab.updatedAt);
@@ -597,7 +608,7 @@ export class DiffEngine {
               (remoteTabMutation === localTabMutation && normRemoteClientTs >= normLocalClientTs);
 
         const tabCreatedAt = existingLocalTab.createdAt ?? remoteTab.createdAt;
-        const tabUpdatedAt =
+        let tabUpdatedAt =
           localHasTabUpdated && remoteHasTabUpdated
             ? Math.max(localTabUpdatedMs, remoteTabUpdatedMs)
             : localHasTabUpdated
@@ -605,6 +616,10 @@ export class DiffEngine {
               : remoteHasTabUpdated
                 ? remoteTabUpdatedMs
                 : (remoteWins ? remoteTabMutation : localTabMutation);
+
+        if (spaceDeletedAt !== undefined) {
+          tabUpdatedAt = Math.max(tabUpdatedAt, spaceDeletedAt);
+        }
 
         const winner = remoteWins ? remoteTab : existingLocalTab;
 
@@ -662,6 +677,23 @@ export class DiffEngine {
           };
           delete (remoteTombstone as Partial<Tab>).id;
           mergedTabs.push(remoteTombstone);
+        } else if (spaceDeletedAt !== undefined) {
+          // R1(a): Remote-only active tab in a tombstoned space: do NOT add to localTabUpdates;
+          // emit to mergedTabs as a tombstone (deletedAt = space's deletedAt, updatedAt = max(existing, deletedAt)).
+          const existingUpdatedAt = toEpochMs(remoteTab.updatedAt ?? remoteTab.createdAt ?? remoteClientTimestamp);
+          const remoteTombstone: Tab = {
+            ...remoteTab,
+            spaceId: resolvedSpaceId,
+            url: remoteTab.url,
+            title: remoteTab.title,
+            favicon: remoteTab.favicon,
+            order: remoteTab.order,
+            createdAt: remoteTab.createdAt ?? toEpochMs(remoteClientTimestamp),
+            updatedAt: Math.max(existingUpdatedAt, spaceDeletedAt),
+            deletedAt: spaceDeletedAt,
+          };
+          delete (remoteTombstone as Partial<Tab>).id;
+          mergedTabs.push(remoteTombstone);
         } else {
           // Active remote tab: insert into local Dexie (omit id for auto-increment)
           const incomingTab: Tab = {
@@ -675,8 +707,17 @@ export class DiffEngine {
             updatedAt: toEpochMs(remoteTab.updatedAt ?? remoteTab.createdAt ?? remoteClientTimestamp),
           };
           delete (incomingTab as Partial<Tab>).id;
-          localTabUpdates.push(incomingTab);
-          mergedTabs.push(incomingTab);
+
+          // R2 (insert guard, defence in depth):
+          // A remote tab without a local row may be added to localTabUpdates only if its resolved spaceId
+          // is an existing local space id OR a space in localUpdates.spaces for this cycle.
+          if (validLocalSpaceIds && !validLocalSpaceIds.has(resolvedSpaceId)) {
+            console.warn(`[DiffEngine] Skipping insert of remote tab into non-existent local space ${resolvedSpaceId}: ${remoteTab.url}`);
+            mergedTabs.push(incomingTab);
+          } else {
+            localTabUpdates.push(incomingTab);
+            mergedTabs.push(incomingTab);
+          }
         }
       }
     }
@@ -692,11 +733,26 @@ export class DiffEngine {
         console.warn(`[DiffEngine] Dropping orphan local tab with unmapped spaceId ${localTab.spaceId}: ${localTab.url}`);
         continue;
       }
-      mergedTabs.push({
-        ...localTab,
-        createdAt: localTab.createdAt ?? toEpochMs(localClientTimestamp),
-        updatedAt: toEpochMs(localTab.updatedAt ?? localTab.createdAt ?? localClientTimestamp),
-      });
+
+      const spaceDeletedAt = tombstonedSpaceDeletedAtBySpaceId?.get(localTab.spaceId);
+      if (spaceDeletedAt !== undefined && localTab.deletedAt === undefined) {
+        // R1(c): Local-only active tab in a tombstoned space: tombstone it in mergedTabs and localTabUpdates.
+        const localTabUpdatedMs = toEpochMs(localTab.updatedAt ?? localTab.createdAt ?? localClientTimestamp);
+        const tombstonedLocalTab: Tab = {
+          ...localTab,
+          createdAt: localTab.createdAt ?? toEpochMs(localClientTimestamp),
+          updatedAt: Math.max(localTabUpdatedMs, spaceDeletedAt),
+          deletedAt: spaceDeletedAt,
+        };
+        localTabUpdates.push(tombstonedLocalTab);
+        mergedTabs.push(tombstonedLocalTab);
+      } else {
+        mergedTabs.push({
+          ...localTab,
+          createdAt: localTab.createdAt ?? toEpochMs(localClientTimestamp),
+          updatedAt: toEpochMs(localTab.updatedAt ?? localTab.createdAt ?? localClientTimestamp),
+        });
+      }
     }
 
     const finalMergedTabs = mergedSpaceIds
@@ -1214,6 +1270,25 @@ export class DiffEngine {
       spacesResult.mergedSpaces.map((s) => s.id).filter((id): id is number => id !== undefined),
     );
 
+    const tombstonedSpaceDeletedAtBySpaceId = new Map<number, number>();
+    for (const s of spacesResult.mergedSpaces) {
+      if (s.id !== undefined && s.deletedAt !== undefined) {
+        tombstonedSpaceDeletedAtBySpaceId.set(s.id, toEpochMs(s.deletedAt));
+      }
+    }
+
+    const validLocalSpaceIds = new Set<number>();
+    for (const s of local.spaces) {
+      if (s.id !== undefined) {
+        validLocalSpaceIds.add(s.id);
+      }
+    }
+    for (const s of localUpdates.spaces) {
+      if (s.id !== undefined) {
+        validLocalSpaceIds.add(s.id);
+      }
+    }
+
     // -----------------------------------------------------------------------
     // 2. Reconcile Tabs
     // -----------------------------------------------------------------------
@@ -1226,6 +1301,8 @@ export class DiffEngine {
       remote.clientTimestamp,
       localLastSyncedAt,
       mergedSpaceIds,
+      tombstonedSpaceDeletedAtBySpaceId,
+      validLocalSpaceIds,
     );
     localUpdates.tabs = tabsResult.localTabUpdates;
     if (tabsResult.tabIdsToDelete.length > 0) {

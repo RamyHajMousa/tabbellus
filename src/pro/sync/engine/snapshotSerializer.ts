@@ -116,6 +116,18 @@ export class SnapshotSerializer {
       await db.spaces.where('deletedAt').below(cutoff).delete();
       await db.tabs.where('deletedAt').below(cutoff).delete();
       await db.readLater.where('deletedAt').below(cutoff).delete();
+
+      // Local Orphan Tab Sweep: Cleanse any tabs referencing non-existent spaces
+      const validSpaceIds = new Set((await db.spaces.toCollection().primaryKeys()) as number[]);
+      const allTabs = await db.tabs.toArray();
+      const orphanTabIds = allTabs
+        .filter((t) => !validSpaceIds.has(t.spaceId))
+        .map((t) => t.id!)
+        .filter((id): id is number => id !== undefined);
+
+      if (orphanTabIds.length > 0) {
+        await db.tabs.bulkDelete(orphanTabIds);
+      }
     });
 
     if (rules && rules.length > 0) {
