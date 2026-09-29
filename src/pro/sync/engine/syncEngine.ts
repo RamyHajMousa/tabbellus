@@ -340,178 +340,134 @@ export class SyncEngine implements SyncProvider {
 
         this.updateStatus({ state: 'syncing' });
 
-        // 1. Download remote vault file if it exists
-        const findResult = await googleDriveClient.findVaultFile(VAULT_FILE_NAME);
-        if (!findResult.success) {
-          this.updateStatus({
-            state: 'error',
-            telemetry: {
-              ...this.status.telemetry,
-              lastError: findResult.error,
-            },
-          });
-          await this.saveStorageState({ lastError: findResult.error });
-          throw new Error(`Failed to query remote vault: ${findResult.error}`);
-        }
-
-        let vaultFileId: string | undefined =
-          findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
-        // Drive version baseline, captured from metadata BEFORE downloading so the
-        // downloaded content can only be equal-or-newer (conflicts err toward retry).
-        const currentVaultVersion: string | undefined =
-          findResult.data.files.length > 0 ? findResult.data.files[0].version : undefined;
-
-        let remoteSnapshot: SyncVaultSnapshot | null = null;
-
-        if (vaultFileId) {
-          const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
-          if (!downloadResult.success) {
-            this.updateStatus({
-              state: 'error',
-              telemetry: {
-                ...this.status.telemetry,
-                lastError: downloadResult.error,
-              },
-            });
-            await this.saveStorageState({ lastError: downloadResult.error });
-            throw new Error(`Failed to download remote vault: ${downloadResult.error}`);
+        try {
+          // 1. Download remote vault file if it exists
+          const findResult = await googleDriveClient.findVaultFile(VAULT_FILE_NAME);
+          if (!findResult.success) {
+            throw new Error(`Failed to query remote vault: ${findResult.error}`);
           }
 
-          const raw = downloadResult.data;
-          let potentialPayload: VaultPayload | null = null;
-          if (raw && typeof raw === 'object' && typeof (raw as { payload?: unknown }).payload === 'string') {
-            potentialPayload = raw as unknown as VaultPayload;
-          } else if (SnapshotSerializer.validateSnapshot(raw)) {
-            remoteSnapshot = raw as unknown as SyncVaultSnapshot;
-          }
+          let vaultFileId: string | undefined =
+            findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
+          // Drive version baseline, captured from metadata BEFORE downloading so the
+          // downloaded content can only be equal-or-newer (conflicts err toward retry).
+          const currentVaultVersion: string | undefined =
+            findResult.data.files.length > 0 ? findResult.data.files[0].version : undefined;
 
-          if (potentialPayload) {
-            const isRemoteEncrypted = Boolean(
-              potentialPayload.isEncrypted ||
-              (potentialPayload.iv && potentialPayload.salt),
-            );
+          let remoteSnapshot: SyncVaultSnapshot | null = null;
 
-            if (isRemoteEncrypted) {
-              const decryptedStr = await WebCryptoEngine.decryptPayload(
-                {
-                  version: 1,
-                  salt: potentialPayload.salt ?? session.salt,
-                  iv: potentialPayload.iv!,
-                  ciphertext: potentialPayload.payload,
-                  iterations: 600_000,
-                },
-                session.key,
-              );
-              const parsed = JSON.parse(decryptedStr);
-              if (SnapshotSerializer.validateSnapshot(parsed)) {
-                remoteSnapshot = parsed;
-              } else {
-                throw new Error('Remote vault snapshot schema is invalid after decryption.');
-              }
-            } else {
-              try {
-                const parsed = JSON.parse(potentialPayload.payload);
-                if (SnapshotSerializer.validateSnapshot(parsed)) {
-                  remoteSnapshot = parsed;
-                }
-              } catch {
-                throw new Error('Remote vault payload is corrupt or invalid.');
-              }
+          if (vaultFileId) {
+            const downloadResult = await googleDriveClient.downloadVaultFile(vaultFileId);
+            if (!downloadResult.success) {
+              throw new Error(`Failed to download remote vault: ${downloadResult.error}`);
             }
+
+            const parseResult = await this.decryptAndValidatePayload(downloadResult.data, {
+              persistRemoteEncryptedState: false,
+            });
+
+            if (!parseResult.success) {
+              throw new Error(parseResult.message ?? parseResult.error);
+            }
+
+            remoteSnapshot = parseResult.remoteSnapshot;
           }
-        }
 
-        // 2. Serialize local Dexie state via snapshotSerializer.createLocalSnapshot()
-        const deviceId = await getOrCreateInstanceId();
-        const localSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
+          // 2. Serialize local Dexie state via snapshotSerializer.createLocalSnapshot()
+          const deviceId = await getOrCreateInstanceId();
+          const localSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
 
-        // 3. Reconcile local and remote snapshots using DiffEngine.reconcile()
-        const storage = await this.loadStorageState();
-        const reconciliation = DiffEngine.reconcile(
-          localSnapshot,
-          remoteSnapshot,
-          deviceId,
-          storage.lastSyncedAt ?? 0,
-        );
+          // 3. Reconcile local and remote snapshots using DiffEngine.reconcile()
+          const storage = await this.loadStorageState();
+          const reconciliation = DiffEngine.reconcile(
+            localSnapshot,
+            remoteSnapshot,
+            deviceId,
+            storage.lastSyncedAt ?? 0,
+          );
 
-        // 4. Persist remote changes to local Dexie via snapshotSerializer.applyRemoteUpdates()
-        if (reconciliation.hasLocalChanges) {
-          await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
-        }
+          // 4. Persist remote changes to local Dexie via snapshotSerializer.applyRemoteUpdates()
+          if (reconciliation.hasLocalChanges) {
+            await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
+          }
 
-        // 5. Only after reconciliation and local Dexie persistence succeed:
-        // Purge active encryption keys
-        await this.sessionKeyStore.clearSession();
+          // 5. Only after reconciliation and local Dexie persistence succeed:
+          // Purge active encryption keys
+          await this.sessionKeyStore.clearSession();
 
-        // Reset storage state
-        await this.saveStorageState({
-          isEncrypted: false,
-          vaultSalt: undefined,
-          lastError: undefined,
-          pendingEncryptionUpgrade: undefined,
-        });
-
-        // Update in-memory telemetry immediately
-        this.updateStatus({
-          telemetry: {
-            ...this.status.telemetry,
-            encrypted: false,
+          // Reset storage state
+          await this.saveStorageState({
+            isEncrypted: false,
+            vaultSalt: undefined,
             lastError: undefined,
-          },
-        });
+            pendingEncryptionUpgrade: undefined,
+          });
 
-        // 6. Upload unified mergedSnapshot as unencrypted plaintext JSON (isEncrypted: false)
-        const unencryptedVaultContent: VaultPayload = {
-          schemaVersion:
-            reconciliation.mergedSnapshot.schemaVersion &&
-            reconciliation.mergedSnapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION
-              ? reconciliation.mergedSnapshot.schemaVersion
-              : '1.0.0',
-          clientTimestamp: new Date().toISOString(),
-          payload: JSON.stringify(reconciliation.mergedSnapshot),
-          isEncrypted: false,
-        };
+          // Update in-memory telemetry immediately
+          this.updateStatus({
+            telemetry: {
+              ...this.status.telemetry,
+              encrypted: false,
+              lastError: undefined,
+            },
+          });
 
-        const uploadResult = await googleDriveClient.uploadVaultFile(
-          JSON.stringify(unencryptedVaultContent),
-          vaultFileId,
-          VAULT_FILE_NAME,
-          currentVaultVersion,
-        );
+          // 6. Upload unified mergedSnapshot as unencrypted plaintext JSON (isEncrypted: false)
+          const unencryptedVaultContent: VaultPayload = {
+            schemaVersion:
+              reconciliation.mergedSnapshot.schemaVersion &&
+              reconciliation.mergedSnapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION
+                ? reconciliation.mergedSnapshot.schemaVersion
+                : '1.0.0',
+            clientTimestamp: new Date().toISOString(),
+            payload: JSON.stringify(reconciliation.mergedSnapshot),
+            isEncrypted: false,
+          };
 
-        if (!uploadResult.success) {
+          const uploadResult = await googleDriveClient.uploadVaultFile(
+            JSON.stringify(unencryptedVaultContent),
+            vaultFileId,
+            VAULT_FILE_NAME,
+            currentVaultVersion,
+          );
+
+          if (!uploadResult.success) {
+            throw new Error(`Failed to upload unencrypted vault: ${uploadResult.error}`);
+          }
+
+          const now = Date.now();
+          await this.saveStorageState({
+            syncEnabled: true,
+            lastSyncedAt: now,
+            lastVaultFileId: uploadResult.data.id,
+            lastError: undefined,
+            isEncrypted: false,
+          });
+
+          // 7. Transition state to 'synced' and notify subscribers
+          this.updateStatus({
+            state: 'synced',
+            isConnected: true,
+            telemetry: {
+              ...this.status.telemetry,
+              lastSyncedAt: now,
+              pendingMutations: 0,
+              encrypted: false,
+              lastError: undefined,
+            },
+          });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
           this.updateStatus({
             state: 'error',
             telemetry: {
               ...this.status.telemetry,
-              lastError: uploadResult.error,
+              lastError: message,
             },
           });
-          await this.saveStorageState({ lastError: uploadResult.error });
-          throw new Error(`Failed to upload unencrypted vault: ${uploadResult.error}`);
+          await this.saveStorageState({ lastError: message });
+          throw err;
         }
-
-        const now = Date.now();
-        await this.saveStorageState({
-          syncEnabled: true,
-          lastSyncedAt: now,
-          lastVaultFileId: uploadResult.data.id,
-          lastError: undefined,
-          isEncrypted: false,
-        });
-
-        // 7. Transition state to 'synced' and notify subscribers
-        this.updateStatus({
-          state: 'synced',
-          isConnected: true,
-          telemetry: {
-            ...this.status.telemetry,
-            lastSyncedAt: now,
-            pendingMutations: 0,
-            encrypted: false,
-            lastError: undefined,
-          },
-        });
       },
       () => undefined,
     );
@@ -814,12 +770,20 @@ export class SyncEngine implements SyncProvider {
 
   /**
    * Parses, decrypts (if necessary), and validates a downloaded remote vault payload.
+   * Returns either a validated SyncVaultSnapshot or a typed failure.
    */
   private async decryptAndValidatePayload(
     raw: unknown,
+    options?: { persistRemoteEncryptedState?: boolean },
   ): Promise<
     | { success: true; remoteSnapshot: SyncVaultSnapshot }
-    | { success: false; error: string; isLocked?: boolean }
+    | {
+        success: false;
+        error: string;
+        reason: 'locked' | 'invalid_passphrase' | 'corrupt' | 'newer_schema';
+        isLocked?: boolean;
+        message?: string;
+      }
   > {
     let remoteSnapshot: SyncVaultSnapshot | null = null;
     let potentialPayload: VaultPayload | null = null;
@@ -837,16 +801,19 @@ export class SyncEngine implements SyncProvider {
       );
 
       if (isRemoteEncrypted) {
-        const salt = potentialPayload.salt;
-        await this.saveStorageState({
-          isEncrypted: true,
-          ...(salt ? { vaultSalt: salt } : {}),
-        });
+        if (options?.persistRemoteEncryptedState !== false) {
+          const salt = potentialPayload.salt;
+          await this.saveStorageState({
+            isEncrypted: true,
+            ...(salt ? { vaultSalt: salt } : {}),
+          });
+        }
 
         const isUnlocked = await sessionKeyStore.isUnlocked();
         if (!isUnlocked) {
           return {
             success: false,
+            reason: 'locked',
             error: 'Vault is locked. Passphrase required.',
             isLocked: true,
           };
@@ -856,6 +823,7 @@ export class SyncEngine implements SyncProvider {
         if (!session) {
           return {
             success: false,
+            reason: 'locked',
             error: 'Vault is locked. Passphrase required.',
             isLocked: true,
           };
@@ -880,12 +848,14 @@ export class SyncEngine implements SyncProvider {
           if (err instanceof CryptoEngineError && err.code === 'INVALID_PASSPHRASE') {
             return {
               success: false,
+              reason: 'invalid_passphrase',
               error: 'INVALID_PASSPHRASE',
             };
           }
           const msg = err instanceof Error ? err.message : 'Decryption failed';
           return {
             success: false,
+            reason: 'corrupt',
             error: msg,
           };
         }
@@ -905,7 +875,19 @@ export class SyncEngine implements SyncProvider {
     if (!remoteSnapshot) {
       return {
         success: false,
+        reason: 'corrupt',
         error: 'Remote vault payload is corrupt or invalid.',
+      };
+    }
+
+    const remoteSchema = parseSchemaVersion(remoteSnapshot.schemaVersion ?? remoteSnapshot.version);
+    if (remoteSchema.major > CURRENT_SCHEMA_MAJOR) {
+      return {
+        success: false,
+        reason: 'newer_schema',
+        error: 'UPDATE_REQUIRED',
+        message:
+          'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.',
       };
     }
 
@@ -1127,7 +1109,7 @@ export class SyncEngine implements SyncProvider {
 
         const parseResult = await this.decryptAndValidatePayload(downloadResult.data);
         if (!parseResult.success) {
-          if (parseResult.isLocked) {
+          if (parseResult.reason === 'locked') {
             this.updateStatus({
               state: 'locked',
               isConnected: true,
@@ -1136,6 +1118,25 @@ export class SyncEngine implements SyncProvider {
                 encrypted: true,
               },
             });
+            return {
+              success: false,
+              error: parseResult.error,
+              timestamp: Date.now(),
+            };
+          }
+
+          if (parseResult.reason === 'newer_schema') {
+            const updateErrorMsg =
+              parseResult.message ??
+              'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.';
+            this.updateStatus({
+              state: 'error',
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: updateErrorMsg,
+              },
+            });
+            await this.saveStorageState({ lastError: updateErrorMsg });
             return {
               success: false,
               error: parseResult.error,
@@ -1161,27 +1162,6 @@ export class SyncEngine implements SyncProvider {
         }
 
         remoteSnapshot = parseResult.remoteSnapshot;
-
-        if (remoteSnapshot) {
-          const remoteSchema = parseSchemaVersion(remoteSnapshot.schemaVersion ?? remoteSnapshot.version);
-          if (remoteSchema.major > CURRENT_SCHEMA_MAJOR) {
-            const updateErrorMsg =
-              'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.';
-            this.updateStatus({
-              state: 'error',
-              telemetry: {
-                ...this.status.telemetry,
-                lastError: updateErrorMsg,
-              },
-            });
-            await this.saveStorageState({ lastError: updateErrorMsg });
-            return {
-              success: false,
-              error: 'UPDATE_REQUIRED',
-              timestamp: Date.now(),
-            };
-          }
-        }
       }
 
       // Step 4: Create local snapshot
@@ -1305,14 +1285,15 @@ export class SyncEngine implements SyncProvider {
 
           const freshParseResult = await this.decryptAndValidatePayload(retryDownload.data);
           if (!freshParseResult.success) {
+            const errorMsg = freshParseResult.message ?? freshParseResult.error;
             this.updateStatus({
               state: 'error',
               telemetry: {
                 ...this.status.telemetry,
-                lastError: freshParseResult.error,
+                lastError: errorMsg,
               },
             });
-            await this.saveStorageState({ lastError: freshParseResult.error });
+            await this.saveStorageState({ lastError: errorMsg });
             return {
               success: false,
               error: freshParseResult.error,
@@ -1321,27 +1302,6 @@ export class SyncEngine implements SyncProvider {
           }
 
           remoteSnapshot = freshParseResult.remoteSnapshot;
-
-          if (remoteSnapshot) {
-            const retryRemoteSchema = parseSchemaVersion(remoteSnapshot.schemaVersion ?? remoteSnapshot.version);
-            if (retryRemoteSchema.major > CURRENT_SCHEMA_MAJOR) {
-              const updateErrorMsg =
-                'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.';
-              this.updateStatus({
-                state: 'error',
-                telemetry: {
-                  ...this.status.telemetry,
-                  lastError: updateErrorMsg,
-                },
-              });
-              await this.saveStorageState({ lastError: updateErrorMsg });
-              return {
-                success: false,
-                error: 'UPDATE_REQUIRED',
-                timestamp: Date.now(),
-              };
-            }
-          }
 
           // Re-create local snapshot and re-reconcile using DiffEngine
           const freshLocalSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
