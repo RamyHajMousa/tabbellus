@@ -18,6 +18,7 @@ import { useWindowId } from '@/features/tabs/hooks/useWindowId';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { Switch } from '@/components/ui/switch';
 import type { TabRule } from '@/core/contracts/rules';
+import { validateRegex } from '../engine/regexSafety';
 import { RuleEditorModal } from './RuleEditorModal';
 import { TemplatePickerModal } from './TemplatePickerModal';
 import { insertRule, moveRulePriority, removeRuleById, runApplyRulesNow, sortByPriority, summarizeRule, toggleRuleEnabled } from './ruleListActions';
@@ -120,6 +121,15 @@ export const RuleManagerCard: React.FC = () => {
 
     const handleSaveRule = useCallback(
         async (rule: TabRule) => {
+            for (const condition of rule.conditions) {
+                if (condition.operator === 'regex') {
+                    const validation = validateRegex(condition.value);
+                    if (!validation.ok) {
+                        toast(`Cannot save rule: ${validation.reason}`);
+                        return;
+                    }
+                }
+            }
             const exists = rules.some((r) => r.id === rule.id);
             const next = exists ? rules.map((r) => (r.id === rule.id ? rule : r)) : insertRule(rules, rule);
             await saveRules(next);

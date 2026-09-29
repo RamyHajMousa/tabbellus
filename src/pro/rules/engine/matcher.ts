@@ -7,17 +7,59 @@
  * SAFETY NOTES:
  * - `wildcard` patterns are converted to fully escaped, anchored RegExp
  *   objects (no raw user regex reaches the engine for glob matching).
- * - `regex` patterns are capped at `MAX_REGEX_LENGTH` characters and
- *   compiled inside a try/catch to gracefully swallow syntax errors.
- *   The length cap bounds pattern complexity as a risk-reduction heuristic;
- *   it is not a runtime execution timeout guarantee against catastrophic
- *   backtracking.
+ * - `regex` patterns undergo static complexity validation (rejecting nested
+ *   quantifiers, alternation inside quantified groups, and backreferences),
+ *   are capped at `MAX_REGEX_LENGTH` (250 chars), and are tested only
+ *   against the first `MAX_REGEX_TARGET_LENGTH` (2,048 chars) of target strings.
+ * - Compiled `RegExp` objects are cached per pattern and flags to avoid
+ *   re-validation on every tab event.
+ * - These static complexity checks and caps are a risk-reduction heuristic
+ *   and NOT a formal proof of safety or a substitute for process/thread isolation.
  */
 
 import { tryParseHost } from '@/lib/sessionUtils';
 import type { ConditionField, RuleCondition, TabRule } from '@/core/contracts/rules';
+import { validateRegex, MAX_REGEX_LENGTH } from './regexSafety';
 
-const MAX_REGEX_LENGTH = 250;
+export { MAX_REGEX_LENGTH };
+export const MAX_REGEX_TARGET_LENGTH = 2048;
+
+const regexCache = new Map<string, RegExp | null>();
+const MAX_CACHE_SIZE = 500;
+
+export function getCachedRegExp(pattern: string, caseSensitive: boolean): RegExp | null {
+  const cacheKey = `${caseSensitive ? 's' : 'i'}:${pattern}`;
+  if (regexCache.has(cacheKey)) {
+    return regexCache.get(cacheKey) ?? null;
+  }
+
+  const validation = validateRegex(pattern);
+  if (!validation.ok) {
+    if (regexCache.size >= MAX_CACHE_SIZE) {
+      const firstKey = regexCache.keys().next().value;
+      if (firstKey !== undefined) regexCache.delete(firstKey);
+    }
+    regexCache.set(cacheKey, null);
+    return null;
+  }
+
+  try {
+    const compiled = new RegExp(pattern, caseSensitive ? '' : 'i');
+    if (regexCache.size >= MAX_CACHE_SIZE) {
+      const firstKey = regexCache.keys().next().value;
+      if (firstKey !== undefined) regexCache.delete(firstKey);
+    }
+    regexCache.set(cacheKey, compiled);
+    return compiled;
+  } catch {
+    regexCache.set(cacheKey, null);
+    return null;
+  }
+}
+
+export function clearRegexCache(): void {
+  regexCache.clear();
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -95,10 +137,11 @@ export class RuleMatcher {
         }
       }
       case 'regex': {
-        if (trimmedValue.length > MAX_REGEX_LENGTH) return false;
+        const regex = getCachedRegExp(trimmedValue, caseSensitive);
+        if (!regex) return false;
         try {
-          const regex = new RegExp(trimmedValue, caseSensitive ? '' : 'i');
-          return regex.test(target);
+          const truncatedTarget = target.slice(0, MAX_REGEX_TARGET_LENGTH);
+          return regex.test(truncatedTarget);
         } catch {
           return false;
         }

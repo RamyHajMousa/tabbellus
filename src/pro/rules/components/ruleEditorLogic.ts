@@ -6,6 +6,7 @@
  */
 
 import type { ActionType, ConditionField, ConditionOperator, RuleAction, RuleCondition, TabRule } from '@/core/contracts/rules';
+import { validateRegex } from '../engine/regexSafety';
 
 export const CONDITION_FIELD_OPTIONS: { value: ConditionField; label: string }[] = [
   { value: 'url', label: 'URL' },
@@ -58,20 +59,24 @@ export function buildInitialDraft(rule: TabRule | null): RuleDraft {
   };
 }
 
-/** Validates a regex pattern compiles. An empty pattern is treated as valid here — required-field checks are separate. */
+/** Validates a regex pattern compiles and passes ReDoS safety checks. An empty pattern is treated as valid here — required-field checks are separate. */
 export function isValidRegexPattern(pattern: string): boolean {
   if (!pattern) return true;
-  try {
-    new RegExp(pattern);
-    return true;
-  } catch {
-    return false;
-  }
+  return validateRegex(pattern).ok;
 }
 
-/** True when a condition's regex operator carries syntactically invalid regex text worth surfacing to the user. */
+/** Returns the validation failure reason if a condition's regex operator carries invalid or unsafe regex text, or null if valid. */
+export function getConditionRegexError(condition: RuleCondition): string | null {
+  if (condition.operator !== 'regex' || condition.value.trim() === '') {
+    return null;
+  }
+  const result = validateRegex(condition.value);
+  return result.ok ? null : result.reason;
+}
+
+/** True when a condition's regex operator carries invalid or unsafe regex text worth surfacing to the user. */
 export function isConditionRegexInvalid(condition: RuleCondition): boolean {
-  return condition.operator === 'regex' && condition.value.trim() !== '' && !isValidRegexPattern(condition.value);
+  return getConditionRegexError(condition) !== null;
 }
 
 /**

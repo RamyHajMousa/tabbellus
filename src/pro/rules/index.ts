@@ -11,6 +11,7 @@
  */
 
 export * from './engine/matcher';
+export * from './engine/regexSafety';
 export * from './engine/executor';
 export * from './engine/rulesEngine';
 export * from './storage/ruleStorage';

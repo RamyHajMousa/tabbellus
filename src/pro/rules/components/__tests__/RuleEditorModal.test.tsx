@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { RuleEditorModal } from '../RuleEditorModal';
+import { ToastProvider } from '@/components/ui/Toaster';
 import type { RuleAction, RuleCondition, TabRule } from '@/core/contracts/rules';
 import {
   addActionRow,
@@ -21,6 +22,7 @@ import {
   buildRuleFromDraft,
   DEFAULT_ACTION,
   DEFAULT_CONDITION,
+  getConditionRegexError,
   isConditionRegexInvalid,
   isValidRegexPattern,
   removeActionRow,
@@ -48,7 +50,11 @@ function makeRule(overrides: Partial<TabRule> = {}): TabRule {
 describe('RuleEditorModal — SSR smoke test', () => {
   it('renders without throwing while closed', () => {
     expect(() =>
-      renderToString(<RuleEditorModal open={false} onOpenChange={() => {}} rule={null} onSave={() => {}} />),
+      renderToString(
+        <ToastProvider>
+          <RuleEditorModal open={false} onOpenChange={() => {}} rule={null} onSave={() => {}} />
+        </ToastProvider>,
+      ),
     ).not.toThrow();
   });
 });
@@ -127,11 +133,27 @@ describe('Regex validation feedback', () => {
     expect(isValidRegexPattern('(unclosed[')).toBe(false);
   });
 
-  it('isConditionRegexInvalid only flags non-empty regex operator conditions with bad syntax', () => {
+  it('isValidRegexPattern rejects ReDoS patterns', () => {
+    expect(isValidRegexPattern('(a+)+$')).toBe(false);
+    expect(isValidRegexPattern('(a|a)*$')).toBe(false);
+    expect(isValidRegexPattern('(a)\\1')).toBe(false);
+  });
+
+  it('isConditionRegexInvalid only flags non-empty regex operator conditions with bad syntax or ReDoS', () => {
     expect(isConditionRegexInvalid({ field: 'url', operator: 'regex', value: '(unclosed[' })).toBe(true);
+    expect(isConditionRegexInvalid({ field: 'url', operator: 'regex', value: '(a+)+$' })).toBe(true);
     expect(isConditionRegexInvalid({ field: 'url', operator: 'regex', value: '^valid$' })).toBe(false);
     expect(isConditionRegexInvalid({ field: 'url', operator: 'regex', value: '' })).toBe(false);
     expect(isConditionRegexInvalid({ field: 'url', operator: 'contains', value: '(unclosed[' })).toBe(false);
+  });
+
+  it('getConditionRegexError returns specific reasons for invalid or unsafe regex', () => {
+    expect(getConditionRegexError({ field: 'url', operator: 'regex', value: '(a+)+$' })).toMatch(/nested quantifier/i);
+    expect(getConditionRegexError({ field: 'url', operator: 'regex', value: '(a|a)*$' })).toMatch(/alternation inside a quantified group/i);
+    expect(getConditionRegexError({ field: 'url', operator: 'regex', value: '(a)\\1' })).toMatch(/backreference/i);
+    expect(getConditionRegexError({ field: 'url', operator: 'regex', value: '^https://github\\.com/' })).toBeNull();
+    expect(getConditionRegexError({ field: 'url', operator: 'regex', value: '' })).toBeNull();
+    expect(getConditionRegexError({ field: 'url', operator: 'contains', value: '(a+)+$' })).toBeNull();
   });
 });
 
@@ -178,6 +200,18 @@ describe('validateRuleDraft — Save button gate', () => {
         conditions: [
           { field: 'url', operator: 'contains', value: 'ok' },
           { field: 'url', operator: 'regex', value: '(unclosed[' },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects when any regex condition has ReDoS unsafe pattern', () => {
+    expect(
+      validateRuleDraft({
+        name: 'My Rule',
+        conditions: [
+          { field: 'url', operator: 'contains', value: 'ok' },
+          { field: 'url', operator: 'regex', value: '(a+)+$' },
         ],
       }),
     ).toBe(false);

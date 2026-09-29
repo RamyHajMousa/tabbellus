@@ -80,7 +80,7 @@ Pro synchronization uses the user's private Google Drive `appDataFolder` without
 Tab automation rules run continuously in the Manifest V3 background service worker.
 - **Always-On Dispatching:** `rulesDispatcher` monitors Chrome tab creation and update events, evaluating tabs against user-defined rules even when the sidepanel is closed.
 - **Cross-Context Storage Sync:** Background and sidepanel singletons stay synchronized in real time via `chrome.storage.onChanged` listeners.
-- **ReDoS Safety:** Conditions are evaluated with length and complexity limits to protect the single-threaded service worker from catastrophic regex backtracking.
+- **ReDoS Safety:** Conditions are evaluated with static complexity parsing (`regexSafety.ts`), length caps (250 chars), match target caps (2,048 chars), and compiled RegExp caching to protect the single-threaded service worker from catastrophic regex backtracking.
 - *See:* [`docs/architecture/ADR-004-rules-engine-background-service-worker.md`](file:///d:/Projects/tabbellus/docs/architecture/ADR-004-rules-engine-background-service-worker.md).
 
 ### 2.5 End-to-End Encryption (E2EE) Sync Vault (ADR-005)

@@ -8,6 +8,7 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/Dialog';
+import { useToast } from '@/components/ui/Toaster';
 import type { RuleAction, RuleCondition, TabRule } from '@/core/contracts/rules';
 import { ConditionRow } from './ConditionRow';
 import { ActionRow } from './ActionRow';
@@ -16,6 +17,7 @@ import {
     addConditionRow,
     buildInitialDraft,
     buildRuleFromDraft,
+    getConditionRegexError,
     removeActionRow,
     removeConditionRow,
     updateActionRow,
@@ -32,6 +34,7 @@ interface RuleEditorModalProps {
 }
 
 export const RuleEditorModal: React.FC<RuleEditorModalProps> = ({ open, onOpenChange, rule, onSave }) => {
+    const { toast } = useToast();
     const isEditMode = rule !== null;
     const [draft, setDraft] = useState<RuleDraft>(() => buildInitialDraft(rule));
 
@@ -72,10 +75,21 @@ export const RuleEditorModal: React.FC<RuleEditorModalProps> = ({ open, onOpenCh
     const handleSubmit = useCallback(
         (e: React.FormEvent) => {
             e.preventDefault();
-            if (!validateRuleDraft(draft)) return;
+            if (!validateRuleDraft(draft)) {
+                for (const condition of draft.conditions) {
+                    if (condition.operator === 'regex') {
+                        const err = getConditionRegexError(condition);
+                        if (err) {
+                            toast(err);
+                            return;
+                        }
+                    }
+                }
+                return;
+            }
             onSave(buildRuleFromDraft(draft, rule));
         },
-        [draft, rule, onSave],
+        [draft, rule, onSave, toast],
     );
 
     return (

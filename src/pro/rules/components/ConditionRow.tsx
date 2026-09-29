@@ -2,7 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import type { ConditionField, ConditionOperator, RuleCondition } from '@/core/contracts/rules';
-import { CONDITION_FIELD_OPTIONS, CONDITION_OPERATOR_OPTIONS, isConditionRegexInvalid } from './ruleEditorLogic';
+import { CONDITION_FIELD_OPTIONS, CONDITION_OPERATOR_OPTIONS, getConditionRegexError } from './ruleEditorLogic';
 
 interface ConditionRowProps {
     condition: RuleCondition;
@@ -11,7 +11,8 @@ interface ConditionRowProps {
 }
 
 export const ConditionRow: React.FC<ConditionRowProps> = ({ condition, onChange, onRemove }) => {
-    const regexInvalid = isConditionRegexInvalid(condition);
+    const regexError = getConditionRegexError(condition);
+    const regexInvalid = Boolean(regexError);
 
     return (
         <div className="flex items-start gap-1.5 p-2 rounded-md border border-border bg-background">
@@ -49,8 +50,8 @@ export const ConditionRow: React.FC<ConditionRowProps> = ({ condition, onChange,
                         regexInvalid ? 'border-destructive text-destructive' : 'border-input'
                     }`}
                 />
-                {regexInvalid && (
-                    <p className="text-[10px] text-destructive mt-0.5">Invalid regular expression syntax</p>
+                {regexError && (
+                    <p className="text-[10px] text-destructive mt-0.5">{regexError}</p>
                 )}
             </div>
 

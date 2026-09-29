@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RuleMatcher } from '../engine/matcher';
+import { RuleMatcher, getCachedRegExp, clearRegexCache } from '../engine/matcher';
 import type { RuleCondition, TabRule } from '@/core/contracts/rules';
 
 describe('RuleMatcher.evaluateCondition', () => {
@@ -127,6 +127,67 @@ describe('RuleMatcher.evaluateCondition', () => {
     it('respects caseSensitive: false by default', () => {
       const condition: RuleCondition = { field: 'title', operator: 'regex', value: 'invoice' };
       expect(RuleMatcher.evaluateCondition({ title: 'Your INVOICE is ready' }, condition)).toBe(true);
+    });
+
+    it('returns false without throwing for statically rejected ReDoS patterns', () => {
+      const unsafePatterns = [
+        '(a+)+$',
+        '(a|a)*$',
+        '(.*a){20}',
+        '([a-z]+)*$',
+        '(\\w+\\s?)*$',
+        '(a)\\1',
+      ];
+
+      for (const pattern of unsafePatterns) {
+        const condition: RuleCondition = { field: 'url', operator: 'regex', value: pattern };
+        expect(() => RuleMatcher.evaluateCondition({ url: 'https://example.com/test' }, condition)).not.toThrow();
+        expect(RuleMatcher.evaluateCondition({ url: 'https://example.com/test' }, condition)).toBe(false);
+      }
+    });
+
+    it('timing guard: matching (a+)+$ against 30 "a"s followed by "!" completes in under 50 ms', () => {
+      const condition: RuleCondition = { field: 'url', operator: 'regex', value: '(a+)+$' };
+      const attackInput = `${'a'.repeat(30)}!`;
+
+      const start = performance.now();
+      const result = RuleMatcher.evaluateCondition({ url: attackInput }, condition);
+      const durationMs = performance.now() - start;
+
+      expect(result).toBe(false);
+      expect(durationMs).toBeLessThan(50);
+    });
+
+    it('caps input string evaluation at 2,048 characters', () => {
+      // 2,048 'a' characters followed by 'SECRET'
+      const longUrl = `${'a'.repeat(2048)}SECRET`;
+
+      // Pattern looking for SECRET at the end of string: should fail because SECRET is beyond char 2,048
+      const tailCondition: RuleCondition = { field: 'url', operator: 'regex', value: 'SECRET$' };
+      expect(RuleMatcher.evaluateCondition({ url: longUrl }, tailCondition)).toBe(false);
+
+      // Pattern matching the first 2,048 'a's anchored: should succeed because the truncated input has exactly 2,048 'a's
+      const prefixCondition: RuleCondition = { field: 'url', operator: 'regex', value: '^a{2048}$' };
+      expect(RuleMatcher.evaluateCondition({ url: longUrl }, prefixCondition)).toBe(true);
+    });
+
+    it('caches compiled RegExp objects and avoids re-validation', () => {
+      clearRegexCache();
+      const pattern = '^https://github\\.com/[a-z]+$';
+
+      const compiled1 = getCachedRegExp(pattern, false);
+      const compiled2 = getCachedRegExp(pattern, false);
+      const compiledCaseSensitive = getCachedRegExp(pattern, true);
+
+      expect(compiled1).toBeInstanceOf(RegExp);
+      expect(compiled1).toBe(compiled2); // Same reference from cache
+      expect(compiledCaseSensitive).not.toBe(compiled1); // Distinct flags
+      expect(compiledCaseSensitive?.flags).toBe('');
+      expect(compiled1?.flags).toBe('i');
+
+      clearRegexCache();
+      const compiledAfterClear = getCachedRegExp(pattern, false);
+      expect(compiledAfterClear).not.toBe(compiled1); // Fresh compilation after cache clear
     });
   });
 });
