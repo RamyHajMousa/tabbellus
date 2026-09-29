@@ -93,4 +93,5 @@ export interface SyncStorageState {
   lastError?: string;
   isEncrypted?: boolean;
   vaultSalt?: string;
+  pendingEncryptionUpgrade?: boolean;
 }

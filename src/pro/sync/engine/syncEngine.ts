@@ -111,6 +111,8 @@ export class SyncEngine implements SyncProvider {
           lastError: typeof raw.lastError === 'string' ? raw.lastError : undefined,
           isEncrypted: typeof raw.isEncrypted === 'boolean' ? raw.isEncrypted : undefined,
           vaultSalt: typeof raw.vaultSalt === 'string' ? raw.vaultSalt : undefined,
+          pendingEncryptionUpgrade:
+            typeof raw.pendingEncryptionUpgrade === 'boolean' ? raw.pendingEncryptionUpgrade : undefined,
         };
       }
     } catch {
@@ -123,6 +125,15 @@ export class SyncEngine implements SyncProvider {
     try {
       const current = await this.loadStorageState();
       const updated: SyncStorageState = { ...current, ...updates };
+      if (updates.pendingEncryptionUpgrade === undefined && 'pendingEncryptionUpgrade' in updates) {
+        delete updated.pendingEncryptionUpgrade;
+      }
+      if (updates.vaultSalt === undefined && 'vaultSalt' in updates) {
+        delete updated.vaultSalt;
+      }
+      if (updates.lastError === undefined && 'lastError' in updates) {
+        delete updated.lastError;
+      }
       await chrome.storage.local.set({ [SYNC_STORAGE_KEY]: updated });
     } catch {
       // Best-effort storage persistence
@@ -283,6 +294,7 @@ export class SyncEngine implements SyncProvider {
         await this.saveStorageState({
           isEncrypted: true,
           vaultSalt: saltBase64,
+          pendingEncryptionUpgrade: true,
         });
 
         this.updateStatus({
@@ -292,7 +304,10 @@ export class SyncEngine implements SyncProvider {
           },
         });
 
-        await this.executeSync({ forceFull: true });
+        const syncResult = await this.executeSync({ forceFull: true });
+        if (!syncResult.success) {
+          throw new Error(syncResult.error || 'Failed to encrypt and upload vault to cloud.');
+        }
       },
       () => undefined,
     );
@@ -433,6 +448,7 @@ export class SyncEngine implements SyncProvider {
           isEncrypted: false,
           vaultSalt: undefined,
           lastError: undefined,
+          pendingEncryptionUpgrade: undefined,
         });
 
         // Update in-memory telemetry immediately
@@ -514,6 +530,7 @@ export class SyncEngine implements SyncProvider {
           isEncrypted: false,
           vaultSalt: undefined,
           lastError: undefined,
+          pendingEncryptionUpgrade: undefined,
         });
 
         this.updateStatus({
@@ -745,6 +762,54 @@ export class SyncEngine implements SyncProvider {
         timestamp: Date.now(),
       }),
     );
+  }
+
+  /**
+   * Evaluates whether the remote vault has been explicitly downgraded to unencrypted
+   * on another peer device, and auto-downgrades local state to unencrypted.
+   *
+   * If local storage has `pendingEncryptionUpgrade: true`, this check immediately returns
+   * `false` (no downgrade) to avoid clobbering an intentional encryption upgrade.
+   *
+   * @param remoteData - The downloaded remote vault payload or snapshot.
+   * @returns `true` if an auto-downgrade was applied, `false` otherwise.
+   */
+  private async handlePeerDowngradeCheck(remoteData: unknown): Promise<boolean> {
+    const currentLocalState = await this.loadStorageState();
+    if (currentLocalState.pendingEncryptionUpgrade) {
+      return false;
+    }
+
+    let isRemoteExplicitlyUnencrypted = false;
+    if (remoteData && typeof remoteData === 'object') {
+      const maybePayload = remoteData as Partial<VaultPayload>;
+      if (
+        maybePayload.isEncrypted === false ||
+        maybePayload.schemaVersion === '1.0.0'
+      ) {
+        isRemoteExplicitlyUnencrypted = true;
+      }
+    }
+
+    if (
+      (currentLocalState.isEncrypted || this.status.telemetry.encrypted) &&
+      isRemoteExplicitlyUnencrypted
+    ) {
+      await this.sessionKeyStore.clearSession();
+      await this.saveStorageState({
+        isEncrypted: false,
+        vaultSalt: undefined,
+      });
+      this.updateStatus({
+        telemetry: {
+          ...this.status.telemetry,
+          encrypted: false,
+        },
+      });
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -1057,35 +1122,8 @@ export class SyncEngine implements SyncProvider {
 
         // Peer Auto-Downgrade: If remote vault was downgraded to unencrypted on another device,
         // and local state currently has encryption active, auto-downgrade local state to unencrypted.
-        let isRemoteExplicitlyUnencrypted = false;
-        const rawRemote = downloadResult.data;
-        if (rawRemote && typeof rawRemote === 'object') {
-          const maybePayload = rawRemote as Partial<VaultPayload>;
-          if (
-            maybePayload.isEncrypted === false ||
-            maybePayload.schemaVersion === '1.0.0'
-          ) {
-            isRemoteExplicitlyUnencrypted = true;
-          }
-        }
-
-        const currentLocalState = await this.loadStorageState();
-        if (
-          (currentLocalState.isEncrypted || this.status.telemetry.encrypted) &&
-          isRemoteExplicitlyUnencrypted
-        ) {
-          await this.sessionKeyStore.clearSession();
-          await this.saveStorageState({
-            isEncrypted: false,
-            vaultSalt: undefined,
-          });
-          this.updateStatus({
-            telemetry: {
-              ...this.status.telemetry,
-              encrypted: false,
-            },
-          });
-        }
+        // Guarded against intentional upgrades via pendingEncryptionUpgrade.
+        await this.handlePeerDowngradeCheck(downloadResult.data);
 
         const parseResult = await this.decryptAndValidatePayload(downloadResult.data);
         if (!parseResult.success) {
@@ -1164,8 +1202,14 @@ export class SyncEngine implements SyncProvider {
         await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
       }
 
-      // Step 7: Upload reconciled merged snapshot to Drive if remote changes exist
-      if (reconciliation.hasRemoteChanges || options?.forceFull) {
+      let encryptedUploadSucceeded = false;
+
+      const shouldForceUpload = Boolean(
+        options?.forceFull || currentStorageForSync.pendingEncryptionUpgrade
+      );
+
+      // Step 7: Upload reconciled merged snapshot to Drive if remote changes exist or upgrade pending
+      if (reconciliation.hasRemoteChanges || shouldForceUpload) {
         const currentStorage = await this.loadStorageState();
         const hasUnlockedSession = await this.sessionKeyStore.isUnlocked();
         let shouldEncrypt = Boolean(
@@ -1251,34 +1295,8 @@ export class SyncEngine implements SyncProvider {
 
           currentVaultEtag = retryDownload.etag ?? (retryDownload.data as { etag?: string })?.etag;
 
-          let isRetryExplicitlyUnencrypted = false;
-          const rawRetry = retryDownload.data;
-          if (rawRetry && typeof rawRetry === 'object') {
-            const maybePayload = rawRetry as Partial<VaultPayload>;
-            if (
-              maybePayload.isEncrypted === false ||
-              maybePayload.schemaVersion === '1.0.0'
-            ) {
-              isRetryExplicitlyUnencrypted = true;
-            }
-          }
-
-          const retryLocalState = await this.loadStorageState();
-          if (
-            (retryLocalState.isEncrypted || this.status.telemetry.encrypted) &&
-            isRetryExplicitlyUnencrypted
-          ) {
-            await this.sessionKeyStore.clearSession();
-            await this.saveStorageState({
-              isEncrypted: false,
-              vaultSalt: undefined,
-            });
-            this.updateStatus({
-              telemetry: {
-                ...this.status.telemetry,
-                encrypted: false,
-              },
-            });
+          const didDowngradeOnRetry = await this.handlePeerDowngradeCheck(retryDownload.data);
+          if (didDowngradeOnRetry) {
             shouldEncrypt = false;
           }
 
@@ -1337,8 +1355,8 @@ export class SyncEngine implements SyncProvider {
             await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
           }
 
-          // If after re-reconciliation there are no remote changes left to upload (and not forceFull):
-          if (!reconciliation.hasRemoteChanges && !options?.forceFull) {
+          // If after re-reconciliation there are no remote changes left to upload (and not forced upload):
+          if (!reconciliation.hasRemoteChanges && !shouldForceUpload) {
             uploadResult = {
               success: true,
               data: {
@@ -1424,6 +1442,9 @@ export class SyncEngine implements SyncProvider {
         }
 
         vaultFileId = uploadResult.data.id;
+        if (shouldEncrypt) {
+          encryptedUploadSucceeded = true;
+        }
       }
 
       // Step 8: Update state to synced
@@ -1448,6 +1469,7 @@ export class SyncEngine implements SyncProvider {
         lastVaultFileId: vaultFileId,
         lastError: undefined,
         isEncrypted,
+        ...(encryptedUploadSucceeded ? { pendingEncryptionUpgrade: undefined } : {}),
       });
 
       return {
