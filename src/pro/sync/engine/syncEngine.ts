@@ -1245,6 +1245,9 @@ export class SyncEngine implements SyncProvider {
           VAULT_FILE_NAME,
           baselineVersion,
         );
+        if (uploadResult.success && shouldEncrypt) {
+          encryptedUploadSucceeded = true;
+        }
 
         // OCC Conflict Resolution Loop
         let conflictRetries = 0;
@@ -1392,6 +1395,9 @@ export class SyncEngine implements SyncProvider {
             VAULT_FILE_NAME,
             baselineVersion,
           );
+          if (uploadResult.success && shouldEncrypt) {
+            encryptedUploadSucceeded = true;
+          }
         }
 
         if (!uploadResult.success) {
@@ -1442,9 +1448,6 @@ export class SyncEngine implements SyncProvider {
         }
 
         vaultFileId = uploadResult.data.id;
-        if (shouldEncrypt) {
-          encryptedUploadSucceeded = true;
-        }
       }
 
       // Step 8: Update state to synced

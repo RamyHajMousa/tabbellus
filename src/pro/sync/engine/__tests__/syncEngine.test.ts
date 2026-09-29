@@ -2238,6 +2238,119 @@ describe('SyncEngine', () => {
       expect(storageAfterSync.isEncrypted).toBe(true);
       expect(storageAfterSync.pendingEncryptionUpgrade).toBeUndefined();
     });
+
+    it('T8: pendingEncryptionUpgrade=true, remote plaintext; first upload returns conflict; re-download returns plaintext content that reconciles to NO remote changes → assert a real encrypted upload still occurs and the flag is cleared only after it', async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({ success: true, data: 'valid-token' });
+
+      // Align local app settings with an explicit settingsUpdatedAt
+      const currentAppSettings = useAppStore.getState().settings;
+      useAppStore.setState({
+        settings: {
+          ...currentAppSettings,
+          settingsUpdatedAt: 1000,
+        },
+      });
+
+      const matchingSettings: SyncedSettings = {
+        duplicateTabBehavior: currentAppSettings.duplicateTabBehavior,
+        spaceRestoreTrigger: currentAppSettings.spaceRestoreTrigger,
+        readLaterOpenBehavior: currentAppSettings.readLaterOpenBehavior,
+        readLaterAutoArchive: currentAppSettings.readLaterAutoArchive,
+        updatedAt: 1000,
+      };
+
+      // Local and remote have identical data across all collections
+      const testSpace: Space = {
+        id: 10,
+        uuid: 'space-uuid-1',
+        name: 'Identical Space',
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+      await db.spaces.add(testSpace);
+
+      const identicalSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        schemaVersion: '1.0.0',
+        clientTimestamp: 1000,
+        deviceId: 'device-remote',
+        spaces: [{ ...testSpace }],
+        tabs: [],
+        readLater: [],
+        rules: [],
+        settings: matchingSettings,
+      };
+
+      const unencryptedRemotePayload: VaultPayload = {
+        schemaVersion: '1.0.0',
+        clientTimestamp: new Date().toISOString(),
+        payload: JSON.stringify(identicalSnapshot),
+        isEncrypted: false,
+      };
+
+      const saltBytes = WebCryptoEngine.generateSalt();
+      const saltBase64 = uint8ArrayToBase64(saltBytes);
+      const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+
+      await engine.connect();
+      await sessionKeyStore.saveSession(key, saltBase64);
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+          pendingEncryptionUpgrade: true,
+        },
+      });
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          files: [{ id: 'vault-file-id-1', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '1' }],
+        },
+      });
+
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: unencryptedRemotePayload,
+      });
+
+      let uploadAttempts = 0;
+      let finalUploadedPayload = '';
+      mockedDrive.uploadVaultFile.mockImplementation((content: string) => {
+        uploadAttempts++;
+        if (uploadAttempts === 1) {
+          return Promise.resolve({
+            success: false,
+            conflict: true,
+            version: '2',
+            error: 'Conflict: Remote file version mismatch',
+          });
+        }
+        finalUploadedPayload = content;
+        return Promise.resolve({
+          success: true,
+          data: { id: 'vault-file-id-1', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '3' },
+        });
+      });
+
+      // Recovery sync cycle with NO options
+      const result = await engine.syncNow();
+      expect(result.success).toBe(true);
+
+      // Must perform real encrypted upload on retry attempt (attempt 2), NOT take synthetic success early-exit
+      expect(uploadAttempts).toBe(2);
+      expect(finalUploadedPayload).toBeTruthy();
+      const parsedVault = JSON.parse(finalUploadedPayload) as VaultPayload;
+      expect(parsedVault.isEncrypted).toBe(true);
+      expect(parsedVault.iv).toBeDefined();
+      expect(parsedVault.salt).toBeDefined();
+
+      // Flag must be cleared only after the real encrypted upload succeeds
+      const storageAfterSync = mockStorage['tabbellus_sync_state'] as SyncStorageState;
+      expect(storageAfterSync.isEncrypted).toBe(true);
+      expect(storageAfterSync.pendingEncryptionUpgrade).toBeUndefined();
+    });
   });
 });
 
