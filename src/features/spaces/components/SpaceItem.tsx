@@ -195,7 +195,14 @@ const SpaceItemComponent = ({ space, isExpanded }: SpaceItemProps) => {
         toast(`Space "${space.name}" deleted`, {
             duration: 10000,
             onUndo: () => {
-                if (space.id) spaceService.undoDeleteSpace(space.id);
+                if (space.id) {
+                    spaceService.undoDeleteSpace(space.id).catch((err) => {
+                        console.error('[SpaceItem] Failed to restore deleted space:', err);
+                        toast('Failed to restore space', {
+                            description: 'An unexpected error occurred while undoing space deletion.',
+                        });
+                    });
+                }
             }
         });
     }, [space.id, space.name, toast]);

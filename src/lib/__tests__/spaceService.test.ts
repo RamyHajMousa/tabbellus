@@ -163,6 +163,122 @@ describe('SpaceService — Dexie Integration', () => {
     expect(tabs[1].updatedAt).toBeGreaterThan(0);
   });
 
+  // ── Undoing Space Deletion with Prior Tombstones (T1–T4) ─────────
+
+  it('T1: Space with tab A (active) and tab B (tombstoned earlier at t0). softDeleteSpace at t1 > t0, then undoDeleteSpace → A active; B still deleted with deletedAt === t0 and updatedAt unchanged', async () => {
+    const spaceId = await seedSpace('Space T1');
+    const tabAId = (await db.tabs.add({ spaceId, url: 'https://tab-a.com', title: 'Tab A', order: 0, createdAt: 1000, updatedAt: 1000 })) as number;
+    const t0 = 5000;
+    const tabBId = (await db.tabs.add({ spaceId, url: 'https://tab-b.com', title: 'Tab B', order: 1, createdAt: 1000, updatedAt: t0, deletedAt: t0 })) as number;
+
+    const dateSpy = vi.spyOn(Date, 'now');
+    const t1 = 15000;
+    dateSpy.mockReturnValue(t1);
+    await spaceService.softDeleteSpace(spaceId);
+
+    const t2 = 25000;
+    dateSpy.mockReturnValue(t2);
+    await spaceService.undoDeleteSpace(spaceId);
+    dateSpy.mockRestore();
+
+    const tabA = await db.tabs.get(tabAId);
+    const tabB = await db.tabs.get(tabBId);
+    const space = await db.spaces.get(spaceId);
+
+    expect(space?.deletedAt).toBeUndefined();
+    expect(space?.updatedAt).toBe(t2);
+
+    // Tab A was active before delete → restored
+    expect(tabA?.deletedAt).toBeUndefined();
+    expect(tabA?.updatedAt).toBe(t2);
+
+    // Tab B was tombstoned at t0 → still deleted with deletedAt === t0 and updatedAt unchanged
+    expect(tabB?.deletedAt).toBe(t0);
+    expect(tabB?.updatedAt).toBe(t0);
+  });
+
+  it('T2: A tab tombstoned via the tabSyncService closed-tab path before the space deletion → stays deleted after undo', async () => {
+    const spaceId = await seedSpace('Space T2');
+    const tabActiveId = (await db.tabs.add({ spaceId, url: 'https://active.com', title: 'Active', order: 0, createdAt: 1000, updatedAt: 1000 })) as number;
+
+    // Simulate tab closed in Chrome and tombstoned by tabSyncService closed-tab path
+    const t0 = 6000;
+    const tabClosedId = (await db.tabs.add({
+      spaceId,
+      url: 'https://closed.com',
+      title: 'Closed Tab',
+      order: 1,
+      createdAt: 1000,
+      updatedAt: t0,
+      deletedAt: t0,
+    })) as number;
+
+    const dateSpy = vi.spyOn(Date, 'now');
+    const t1 = 16000;
+    dateSpy.mockReturnValue(t1);
+    await spaceService.softDeleteSpace(spaceId);
+
+    const t2 = 26000;
+    dateSpy.mockReturnValue(t2);
+    await spaceService.undoDeleteSpace(spaceId);
+    dateSpy.mockRestore();
+
+    const tabClosed = await db.tabs.get(tabClosedId);
+    const tabActive = await db.tabs.get(tabActiveId);
+
+    expect(tabActive?.deletedAt).toBeUndefined();
+    expect(tabClosed?.deletedAt).toBe(t0);
+    expect(tabClosed?.updatedAt).toBe(t0);
+  });
+
+  it('T3 (regression): all tabs active before delete → all restored after undo; space restored', async () => {
+    const spaceId = await seedSpace('Space T3');
+    const tab1Id = (await db.tabs.add({ spaceId, url: 'https://tab-1.com', title: 'Tab 1', order: 0, createdAt: 1000, updatedAt: 1000 })) as number;
+    const tab2Id = (await db.tabs.add({ spaceId, url: 'https://tab-2.com', title: 'Tab 2', order: 1, createdAt: 1000, updatedAt: 1000 })) as number;
+
+    const dateSpy = vi.spyOn(Date, 'now');
+    const t1 = 10000;
+    dateSpy.mockReturnValue(t1);
+    await spaceService.softDeleteSpace(spaceId);
+
+    const t2 = 20000;
+    dateSpy.mockReturnValue(t2);
+    await spaceService.undoDeleteSpace(spaceId);
+    dateSpy.mockRestore();
+
+    const space = await db.spaces.get(spaceId);
+    const tab1 = await db.tabs.get(tab1Id);
+    const tab2 = await db.tabs.get(tab2Id);
+
+    expect(space?.deletedAt).toBeUndefined();
+    expect(space?.updatedAt).toBe(t2);
+    expect(tab1?.deletedAt).toBeUndefined();
+    expect(tab1?.updatedAt).toBe(t2);
+    expect(tab2?.deletedAt).toBeUndefined();
+    expect(tab2?.updatedAt).toBe(t2);
+  });
+
+  it('T4: undoDeleteSpace on a space that is not deleted → no rows modified (assert updatedAt unchanged on space and tabs)', async () => {
+    const t0 = 5000;
+    const spaceId = (await db.spaces.add({ name: 'Active Space', createdAt: t0, updatedAt: t0 })) as number;
+    const tabId = (await db.tabs.add({ spaceId, url: 'https://tab.com', title: 'Tab', order: 0, createdAt: t0, updatedAt: t0 })) as number;
+
+    const dateSpy = vi.spyOn(Date, 'now');
+    const t1 = 15000;
+    dateSpy.mockReturnValue(t1);
+
+    await spaceService.undoDeleteSpace(spaceId);
+    dateSpy.mockRestore();
+
+    const space = await db.spaces.get(spaceId);
+    const tab = await db.tabs.get(tabId);
+
+    expect(space?.deletedAt).toBeUndefined();
+    expect(space?.updatedAt).toBe(t0);
+    expect(tab?.deletedAt).toBeUndefined();
+    expect(tab?.updatedAt).toBe(t0);
+  });
+
   // ── Hard Delete Cascades ───────────────────────────────────────
 
   it('should hard-delete a space and cascade-remove its tabs', async () => {

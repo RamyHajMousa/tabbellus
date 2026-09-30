@@ -9,7 +9,7 @@
  * - Read Later status convergence toward 'archived'
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DiffEngine, normalizeTabUrl, toEpochMs } from '../diffEngine';
 import { SnapshotSerializer } from '../snapshotSerializer';
 import type { SyncVaultSnapshot } from '../types';
@@ -2402,6 +2402,58 @@ describe('DiffEngine', () => {
       expect(result2.hasLocalChanges).toBe(false);
       expect(result2.hasRemoteChanges).toBe(false);
       expect(result2.hasChanges).toBe(false);
+    });
+
+    it('T5: After undo, a normal sync reconcile does not resurrect B (Bs tombstone is still present in the local snapshot)', async () => {
+      await db.spaces.clear();
+      await db.tabs.clear();
+
+      const base = Date.now() - 60_000;
+      const spaceId = (await db.spaces.add({ name: 'Work Space', createdAt: base, updatedAt: base })) as number;
+      await db.tabs.add({ spaceId, url: 'https://tab-a.com', title: 'Tab A', order: 0, createdAt: base, updatedAt: base });
+      const t0 = base + 5000;
+      await db.tabs.add({ spaceId, url: 'https://tab-b.com', title: 'Tab B', order: 1, createdAt: base, updatedAt: t0, deletedAt: t0 });
+
+      const dateSpy = vi.spyOn(Date, 'now');
+      const t1 = base + 15000;
+      dateSpy.mockReturnValue(t1);
+      await spaceService.softDeleteSpace(spaceId);
+
+      const t2 = base + 25000;
+      dateSpy.mockReturnValue(t2);
+      await spaceService.undoDeleteSpace(spaceId);
+      dateSpy.mockRestore();
+
+      // Create local snapshot after undo
+      const localSnapshot = await SnapshotSerializer.createLocalSnapshot(localDeviceId);
+
+      // Tab A is active in local snapshot
+      const snapTabA = localSnapshot.tabs.find((t) => t.url === 'https://tab-a.com');
+      expect(snapTabA?.deletedAt).toBeUndefined();
+
+      // Tab B is tombstoned in local snapshot
+      const snapTabB = localSnapshot.tabs.find((t) => t.url === 'https://tab-b.com');
+      expect(snapTabB?.deletedAt).toBe(t0);
+
+      // Reconcile with remote snapshot
+      const remoteSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: base,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, name: 'Work Space', createdAt: base, updatedAt: base }],
+        tabs: [{ id: 1, spaceId: 1, url: 'https://tab-a.com', title: 'Tab A', order: 0, createdAt: base, updatedAt: base }],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(localSnapshot, remoteSnapshot, localDeviceId, 1000);
+
+      // Assert Tab B is NOT resurrected in localUpdates.tabs
+      const resurrectedTabB = result.localUpdates.tabs.find((t) => t.url === 'https://tab-b.com' && !t.deletedAt);
+      expect(resurrectedTabB).toBeUndefined();
+
+      // In mergedSnapshot, Tab B remains tombstoned
+      const mergedTabB = result.mergedSnapshot.tabs.find((t) => t.url === 'https://tab-b.com');
+      expect(mergedTabB?.deletedAt).toBe(t0);
     });
   });
 });

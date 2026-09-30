@@ -332,30 +332,49 @@ class SpaceService {
     }
 
     /**
-     * Soft deletes a space and all its child tabs atomically.
+     * Soft deletes a space and all its active child tabs atomically.
      */
     async softDeleteSpace(spaceId: number): Promise<void> {
         const now = Date.now();
         await db.transaction('rw', [db.spaces, db.tabs], async () => {
             await db.spaces.update(spaceId, { deletedAt: now, updatedAt: now });
-            await db.tabs.where('spaceId').equals(spaceId).modify({ deletedAt: now, updatedAt: now });
+            await db.tabs.where('spaceId').equals(spaceId).filter((tab) => !tab.deletedAt).modify({ deletedAt: now, updatedAt: now });
         });
         contractRegistry.notifyLocalMutation();
     }
 
     /**
-     * Restores a soft-deleted space and all its child tabs atomically.
+     * Restores a soft-deleted space and only its cascade-deleted child tabs atomically.
+     * Tabs tombstoned prior to the space deletion remain tombstoned.
      */
     async undoDeleteSpace(spaceId: number): Promise<void> {
         const now = Date.now();
+        let didRestore = false;
+
         await db.transaction('rw', [db.spaces, db.tabs], async () => {
+            const space = await db.spaces.get(spaceId);
+            if (!space || !space.deletedAt) {
+                return;
+            }
+
+            const spaceDeletedAt = space.deletedAt;
+
             await db.spaces.update(spaceId, { deletedAt: undefined, updatedAt: now });
-            await db.tabs.where('spaceId').equals(spaceId).modify((tab: Tab) => {
-                delete tab.deletedAt;
-                tab.updatedAt = now;
-            });
+            await db.tabs
+                .where('spaceId')
+                .equals(spaceId)
+                .filter((tab) => tab.deletedAt === spaceDeletedAt)
+                .modify((tab: Tab) => {
+                    delete tab.deletedAt;
+                    tab.updatedAt = now;
+                });
+
+            didRestore = true;
         });
-        contractRegistry.notifyLocalMutation();
+
+        if (didRestore) {
+            contractRegistry.notifyLocalMutation();
+        }
     }
 
     /**
