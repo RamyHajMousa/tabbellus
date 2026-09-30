@@ -32,6 +32,7 @@ import {
   calculatePassphraseStrength,
   validateSetupDraft,
 } from './encryptionModalLogic';
+import { formatSyncErrorMessage } from './errorUtils';
 
 export interface EncryptionSetupModalProps {
   open: boolean;
@@ -84,9 +85,11 @@ export const EncryptionSetupModal: React.FC<EncryptionSetupModalProps> = ({
       });
       onOpenChange(false);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Encryption setup failed';
       toast('Encryption Failed', {
-        description: message,
+        description: formatSyncErrorMessage(
+          err,
+          'Encryption setup failed. Please try again.',
+        ),
       });
     } finally {
       setIsSubmitting(false);

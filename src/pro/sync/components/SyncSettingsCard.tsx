@@ -46,6 +46,7 @@ import { syncEngine } from '../engine/syncEngine';
 import { useToast } from '@/components/ui/Toaster';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/dateUtils';
+import { formatSyncErrorMessage } from './errorUtils';
 import { EncryptionSetupModal } from './EncryptionSetupModal';
 import { VaultUnlockModal } from './VaultUnlockModal';
 
@@ -154,9 +155,12 @@ export const SyncSettingsCard: React.FC = () => {
       await syncEngine.disableEncryption();
       setDisableDialogOpen(false);
       toast('E2E Encryption Disabled: Cloud vault reverted to standard sync.');
-    } catch {
+    } catch (err: unknown) {
       toast('Failed to disable encryption', {
-        description: 'An unexpected error occurred. Please try again.',
+        description: formatSyncErrorMessage(
+          err,
+          'An unexpected error occurred. Please try again.',
+        ),
       });
     } finally {
       setIsDisabling(false);

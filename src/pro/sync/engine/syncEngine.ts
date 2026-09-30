@@ -64,6 +64,8 @@ export class SyncEngine implements SyncProvider {
 
   private listeners = new Set<(status: SyncStatus) => void>();
   private isSyncing = false;
+  private inMemoryLock: Promise<void> = Promise.resolve();
+  private activeLockCount = 0;
   private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly AUTO_SYNC_DEBOUNCE_MS = 3000;
   private readonly MAX_CONFLICT_RETRIES = 3;
@@ -309,7 +311,7 @@ export class SyncEngine implements SyncProvider {
           throw new Error(syncResult.error || 'Failed to encrypt and upload vault to cloud.');
         }
       },
-      () => undefined,
+      { mode: 'wait' },
     );
   }
 
@@ -325,7 +327,7 @@ export class SyncEngine implements SyncProvider {
       'disableEncryption',
       async () => {
         if (!this.status.isConnected) {
-          return;
+          throw new Error('Cannot disable encryption while disconnected. Please connect Google Drive first.');
         }
 
         const isUnlocked = await this.sessionKeyStore.isUnlocked();
@@ -469,7 +471,7 @@ export class SyncEngine implements SyncProvider {
           throw err;
         }
       },
-      () => undefined,
+      { mode: 'wait' },
     );
   }
 
@@ -508,7 +510,7 @@ export class SyncEngine implements SyncProvider {
           },
         });
       },
-      () => undefined,
+      { mode: 'wait' },
     );
   }
 
@@ -623,12 +625,23 @@ export class SyncEngine implements SyncProvider {
   private async withSyncLock<T>(
     operationName: string,
     action: () => Promise<T>,
-    onContention: () => T,
+    options: { mode: 'wait' } | { mode: 'skip'; onContention: () => T },
   ): Promise<T> {
     if (
       typeof navigator !== 'undefined' &&
       typeof navigator.locks?.request === 'function'
     ) {
+      if (options.mode === 'wait') {
+        return await navigator.locks.request('tabbellus_sync_vault', async () => {
+          this.isSyncing = true;
+          try {
+            return await action();
+          } finally {
+            this.isSyncing = false;
+          }
+        });
+      }
+
       return await navigator.locks.request(
         'tabbellus_sync_vault',
         { ifAvailable: true },
@@ -637,7 +650,7 @@ export class SyncEngine implements SyncProvider {
             console.debug(
               `[SyncEngine] Skipping ${operationName}: lock held by another context`,
             );
-            return onContention();
+            return options.onContention();
           }
           this.isSyncing = true;
           try {
@@ -650,18 +663,33 @@ export class SyncEngine implements SyncProvider {
     }
 
     // Fallback Path (In-Memory Mutex)
-    if (this.isSyncing) {
-      console.debug(
-        `[SyncEngine] Skipping ${operationName}: sync already in progress`,
-      );
-      return onContention();
+    if (options.mode === 'skip') {
+      if (this.activeLockCount > 0 || this.isSyncing) {
+        console.debug(
+          `[SyncEngine] Skipping ${operationName}: sync already in progress`,
+        );
+        return options.onContention();
+      }
     }
 
-    this.isSyncing = true;
+    this.activeLockCount++;
+    const previousLock = this.inMemoryLock;
+    let release: () => void;
+    this.inMemoryLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
     try {
-      return await action();
+      await previousLock.catch(() => {});
+      this.isSyncing = true;
+      try {
+        return await action();
+      } finally {
+        this.isSyncing = false;
+      }
     } finally {
-      this.isSyncing = false;
+      this.activeLockCount--;
+      release!();
     }
   }
 
@@ -712,11 +740,14 @@ export class SyncEngine implements SyncProvider {
     return this.withSyncLock(
       'syncNow',
       async () => this.executeSync(options),
-      () => ({
-        success: false,
-        error: 'Sync already in progress.',
-        timestamp: Date.now(),
-      }),
+      {
+        mode: 'skip',
+        onContention: () => ({
+          success: false,
+          error: 'Sync already in progress.',
+          timestamp: Date.now(),
+        }),
+      },
     );
   }
 

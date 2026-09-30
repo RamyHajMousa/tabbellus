@@ -2518,6 +2518,241 @@ describe('SyncEngine', () => {
       expect(status.state).toBe('synced');
     });
   });
+
+  // =========================================================================
+  // User-Initiated Encryption Operations Lock Contention (T1–T4)
+  // =========================================================================
+
+  describe('User-Initiated Encryption Operations Lock Contention', () => {
+    beforeEach(async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({ success: true, data: 'mock-token' });
+      mockedDrive.findVaultFile.mockResolvedValue({ success: true, data: { files: [] } });
+      await engine.connect();
+    });
+
+    it('T1: Lock held by an in-flight sync → setupEncryption does not resolve until lock is released, then completes and uploads encrypted vault', async () => {
+      let resolveUploadGate!: () => void;
+      const uploadGate = new Promise<void>((resolve) => {
+        resolveUploadGate = resolve;
+      });
+
+      let firstCall = true;
+      mockedDrive.uploadVaultFile.mockImplementation(async () => {
+        if (firstCall) {
+          firstCall = false;
+          await uploadGate;
+        }
+        return {
+          success: true,
+          data: { id: 'vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        };
+      });
+
+      // Start an in-flight sync that holds the lock
+      const inFlightSync = engine.syncNow();
+
+      // Initiate setupEncryption while syncNow holds the lock
+      let setupResolved = false;
+      const setupPromise = engine.setupEncryption('MySecurePassphrase123!').then(() => {
+        setupResolved = true;
+      });
+
+      // Allow microtasks to run
+      await new Promise((r) => setTimeout(r, 50));
+
+      // In buggy code, setupEncryption resolved immediately via onContention () => undefined!
+      // In fixed code, setupEncryption must NOT have resolved yet while the lock is held.
+      expect(setupResolved).toBe(false);
+
+      // Now release the in-flight sync lock
+      resolveUploadGate();
+      await inFlightSync;
+      await setupPromise;
+
+      expect(setupResolved).toBe(true);
+
+      // Verify that setupEncryption actually executed its work:
+      // 1. Session key was saved and is unlocked
+      expect(await sessionKeyStore.isUnlocked()).toBe(true);
+
+      // 2. Storage reflects encrypted state
+      const storage = await chrome.storage.local.get('tabbellus_sync_state');
+      expect((storage.tabbellus_sync_state as SyncStorageState).isEncrypted).toBe(true);
+
+      // 3. Encrypted vault was uploaded
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(2);
+      const secondUploadPayload = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[1][0]) as VaultPayload;
+      expect(secondUploadPayload.isEncrypted).toBe(true);
+      expect(secondUploadPayload.iv).toBeDefined();
+      expect(secondUploadPayload.salt).toBeDefined();
+    });
+
+    it('T2: Lock held by an in-flight sync → disableEncryption and resetCloudVault do not resolve until lock is released, then complete work', async () => {
+      // 1. Test disableEncryption
+      // First setup encryption
+      const saltBytes = WebCryptoEngine.generateSalt();
+      const saltBase64 = uint8ArrayToBase64(saltBytes);
+      const key = await WebCryptoEngine.deriveKeyFromPassphrase('ActivePass123!', saltBytes);
+      await sessionKeyStore.saveSession(key, saltBase64);
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        },
+      });
+
+      let resolveUploadGate1!: () => void;
+      const uploadGate1 = new Promise<void>((resolve) => {
+        resolveUploadGate1 = resolve;
+      });
+
+      let firstCall = true;
+      mockedDrive.uploadVaultFile.mockImplementation(async () => {
+        if (firstCall) {
+          firstCall = false;
+          await uploadGate1;
+        }
+        return {
+          success: true,
+          data: { id: 'vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        };
+      });
+
+      const inFlightSync1 = engine.syncNow();
+
+      let disableResolved = false;
+      const disablePromise = engine.disableEncryption().then(() => {
+        disableResolved = true;
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(disableResolved).toBe(false);
+
+      resolveUploadGate1();
+      await inFlightSync1;
+      await disablePromise;
+
+      expect(disableResolved).toBe(true);
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      const storageAfterDisable = await chrome.storage.local.get('tabbellus_sync_state');
+      expect((storageAfterDisable.tabbellus_sync_state as SyncStorageState).isEncrypted).toBe(false);
+
+      // 2. Test resetCloudVault
+      // Re-setup encryption
+      await sessionKeyStore.saveSession(key, saltBase64);
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        },
+      });
+
+      let resolveUploadGate2!: () => void;
+      const uploadGate2 = new Promise<void>((resolve) => {
+        resolveUploadGate2 = resolve;
+      });
+
+      firstCall = true;
+      mockedDrive.uploadVaultFile.mockImplementation(async () => {
+        if (firstCall) {
+          firstCall = false;
+          await uploadGate2;
+        }
+        return {
+          success: true,
+          data: { id: 'vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        };
+      });
+
+      const inFlightSync2 = engine.syncNow();
+
+      let resetResolved = false;
+      const resetPromise = engine.resetCloudVault().then(() => {
+        resetResolved = true;
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(resetResolved).toBe(false);
+
+      resolveUploadGate2();
+      await inFlightSync2;
+      await resetPromise;
+
+      expect(resetResolved).toBe(true);
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      const storageAfterReset = await chrome.storage.local.get('tabbellus_sync_state');
+      expect((storageAfterReset.tabbellus_sync_state as SyncStorageState).isEncrypted).toBe(false);
+    });
+
+    it('T3: Background syncNow under contention still skips (regression)', async () => {
+      let resolveUploadGate!: () => void;
+      const uploadGate = new Promise<void>((resolve) => {
+        resolveUploadGate = resolve;
+      });
+
+      let firstCall = true;
+      mockedDrive.uploadVaultFile.mockImplementation(async () => {
+        if (firstCall) {
+          firstCall = false;
+          await uploadGate;
+        }
+        return {
+          success: true,
+          data: { id: 'vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        };
+      });
+
+      const inFlightSync = engine.syncNow();
+
+      // Concurrent syncNow should skip immediately
+      const skipResult = await engine.syncNow();
+      expect(skipResult.success).toBe(false);
+      expect(skipResult.error).toContain('Sync already in progress');
+
+      resolveUploadGate();
+      const inFlightResult = await inFlightSync;
+      expect(inFlightResult.success).toBe(true);
+    });
+
+    it('T4: disableEncryption while disconnected → rejects with a descriptive error', async () => {
+      await engine.disconnect();
+
+      await expect(engine.disableEncryption()).rejects.toThrow(
+        /disconnected/i,
+      );
+    });
+
+    it('Web Locks API: setupEncryption requests exclusive lock without ifAvailable: true', async () => {
+      const lockRequestSpy = vi.fn(
+        async (_name: string, callback: (lock?: unknown) => Promise<unknown>) => {
+          return await callback({});
+        },
+      );
+
+      vi.stubGlobal('navigator', {
+        locks: {
+          request: lockRequestSpy,
+        },
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      await engine.setupEncryption('MySecurePassphrase123!');
+
+      expect(lockRequestSpy).toHaveBeenCalledWith(
+        'tabbellus_sync_vault',
+        expect.any(Function),
+      );
+      // Ensure ifAvailable was NOT passed
+      const calls = lockRequestSpy.mock.calls;
+      expect(calls[0].length).toBe(2); // name, callback (no options argument)
+    });
+  });
 });
 
 
