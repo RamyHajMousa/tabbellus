@@ -21,6 +21,23 @@ describe('formatSyncErrorMessage (T5)', () => {
     );
   });
 
+  it('maps SYNC_BUSY error code and objects to sync busy message', () => {
+    expect(formatSyncErrorMessage('SYNC_BUSY')).toBe(
+      'Sync is busy — please try again in a moment',
+    );
+    expect(formatSyncErrorMessage(new Error('SYNC_BUSY'))).toBe(
+      'Sync is busy — please try again in a moment',
+    );
+    expect(formatSyncErrorMessage({ code: 'SYNC_BUSY' })).toBe(
+      'Sync is busy — please try again in a moment',
+    );
+    expect(
+      formatSyncErrorMessage(
+        new Error('Sync is busy — please try again in a moment'),
+      ),
+    ).toBe('Sync is busy — please try again in a moment');
+  });
+
   it('surfaces existing newer-schema update message without modification', () => {
     const fullMessage =
       'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.';

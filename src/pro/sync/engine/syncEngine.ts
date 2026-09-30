@@ -50,6 +50,19 @@ import { getOrCreateInstanceId } from '@/pro/licensing/storage/instanceManager';
 const SYNC_STORAGE_KEY = 'tabbellus_sync_state';
 const VAULT_FILE_NAME = 'tabbellus_vault.json';
 
+export const MAX_SYNC_LOCK_WAIT_MS = 30_000;
+export const SYNC_LOCK_WAIT_TIMEOUT_MS = MAX_SYNC_LOCK_WAIT_MS;
+
+export class SyncBusyError extends Error {
+  public readonly code = 'SYNC_BUSY' as const;
+
+  constructor(message: string = 'Sync is busy — please try again in a moment') {
+    super(message);
+    this.name = 'SyncBusyError';
+    Object.setPrototypeOf(this, SyncBusyError.prototype);
+  }
+}
+
 export class SyncEngine implements SyncProvider {
   readonly sessionKeyStore = sessionKeyStore;
 
@@ -632,14 +645,32 @@ export class SyncEngine implements SyncProvider {
       typeof navigator.locks?.request === 'function'
     ) {
       if (options.mode === 'wait') {
-        return await navigator.locks.request('tabbellus_sync_vault', async () => {
-          this.isSyncing = true;
-          try {
-            return await action();
-          } finally {
-            this.isSyncing = false;
+        const controller = new AbortController();
+        const timerId = setTimeout(() => {
+          controller.abort(new SyncBusyError());
+        }, MAX_SYNC_LOCK_WAIT_MS);
+
+        try {
+          return await navigator.locks.request(
+            'tabbellus_sync_vault',
+            { signal: controller.signal },
+            async () => {
+              clearTimeout(timerId);
+              this.isSyncing = true;
+              try {
+                return await action();
+              } finally {
+                this.isSyncing = false;
+              }
+            },
+          );
+        } catch (err) {
+          clearTimeout(timerId);
+          if (controller.signal.aborted) {
+            throw new SyncBusyError();
           }
-        });
+          throw err;
+        }
       }
 
       return await navigator.locks.request(
@@ -679,17 +710,51 @@ export class SyncEngine implements SyncProvider {
       release = resolve;
     });
 
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timerId = setTimeout(() => {
+        timedOut = true;
+        reject(new SyncBusyError());
+      }, MAX_SYNC_LOCK_WAIT_MS);
+    });
+
     try {
-      await previousLock.catch(() => {});
+      await Promise.race([
+        previousLock.catch(() => {}),
+        timeoutPromise,
+      ]);
+
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+
       this.isSyncing = true;
       try {
         return await action();
       } finally {
         this.isSyncing = false;
       }
+    } catch (err) {
+      if (timedOut) {
+        // A timed-out waiter must NOT break the chain for subsequent waiters.
+        // When previousLock eventually settles, release our lock promise so waiters behind us can proceed.
+        previousLock.finally(() => {
+          release!();
+        });
+        throw err;
+      }
+      throw err;
     } finally {
+      if (timerId) {
+        clearTimeout(timerId);
+      }
       this.activeLockCount--;
-      release!();
+      if (!timedOut) {
+        release!();
+      }
     }
   }
 

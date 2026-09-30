@@ -6,6 +6,7 @@ const KNOWN_ERROR_MAPPINGS: Record<string, string> = {
   INVALID_PASSPHRASE: 'Incorrect passphrase. Decryption failed.',
   UPDATE_REQUIRED:
     'Sync paused: Cloud vault was updated by a newer version of TabBellus. Please update your extension to resume syncing.',
+  SYNC_BUSY: 'Sync is busy — please try again in a moment',
 };
 
 /**
@@ -21,6 +22,15 @@ export function formatSyncErrorMessage(
 ): string {
   if (!err) {
     return defaultMessage;
+  }
+
+  if (
+    typeof err === 'object' &&
+    'code' in err &&
+    typeof (err as { code: unknown }).code === 'string' &&
+    KNOWN_ERROR_MAPPINGS[(err as { code: string }).code]
+  ) {
+    return KNOWN_ERROR_MAPPINGS[(err as { code: string }).code];
   }
 
   let rawMessage = '';
@@ -61,6 +71,10 @@ export function formatSyncErrorMessage(
 
   if (trimmed.includes('UPDATE_REQUIRED')) {
     return KNOWN_ERROR_MAPPINGS.UPDATE_REQUIRED;
+  }
+
+  if (trimmed.includes('SYNC_BUSY')) {
+    return KNOWN_ERROR_MAPPINGS.SYNC_BUSY;
   }
 
   // Return the descriptive error message (e.g. newer schema message, network error, disconnected message)

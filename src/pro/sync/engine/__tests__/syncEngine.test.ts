@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SyncEngine } from '../syncEngine';
+import { SyncEngine, SyncBusyError, MAX_SYNC_LOCK_WAIT_MS } from '../syncEngine';
 import { contractRegistry } from '@/core/contracts/registry';
 import { googleAuthClient } from '../../api/googleAuthClient';
 import { googleDriveClient } from '../../api/googleDriveClient';
@@ -2523,24 +2523,161 @@ describe('SyncEngine', () => {
   // User-Initiated Encryption Operations Lock Contention (T1–T4)
   // =========================================================================
 
+  // =========================================================================
+  // User-Initiated Encryption Operations Lock Contention (T1–T4 + Regressions)
+  // =========================================================================
+
   describe('User-Initiated Encryption Operations Lock Contention', () => {
+    interface LockQueueItem {
+      options: { ifAvailable?: boolean; signal?: AbortSignal };
+      callback: (lock: { name: string; mode: string } | null) => Promise<any>;
+      resolve: (value: any) => void;
+      reject: (reason: any) => void;
+    }
+
+    function createMockLocks() {
+      const queues = new Map<string, { held: boolean; queue: LockQueueItem[] }>();
+
+      function getBucket(name: string) {
+        let bucket = queues.get(name);
+        if (!bucket) {
+          bucket = { held: false, queue: [] };
+          queues.set(name, bucket);
+        }
+        return bucket;
+      }
+
+      function processQueue(name: string) {
+        const bucket = getBucket(name);
+        if (bucket.held || bucket.queue.length === 0) return;
+
+        const next = bucket.queue.shift()!;
+        if (next.options.signal?.aborted) {
+          next.reject(next.options.signal.reason || new DOMException('The request was aborted', 'AbortError'));
+          processQueue(name);
+          return;
+        }
+
+        bucket.held = true;
+        const lock = { name, mode: 'exclusive' };
+
+        Promise.resolve()
+          .then(() => next.callback(lock))
+          .then(
+            (res) => {
+              bucket.held = false;
+              next.resolve(res);
+              processQueue(name);
+            },
+            (err) => {
+              bucket.held = false;
+              next.reject(err);
+              processQueue(name);
+            },
+          );
+      }
+
+      const request = vi.fn(
+        (
+          name: string,
+          optionsOrCallback: any,
+          maybeCallback?: any,
+        ): Promise<any> => {
+          let options: { ifAvailable?: boolean; signal?: AbortSignal } = {};
+          let callback: (lock: any) => Promise<any>;
+
+          if (typeof optionsOrCallback === 'function') {
+            callback = optionsOrCallback;
+          } else {
+            options = optionsOrCallback || {};
+            callback = maybeCallback;
+          }
+
+          const bucket = getBucket(name);
+
+          if (options.ifAvailable) {
+            if (bucket.held) {
+              return Promise.resolve(callback(null));
+            }
+            bucket.held = true;
+            const lock = { name, mode: 'exclusive' };
+            return Promise.resolve()
+              .then(() => callback(lock))
+              .finally(() => {
+                bucket.held = false;
+                processQueue(name);
+              });
+          }
+
+          // 'wait' mode:
+          if (options.signal?.aborted) {
+            return Promise.reject(options.signal.reason || new DOMException('The request was aborted', 'AbortError'));
+          }
+
+          return new Promise<any>((resolve, reject) => {
+            const item: LockQueueItem = {
+              options,
+              callback,
+              resolve,
+              reject,
+            };
+
+            if (options.signal) {
+              const onAbort = () => {
+                options.signal?.removeEventListener('abort', onAbort);
+                const idx = bucket.queue.indexOf(item);
+                if (idx !== -1) {
+                  bucket.queue.splice(idx, 1);
+                  reject(options.signal?.reason || new DOMException('The request was aborted', 'AbortError'));
+                }
+              };
+              options.signal.addEventListener('abort', onAbort);
+            }
+
+            bucket.queue.push(item);
+            processQueue(name);
+          });
+        },
+      );
+
+      return { request, queues };
+    }
+
     beforeEach(async () => {
       mockedAuth.getAuthToken.mockResolvedValue({ success: true, data: 'mock-token' });
       mockedDrive.findVaultFile.mockResolvedValue({ success: true, data: { files: [] } });
       await engine.connect();
     });
 
-    it('T1: Lock held by an in-flight sync → setupEncryption does not resolve until lock is released, then completes and uploads encrypted vault', async () => {
+    it('T1: In-memory fallback branch: setupEncryption findVaultFile happens only AFTER in-flight sync upload gate is released (explicit call order)', async () => {
+      vi.stubGlobal('navigator', {});
+
+      const testKey = await WebCryptoEngine.deriveKeyFromPassphrase('test', new Uint8Array(16));
+      vi.spyOn(WebCryptoEngine, 'deriveKeyFromPassphrase').mockResolvedValue(testKey);
+
+      const callOrder: string[] = [];
       let resolveUploadGate!: () => void;
       const uploadGate = new Promise<void>((resolve) => {
         resolveUploadGate = resolve;
       });
 
-      let firstCall = true;
+      let findCount = 0;
+      mockedDrive.findVaultFile.mockImplementation(async () => {
+        findCount++;
+        const label = findCount === 1 ? 'syncNow:findVaultFile' : 'setupEncryption:findVaultFile';
+        callOrder.push(label);
+        return { success: true, data: { files: [] } };
+      });
+
+      let uploadCount = 0;
       mockedDrive.uploadVaultFile.mockImplementation(async () => {
-        if (firstCall) {
-          firstCall = false;
+        uploadCount++;
+        if (uploadCount === 1) {
+          callOrder.push('syncNow:uploadVaultFile_started');
           await uploadGate;
+          callOrder.push('syncNow:uploadVaultFile_finished');
+        } else {
+          callOrder.push('setupEncryption:uploadVaultFile');
         }
         return {
           success: true,
@@ -2551,45 +2688,193 @@ describe('SyncEngine', () => {
       // Start an in-flight sync that holds the lock
       const inFlightSync = engine.syncNow();
 
+      // Ensure in-flight sync has acquired lock and entered uploadVaultFile
+      while (!callOrder.includes('syncNow:uploadVaultFile_started')) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
       // Initiate setupEncryption while syncNow holds the lock
-      let setupResolved = false;
-      const setupPromise = engine.setupEncryption('MySecurePassphrase123!').then(() => {
-        setupResolved = true;
-      });
+      const setupPromise = engine.setupEncryption('MySecurePassphrase123!');
 
-      // Allow microtasks to run
-      await new Promise((r) => setTimeout(r, 50));
-
-      // In buggy code, setupEncryption resolved immediately via onContention () => undefined!
-      // In fixed code, setupEncryption must NOT have resolved yet while the lock is held.
-      expect(setupResolved).toBe(false);
+      // Wait 80ms while uploadGate is held
+      await new Promise((r) => setTimeout(r, 80));
 
       // Now release the in-flight sync lock
+      callOrder.push('gate_released');
       resolveUploadGate();
+
       await inFlightSync;
       await setupPromise;
 
-      expect(setupResolved).toBe(true);
+      const gateReleaseIndex = callOrder.indexOf('gate_released');
+      const setupFindIndex = callOrder.indexOf('setupEncryption:findVaultFile');
 
-      // Verify that setupEncryption actually executed its work:
-      // 1. Session key was saved and is unlocked
-      expect(await sessionKeyStore.isUnlocked()).toBe(true);
-
-      // 2. Storage reflects encrypted state
-      const storage = await chrome.storage.local.get('tabbellus_sync_state');
-      expect((storage.tabbellus_sync_state as SyncStorageState).isEncrypted).toBe(true);
-
-      // 3. Encrypted vault was uploaded
-      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(2);
-      const secondUploadPayload = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[1][0]) as VaultPayload;
-      expect(secondUploadPayload.isEncrypted).toBe(true);
-      expect(secondUploadPayload.iv).toBeDefined();
-      expect(secondUploadPayload.salt).toBeDefined();
+      expect(gateReleaseIndex).toBeGreaterThan(-1);
+      expect(setupFindIndex).toBeGreaterThan(gateReleaseIndex);
+      expect(callOrder).toEqual([
+        'syncNow:findVaultFile',
+        'syncNow:uploadVaultFile_started',
+        'gate_released',
+        'syncNow:uploadVaultFile_finished',
+        'setupEncryption:findVaultFile',
+        'setupEncryption:uploadVaultFile',
+      ]);
     });
 
-    it('T2: Lock held by an in-flight sync → disableEncryption and resetCloudVault do not resolve until lock is released, then complete work', async () => {
-      // 1. Test disableEncryption
-      // First setup encryption
+    it('T2: Web Locks branch: setupEncryption findVaultFile happens only AFTER in-flight sync upload gate is released (explicit call order with stubbed navigator.locks)', async () => {
+      const mockLocks = createMockLocks();
+      vi.stubGlobal('navigator', {
+        locks: {
+          request: mockLocks.request,
+        },
+      });
+
+      const testKey = await WebCryptoEngine.deriveKeyFromPassphrase('test', new Uint8Array(16));
+      vi.spyOn(WebCryptoEngine, 'deriveKeyFromPassphrase').mockResolvedValue(testKey);
+
+      const callOrder: string[] = [];
+      let resolveUploadGate!: () => void;
+      const uploadGate = new Promise<void>((resolve) => {
+        resolveUploadGate = resolve;
+      });
+
+      let findCount = 0;
+      mockedDrive.findVaultFile.mockImplementation(async () => {
+        findCount++;
+        const label = findCount === 1 ? 'syncNow:findVaultFile' : 'setupEncryption:findVaultFile';
+        callOrder.push(label);
+        return { success: true, data: { files: [] } };
+      });
+
+      let uploadCount = 0;
+      mockedDrive.uploadVaultFile.mockImplementation(async () => {
+        uploadCount++;
+        if (uploadCount === 1) {
+          callOrder.push('syncNow:uploadVaultFile_started');
+          await uploadGate;
+          callOrder.push('syncNow:uploadVaultFile_finished');
+        } else {
+          callOrder.push('setupEncryption:uploadVaultFile');
+        }
+        return {
+          success: true,
+          data: { id: 'vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+        };
+      });
+
+      const inFlightSync = engine.syncNow();
+
+      while (!callOrder.includes('syncNow:uploadVaultFile_started')) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      const setupPromise = engine.setupEncryption('MySecurePassphrase123!');
+
+      await new Promise((r) => setTimeout(r, 80));
+
+      callOrder.push('gate_released');
+      resolveUploadGate();
+
+      await inFlightSync;
+      await setupPromise;
+
+      const gateReleaseIndex = callOrder.indexOf('gate_released');
+      const setupFindIndex = callOrder.indexOf('setupEncryption:findVaultFile');
+
+      expect(gateReleaseIndex).toBeGreaterThan(-1);
+      expect(setupFindIndex).toBeGreaterThan(gateReleaseIndex);
+      expect(callOrder).toEqual([
+        'syncNow:findVaultFile',
+        'syncNow:uploadVaultFile_started',
+        'gate_released',
+        'syncNow:uploadVaultFile_finished',
+        'setupEncryption:findVaultFile',
+        'setupEncryption:uploadVaultFile',
+      ]);
+    });
+
+    it('T3: Lock held past the max wait (use fake timers) → setupEncryption rejects with the busy error; its action never executes, even after the holder later releases', async () => {
+      let releaseHolder!: () => void;
+      const holderPromise = new Promise<void>((resolve) => {
+        releaseHolder = resolve;
+      });
+
+      const holder = (engine as any).withSyncLock('holder', () => holderPromise, { mode: 'wait' });
+
+      let setupExecuted = false;
+      mockedDrive.uploadVaultFile.mockImplementation(async () => {
+        setupExecuted = true;
+        return { success: true, data: { id: 'id', name: 'tabbellus_vault.json', mimeType: 'application/json' } };
+      });
+
+      try {
+        vi.useFakeTimers();
+
+        const setupPromise = engine.setupEncryption('Passphrase123!');
+
+        let caughtError: any = null;
+        setupPromise.catch((err) => {
+          caughtError = err;
+        });
+
+        vi.advanceTimersByTime(MAX_SYNC_LOCK_WAIT_MS + 100);
+
+        await expect(setupPromise).rejects.toThrow(/sync is busy/i);
+        expect(caughtError).toBeInstanceOf(SyncBusyError);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      releaseHolder();
+      await holder;
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(setupExecuted).toBe(false);
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+    });
+
+    it('T4: After a timed-out waiter, a subsequent wait-mode operation still acquires the lock and runs normally (chain not broken)', async () => {
+      let releaseHolder!: () => void;
+      const holderPromise = new Promise<void>((resolve) => {
+        releaseHolder = resolve;
+      });
+
+      const holder = (engine as any).withSyncLock('holder', () => holderPromise, { mode: 'wait' });
+
+      try {
+        vi.useFakeTimers();
+
+        const waiter1 = engine.setupEncryption('TimedOutWaiter!');
+        waiter1.catch(() => {});
+
+        vi.advanceTimersByTime(MAX_SYNC_LOCK_WAIT_MS + 100);
+        await expect(waiter1).rejects.toThrow(SyncBusyError);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      let waiter2Executed = false;
+      const waiter2 = (engine as any).withSyncLock(
+        'waiter2',
+        async () => {
+          waiter2Executed = true;
+          return 'waiter2_success';
+        },
+        { mode: 'wait' },
+      );
+
+      expect(waiter2Executed).toBe(false);
+
+      releaseHolder();
+      await holder;
+
+      const result = await waiter2;
+      expect(result).toBe('waiter2_success');
+      expect(waiter2Executed).toBe(true);
+    });
+
+    it('T5: Lock held by an in-flight sync → disableEncryption and resetCloudVault do not resolve until lock is released, then complete work', async () => {
       const saltBytes = WebCryptoEngine.generateSalt();
       const saltBase64 = uint8ArrayToBase64(saltBytes);
       const key = await WebCryptoEngine.deriveKeyFromPassphrase('ActivePass123!', saltBytes);
@@ -2638,8 +2923,7 @@ describe('SyncEngine', () => {
       const storageAfterDisable = await chrome.storage.local.get('tabbellus_sync_state');
       expect((storageAfterDisable.tabbellus_sync_state as SyncStorageState).isEncrypted).toBe(false);
 
-      // 2. Test resetCloudVault
-      // Re-setup encryption
+      // Reset Cloud Vault
       await sessionKeyStore.saveSession(key, saltBase64);
       await chrome.storage.local.set({
         tabbellus_sync_state: {
@@ -2686,7 +2970,7 @@ describe('SyncEngine', () => {
       expect((storageAfterReset.tabbellus_sync_state as SyncStorageState).isEncrypted).toBe(false);
     });
 
-    it('T3: Background syncNow under contention still skips (regression)', async () => {
+    it('T6: Background syncNow under contention still skips (regression)', async () => {
       let resolveUploadGate!: () => void;
       const uploadGate = new Promise<void>((resolve) => {
         resolveUploadGate = resolve;
@@ -2706,7 +2990,6 @@ describe('SyncEngine', () => {
 
       const inFlightSync = engine.syncNow();
 
-      // Concurrent syncNow should skip immediately
       const skipResult = await engine.syncNow();
       expect(skipResult.success).toBe(false);
       expect(skipResult.error).toContain('Sync already in progress');
@@ -2716,41 +2999,12 @@ describe('SyncEngine', () => {
       expect(inFlightResult.success).toBe(true);
     });
 
-    it('T4: disableEncryption while disconnected → rejects with a descriptive error', async () => {
+    it('T7: disableEncryption while disconnected → rejects with a descriptive error', async () => {
       await engine.disconnect();
 
       await expect(engine.disableEncryption()).rejects.toThrow(
         /disconnected/i,
       );
-    });
-
-    it('Web Locks API: setupEncryption requests exclusive lock without ifAvailable: true', async () => {
-      const lockRequestSpy = vi.fn(
-        async (_name: string, callback: (lock?: unknown) => Promise<unknown>) => {
-          return await callback({});
-        },
-      );
-
-      vi.stubGlobal('navigator', {
-        locks: {
-          request: lockRequestSpy,
-        },
-      });
-
-      mockedDrive.uploadVaultFile.mockResolvedValue({
-        success: true,
-        data: { id: 'vault-file-id', name: 'tabbellus_vault.json', mimeType: 'application/json' },
-      });
-
-      await engine.setupEncryption('MySecurePassphrase123!');
-
-      expect(lockRequestSpy).toHaveBeenCalledWith(
-        'tabbellus_sync_vault',
-        expect.any(Function),
-      );
-      // Ensure ifAvailable was NOT passed
-      const calls = lockRequestSpy.mock.calls;
-      expect(calls[0].length).toBe(2); // name, callback (no options argument)
     });
   });
 });

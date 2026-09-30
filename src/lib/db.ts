@@ -83,8 +83,6 @@ export class TabBellusDB extends Dexie {
         });
     }
 
-
-
     // Soft delete a tab
     async softDeleteTab(id: number) {
         return this.tabs.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
