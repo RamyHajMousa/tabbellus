@@ -18,6 +18,7 @@ export interface DriveFileMetadata {
   id: string;
   name: string;
   mimeType: string;
+  createdTime?: string;
   modifiedTime?: string;
   version?: string;
   appProperties?: Record<string, string>;

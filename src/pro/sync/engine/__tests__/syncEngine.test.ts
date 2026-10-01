@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyncEngine, SyncBusyError, MAX_SYNC_LOCK_WAIT_MS } from '../syncEngine';
+import { resolveVaultFiles } from '../vaultResolver';
 import { contractRegistry } from '@/core/contracts/registry';
 import { googleAuthClient } from '../../api/googleAuthClient';
 import { googleDriveClient } from '../../api/googleDriveClient';
@@ -43,6 +44,7 @@ vi.mock('../../api/googleDriveClient', () => ({
     findVaultFile: vi.fn(),
     downloadVaultFile: vi.fn(),
     uploadVaultFile: vi.fn(),
+    deleteVaultFile: vi.fn(),
   },
 }));
 
@@ -81,6 +83,7 @@ describe('SyncEngine', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockedDrive.deleteVaultFile.mockResolvedValue({ success: true, data: undefined });
     vi.stubGlobal('navigator', {});
     Object.keys(mockStorage).forEach((k) => delete mockStorage[k]);
     Object.keys(mockSessionStorage).forEach((k) => delete mockSessionStorage[k]);
@@ -2942,7 +2945,16 @@ describe('SyncEngine', () => {
       let findCount = 0;
       mockedDrive.findVaultFile.mockImplementation(async () => {
         findCount++;
-        const label = findCount === 1 ? 'syncNow:findVaultFile' : 'setupEncryption:findVaultFile';
+        let label: string;
+        if (findCount === 1) {
+          label = 'syncNow:findVaultFile';
+        } else if (findCount === 2) {
+          label = 'syncNow:findVaultFile_recheck';
+        } else if (findCount === 3) {
+          label = 'setupEncryption:findVaultFile';
+        } else {
+          label = 'setupEncryption:findVaultFile_recheck';
+        }
         callOrder.push(label);
         return { success: true, data: { files: [] } };
       });
@@ -2994,8 +3006,10 @@ describe('SyncEngine', () => {
         'syncNow:uploadVaultFile_started',
         'gate_released',
         'syncNow:uploadVaultFile_finished',
+        'syncNow:findVaultFile_recheck',
         'setupEncryption:findVaultFile',
         'setupEncryption:uploadVaultFile',
+        'setupEncryption:findVaultFile_recheck',
       ]);
     });
 
@@ -3019,7 +3033,16 @@ describe('SyncEngine', () => {
       let findCount = 0;
       mockedDrive.findVaultFile.mockImplementation(async () => {
         findCount++;
-        const label = findCount === 1 ? 'syncNow:findVaultFile' : 'setupEncryption:findVaultFile';
+        let label: string;
+        if (findCount === 1) {
+          label = 'syncNow:findVaultFile';
+        } else if (findCount === 2) {
+          label = 'syncNow:findVaultFile_recheck';
+        } else if (findCount === 3) {
+          label = 'setupEncryption:findVaultFile';
+        } else {
+          label = 'setupEncryption:findVaultFile_recheck';
+        }
         callOrder.push(label);
         return { success: true, data: { files: [] } };
       });
@@ -3066,8 +3089,10 @@ describe('SyncEngine', () => {
         'syncNow:uploadVaultFile_started',
         'gate_released',
         'syncNow:uploadVaultFile_finished',
+        'syncNow:findVaultFile_recheck',
         'setupEncryption:findVaultFile',
         'setupEncryption:uploadVaultFile',
+        'setupEncryption:findVaultFile_recheck',
       ]);
     });
 
@@ -3283,6 +3308,570 @@ describe('SyncEngine', () => {
       await expect(engine.disableEncryption()).rejects.toThrow(
         /disconnected/i,
       );
+    });
+  });
+
+  // =========================================================================
+  // Duplicate Vault Files Resolution & Healing (T1–T8)
+  // =========================================================================
+
+  describe('Duplicate Vault Files Resolution & Healing (T1–T8)', () => {
+    const fileOld = {
+      id: 'vault-old-100',
+      name: 'tabbellus_vault.json',
+      mimeType: 'application/json',
+      createdTime: '2026-09-01T10:00:00.000Z',
+      version: '1',
+    };
+
+    const fileNew = {
+      id: 'vault-new-200',
+      name: 'tabbellus_vault.json',
+      mimeType: 'application/json',
+      createdTime: '2026-09-01T12:00:00.000Z',
+      version: '2',
+    };
+
+    beforeEach(async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+      await engine.connect();
+    });
+
+    it('T1: findVaultFile returns two files in either order → every lookup site binds to the older one (assert for both orders)', async () => {
+      // 1. Direct resolver assertion: Order 1 [fileOld, fileNew]
+      const res1 = resolveVaultFiles([fileOld, fileNew]);
+      expect(res1.canonical?.id).toBe('vault-old-100');
+      expect(res1.extras.map((f) => f.id)).toEqual(['vault-new-200']);
+
+      // 2. Direct resolver assertion: Order 2 [fileNew, fileOld]
+      const res2 = resolveVaultFiles([fileNew, fileOld]);
+      expect(res2.canonical?.id).toBe('vault-old-100');
+      expect(res2.extras.map((f) => f.id)).toEqual(['vault-new-200']);
+
+      // 3. Direct resolver tiebreak by smallest id when createdTime identical
+      const fileTieA = {
+        id: 'vault-aaa',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T10:00:00.000Z',
+      };
+      const fileTieB = {
+        id: 'vault-bbb',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T10:00:00.000Z',
+      };
+      const resTie = resolveVaultFiles([fileTieB, fileTieA]);
+      expect(resTie.canonical?.id).toBe('vault-aaa');
+      expect(resTie.extras.map((f) => f.id)).toEqual(['vault-bbb']);
+
+      // 4. Integration assertion: syncNow with [fileNew, fileOld] binds to fileOld (canonical)
+      const snapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: 'dev-1',
+        spaces: [{ id: 1, name: 'S1', createdAt: 1000, updatedAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const payload: VaultPayload = {
+        schemaVersion: '1.0.0',
+        clientTimestamp: new Date().toISOString(),
+        payload: JSON.stringify(snapshot),
+        isEncrypted: false,
+      };
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileNew, fileOld] },
+      });
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: payload,
+      });
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-old-100', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '2' },
+      });
+
+      await engine.syncNow();
+
+      // Canonical upload must be for fileOld ('vault-old-100'), NOT fileNew
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledWith(
+        expect.any(String),
+        'vault-old-100',
+        'tabbellus_vault.json',
+        '1',
+      );
+    });
+
+    it('T2: Two vault files with disjoint data → after syncNow, the canonical upload contains the union, then the extra is deleted', async () => {
+      const canonicalSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: 'dev-canonical',
+        spaces: [{ id: 101, name: 'Canonical Space', createdAt: 1000, updatedAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const extraSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: 'dev-extra',
+        spaces: [{ id: 202, name: 'Extra Space', createdAt: 2000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      await db.spaces.add({
+        id: 303,
+        name: 'Local Space',
+        createdAt: 3000,
+        updatedAt: 3000,
+      });
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileNew, fileOld] },
+      });
+
+      mockedDrive.downloadVaultFile.mockImplementation(async (fileId: string) => {
+        if (fileId === 'vault-old-100') {
+          return {
+            success: true,
+            data: {
+              schemaVersion: '1.0.0',
+              clientTimestamp: new Date().toISOString(),
+              payload: JSON.stringify(canonicalSnapshot),
+              isEncrypted: false,
+            },
+          };
+        }
+        if (fileId === 'vault-new-200') {
+          return {
+            success: true,
+            data: {
+              schemaVersion: '1.0.0',
+              clientTimestamp: new Date().toISOString(),
+              payload: JSON.stringify(extraSnapshot),
+              isEncrypted: false,
+            },
+          };
+        }
+        return { success: false, error: 'File not found' };
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-old-100', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '2' },
+      });
+
+      const syncResult = await engine.syncNow();
+      expect(syncResult.success).toBe(true);
+
+      // Verify canonical upload contains union of all three spaces
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+      const [uploadedRaw, targetId] = mockedDrive.uploadVaultFile.mock.calls[0];
+      expect(targetId).toBe('vault-old-100');
+      const uploadedPayload = JSON.parse(uploadedRaw) as VaultPayload;
+      const uploadedSnapshot = JSON.parse(uploadedPayload.payload) as SyncVaultSnapshot;
+      const spaceNames = uploadedSnapshot.spaces.map((s) => s.name).sort();
+      expect(spaceNames).toEqual(['Canonical Space', 'Extra Space', 'Local Space']);
+
+      // Verify local Dexie has all 3 spaces
+      const localSpaces = await db.spaces.toArray();
+      expect(localSpaces.map((s) => s.name).sort()).toEqual(['Canonical Space', 'Extra Space', 'Local Space']);
+
+      // Verify the extra was deleted AFTER upload
+      expect(mockedDrive.deleteVaultFile).toHaveBeenCalledWith('vault-new-200');
+    });
+
+    it('T3: Extra file contains a space tombstone newer than the canonical file active copy → the space stays deleted after healing (LWW respected)', async () => {
+      const now = Date.now();
+      const canonicalSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: now - 5000,
+        deviceId: 'dev-canonical',
+        spaces: [{ id: 101, name: 'To Be Deleted Space', createdAt: now - 5000, updatedAt: now - 5000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const extraSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: now - 1000,
+        deviceId: 'dev-extra',
+        spaces: [{ id: 101, name: 'To Be Deleted Space', createdAt: now - 5000, updatedAt: now - 1000, deletedAt: now - 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      await db.spaces.add({
+        id: 101,
+        name: 'To Be Deleted Space',
+        createdAt: now - 5000,
+        updatedAt: now - 5000,
+      });
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileOld, fileNew] },
+      });
+
+      mockedDrive.downloadVaultFile.mockImplementation(async (fileId: string) => {
+        const snap = fileId === 'vault-old-100' ? canonicalSnapshot : extraSnapshot;
+        return {
+          success: true,
+          data: {
+            schemaVersion: '1.0.0',
+            clientTimestamp: new Date().toISOString(),
+            payload: JSON.stringify(snap),
+            isEncrypted: false,
+          },
+        };
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-old-100', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '2' },
+      });
+
+      await engine.syncNow();
+
+      // Dexie space 101 must be tombstoned
+      const spaceInDb = await db.spaces.get(101);
+      expect(spaceInDb?.deletedAt).toBe(now - 1000);
+
+      // Uploaded payload must have space 101 tombstoned
+      const uploadedRaw = mockedDrive.uploadVaultFile.mock.calls[0][0];
+      const uploadedSnapshot = JSON.parse((JSON.parse(uploadedRaw) as VaultPayload).payload) as SyncVaultSnapshot;
+      const uploadedSpace = uploadedSnapshot.spaces.find((s) => s.id === 101);
+      expect(uploadedSpace?.deletedAt).toBe(now - 1000);
+
+      // Extra must be deleted
+      expect(mockedDrive.deleteVaultFile).toHaveBeenCalledWith('vault-new-200');
+    });
+
+    it('T4: Extra file cannot be decrypted (different salt/key) or fails validation → not deleted; canonical sync still succeeds; warning recorded', async () => {
+      const canonicalSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: 'dev-canonical',
+        spaces: [{ id: 101, name: 'Canonical Space', createdAt: 1000, updatedAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileOld, fileNew] },
+      });
+
+      mockedDrive.downloadVaultFile.mockImplementation(async (fileId: string) => {
+        if (fileId === 'vault-old-100') {
+          return {
+            success: true,
+            data: {
+              schemaVersion: '1.0.0',
+              clientTimestamp: new Date().toISOString(),
+              payload: JSON.stringify(canonicalSnapshot),
+              isEncrypted: false,
+            },
+          };
+        }
+        // Extra file fails validation / corrupt
+        return {
+          success: true,
+          data: {
+            schemaVersion: '1.0.0',
+            clientTimestamp: new Date().toISOString(),
+            payload: 'invalid-not-json-payload',
+            isEncrypted: false,
+          },
+        };
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-old-100', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '2' },
+      });
+
+      const result = await engine.syncNow();
+      expect(result.success).toBe(true);
+
+      // Extra must NOT be deleted
+      expect(mockedDrive.deleteVaultFile).not.toHaveBeenCalledWith('vault-new-200');
+
+      // Canonical upload succeeded
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledWith(
+        expect.any(String),
+        'vault-old-100',
+        'tabbellus_vault.json',
+        '1',
+      );
+
+      // Non-fatal warning recorded in telemetry
+      const status = await engine.getStatus();
+      expect(status.telemetry.lastError).toMatch(/duplicate vault file/i);
+    });
+
+    it('T5: Canonical upload fails → no extra is deleted', async () => {
+      const canonicalSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: 'dev-canonical',
+        spaces: [{ id: 101, name: 'Canonical Space', createdAt: 1000, updatedAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const extraSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: 'dev-extra',
+        spaces: [{ id: 202, name: 'Extra Space', createdAt: 2000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileOld, fileNew] },
+      });
+
+      mockedDrive.downloadVaultFile.mockImplementation(async (fileId: string) => {
+        const snap = fileId === 'vault-old-100' ? canonicalSnapshot : extraSnapshot;
+        return {
+          success: true,
+          data: {
+            schemaVersion: '1.0.0',
+            clientTimestamp: new Date().toISOString(),
+            payload: JSON.stringify(snap),
+            isEncrypted: false,
+          },
+        };
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: false,
+        error: 'Network timeout: Failed to fetch',
+      });
+
+      const syncResult = await engine.syncNow();
+      expect(syncResult.success).toBe(false);
+
+      // NO extra must be deleted on upload failure
+      expect(mockedDrive.deleteVaultFile).not.toHaveBeenCalled();
+    });
+
+    it('T6 (race): no vault initially; this device creates one; re-list shows an OLDER file → this device file ends up deleted and the older file holds the merged data', async () => {
+      await db.spaces.add({
+        id: 501,
+        name: 'This Device Space',
+        createdAt: 5000,
+        updatedAt: 5000,
+      });
+
+      const createdFileId = 'vault-created-by-me';
+      const olderFile = {
+        id: 'vault-older-concurrent',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T08:00:00.000Z',
+        version: '1',
+      };
+      const myCreatedFile = {
+        id: createdFileId,
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T09:00:00.000Z',
+        version: '1',
+      };
+
+      const olderSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 4000,
+        deviceId: 'dev-other',
+        spaces: [{ id: 401, name: 'Older Device Space', createdAt: 4000, updatedAt: 4000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      // 1st listing: empty (no vault initially)
+      mockedDrive.findVaultFile
+        .mockResolvedValueOnce({
+          success: true,
+          data: { files: [] },
+        })
+        // 2nd listing (re-list after creation): shows older file and created file
+        .mockResolvedValue({
+          success: true,
+          data: { files: [olderFile, myCreatedFile] },
+        });
+
+      mockedDrive.uploadVaultFile
+        // 1st upload: POST creation of my file
+        .mockResolvedValueOnce({
+          success: true,
+          data: { id: createdFileId, name: 'tabbellus_vault.json', mimeType: 'application/json', version: '1' },
+        })
+        // 2nd upload: PATCH update to the older canonical file
+        .mockResolvedValueOnce({
+          success: true,
+          data: { id: olderFile.id, name: 'tabbellus_vault.json', mimeType: 'application/json', version: '2' },
+        });
+
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          schemaVersion: '1.0.0',
+          clientTimestamp: new Date().toISOString(),
+          payload: JSON.stringify(olderSnapshot),
+          isEncrypted: false,
+        },
+      });
+
+      const syncResult = await engine.syncNow();
+      expect(syncResult.success).toBe(true);
+
+      // This device's created file must be deleted
+      expect(mockedDrive.deleteVaultFile).toHaveBeenCalledWith(createdFileId);
+
+      // Older file must receive upload with merged data
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(2);
+      const [secondUploadRaw, secondTargetId] = mockedDrive.uploadVaultFile.mock.calls[1];
+      expect(secondTargetId).toBe('vault-older-concurrent');
+      const secondPayload = JSON.parse(secondUploadRaw) as VaultPayload;
+      const secondSnapshot = JSON.parse(secondPayload.payload) as SyncVaultSnapshot;
+      expect(secondSnapshot.spaces.map((s) => s.name).sort()).toEqual([
+        'Older Device Space',
+        'This Device Space',
+      ]);
+    });
+
+    it('T7: unlockVault and disableEncryption operate on the canonical file when duplicates exist', async () => {
+      const passphrase = 'test-passphrase-t7';
+      const saltBytes = WebCryptoEngine.generateSalt();
+      const saltBase64 = uint8ArrayToBase64(saltBytes);
+      const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+
+      const canonicalSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 1000,
+        deviceId: 'dev-canonical',
+        spaces: [{ id: 101, name: 'Canonical Locked Space', createdAt: 1000, updatedAt: 1000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const envelope = await WebCryptoEngine.encryptPayload(
+        JSON.stringify(canonicalSnapshot),
+        key,
+        saltBytes,
+      );
+      const canonicalEncryptedPayload: VaultPayload = {
+        schemaVersion: '2.0.0-e2ee',
+        clientTimestamp: new Date().toISOString(),
+        payload: envelope.ciphertext,
+        iv: envelope.iv,
+        salt: envelope.salt,
+        isEncrypted: true,
+      };
+
+      // Two files in reverse order: [fileNew, fileOld]
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileNew, fileOld] },
+      });
+
+      mockedDrive.downloadVaultFile.mockImplementation(async (fileId: string) => {
+        if (fileId === 'vault-old-100') {
+          return { success: true, data: canonicalEncryptedPayload };
+        }
+        return {
+          success: true,
+          data: {
+            schemaVersion: '1.0.0',
+            clientTimestamp: new Date().toISOString(),
+            payload: JSON.stringify({ spaces: [] }),
+            isEncrypted: false,
+          },
+        };
+      });
+
+      // 1. unlockVault
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        },
+      });
+
+      const unlockOk = await engine.unlockVault(passphrase);
+      expect(unlockOk).toBe(true);
+      // unlockVault downloaded from canonical ('vault-old-100'), NOT 'vault-new-200'
+      expect(mockedDrive.downloadVaultFile).toHaveBeenCalledWith('vault-old-100');
+
+      // 2. disableEncryption
+      mockedDrive.uploadVaultFile.mockClear();
+      mockedDrive.downloadVaultFile.mockClear();
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-old-100', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '2' },
+      });
+
+      await engine.disableEncryption();
+
+      // disableEncryption downloaded and uploaded targeting 'vault-old-100'
+      expect(mockedDrive.downloadVaultFile).toHaveBeenCalledWith('vault-old-100');
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledWith(
+        expect.any(String),
+        'vault-old-100',
+        'tabbellus_vault.json',
+        '1',
+      );
+    });
+
+    it('T8: resetCloudVault removes all vault files', async () => {
+      const fileExtra1 = {
+        id: 'vault-extra-1',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T11:00:00.000Z',
+        version: '1',
+      };
+      const fileExtra2 = {
+        id: 'vault-extra-2',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T12:00:00.000Z',
+        version: '2',
+      };
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileExtra1, fileOld, fileExtra2] },
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-old-100', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '3' },
+      });
+
+      await engine.resetCloudVault();
+
+      // Verify canonical file ('vault-old-100') was updated with unencrypted snapshot
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledWith(
+        expect.any(String),
+        'vault-old-100',
+        'tabbellus_vault.json',
+        '1',
+      );
+
+      // Verify all extra duplicate vault files were deleted
+      expect(mockedDrive.deleteVaultFile).toHaveBeenCalledWith('vault-extra-1');
+      expect(mockedDrive.deleteVaultFile).toHaveBeenCalledWith('vault-extra-2');
     });
   });
 });

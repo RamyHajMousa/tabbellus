@@ -46,6 +46,7 @@ import {
   type SyncVaultSnapshot,
 } from './types';
 import { getOrCreateInstanceId } from '@/pro/licensing/storage/instanceManager';
+import { resolveVaultFiles } from './vaultResolver';
 
 const SYNC_STORAGE_KEY = 'tabbellus_sync_state';
 const VAULT_FILE_NAME = 'tabbellus_vault.json';
@@ -368,12 +369,11 @@ export class SyncEngine implements SyncProvider {
             throw new Error(`Failed to query remote vault: ${findResult.error}`);
           }
 
-          let vaultFileId: string | undefined =
-            findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
+          const { canonical, extras } = resolveVaultFiles(findResult.data.files);
+          let vaultFileId: string | undefined = canonical?.id;
           // Drive version baseline, captured from metadata BEFORE downloading so the
           // downloaded content can only be equal-or-newer (conflicts err toward retry).
-          const currentVaultVersion: string | undefined =
-            findResult.data.files.length > 0 ? findResult.data.files[0].version : undefined;
+          const currentVaultVersion: string | undefined = canonical?.version;
 
           let remoteSnapshot: SyncVaultSnapshot | null = null;
 
@@ -442,6 +442,17 @@ export class SyncEngine implements SyncProvider {
               throw new Error('Conflict: Cloud vault was modified by another device. Please try again.');
             }
             throw new Error(`Failed to upload unencrypted vault: ${uploadResult.error}`);
+          }
+
+          // Clean up any extra duplicate vault files after successful plaintext upload
+          if (extras.length > 0) {
+            for (const extra of extras) {
+              try {
+                await googleDriveClient.deleteVaultFile(extra.id);
+              } catch (delErr) {
+                console.warn(`[SyncEngine] Failed to delete duplicate vault file in disableEncryption: ${extra.id}`, delErr);
+              }
+            }
           }
 
           // 7. Only after upload succeeds: clear active session key and transition to unencrypted
@@ -538,15 +549,18 @@ export class SyncEngine implements SyncProvider {
     try {
       const findResult = await googleDriveClient.findVaultFile(VAULT_FILE_NAME);
       if (findResult.success && findResult.data.files.length > 0) {
-        const fileId = findResult.data.files[0].id;
-        const downloadResult = await googleDriveClient.downloadVaultFile(fileId);
-        if (downloadResult.success) {
-          const raw = downloadResult.data as VaultPayload;
-          if (raw && typeof raw.payload === 'string') {
-            remoteEncryptedPayload = raw;
-            if (raw.salt) {
-              saltBase64 = raw.salt;
-              await this.saveStorageState({ vaultSalt: saltBase64, isEncrypted: true });
+        const { canonical } = resolveVaultFiles(findResult.data.files);
+        if (canonical) {
+          const fileId = canonical.id;
+          const downloadResult = await googleDriveClient.downloadVaultFile(fileId);
+          if (downloadResult.success) {
+            const raw = downloadResult.data as VaultPayload;
+            if (raw && typeof raw.payload === 'string') {
+              remoteEncryptedPayload = raw;
+              if (raw.salt) {
+                saltBase64 = raw.salt;
+                await this.saveStorageState({ vaultSalt: saltBase64, isEncrypted: true });
+              }
             }
           }
         }
@@ -1134,9 +1148,10 @@ export class SyncEngine implements SyncProvider {
         };
       }
 
+      const { canonical, extras } = resolveVaultFiles(findResult.data.files);
       let remoteSnapshot: SyncVaultSnapshot | null = null;
-      let vaultFileId: string | undefined = findResult.data.files.length > 0 ? findResult.data.files[0].id : undefined;
-      const remoteMetadata = findResult.data.files.length > 0 ? findResult.data.files[0] : undefined;
+      let vaultFileId: string | undefined = canonical?.id;
+      const remoteMetadata = canonical;
       let currentVaultEtag: string | undefined = remoteMetadata?.etag;
       const vaultExists = Boolean(vaultFileId);
 
@@ -1145,6 +1160,62 @@ export class SyncEngine implements SyncProvider {
       // downloaded content is always equal-or-newer than the baseline. Also applies
       // to forceUnencrypted cycles (e.g. resetCloudVault), which skip the download.
       let baselineVersion: string | undefined = remoteMetadata?.version;
+
+      const deviceId = await getOrCreateInstanceId();
+      const healedExtraIds: string[] = [];
+      let nonFatalWarning: string | undefined = undefined;
+
+      // R2: Heal duplicates in executeSync before reconciling against canonical
+      if (extras.length > 0 && !options?.forceUnencrypted) {
+        for (const extra of extras) {
+          const downloadResult = await googleDriveClient.downloadVaultFile(extra.id);
+          if (!downloadResult.success) {
+            const warnMsg = `Warning: Failed to download duplicate vault file ${extra.id}: ${downloadResult.error}`;
+            nonFatalWarning = warnMsg;
+            console.warn(`[SyncEngine] ${warnMsg}`);
+            this.updateStatus({
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: warnMsg,
+              },
+            });
+            continue;
+          }
+
+          const parseResult = await this.decryptAndValidatePayload(downloadResult.data, {
+            persistRemoteEncryptedState: false,
+          });
+
+          if (!parseResult.success) {
+            const warnMsg = `Warning: Failed to decrypt or validate duplicate vault file ${extra.id}: ${parseResult.error}`;
+            nonFatalWarning = warnMsg;
+            console.warn(`[SyncEngine] ${warnMsg}`);
+            this.updateStatus({
+              telemetry: {
+                ...this.status.telemetry,
+                lastError: warnMsg,
+              },
+            });
+            continue;
+          }
+
+          // Successfully parsed extra — reconcile into local Dexie
+          const currentStorage = await this.loadStorageState();
+          const currentLocalSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
+          const extraReconciliation = DiffEngine.reconcile(
+            currentLocalSnapshot,
+            parseResult.remoteSnapshot,
+            deviceId,
+            currentStorage.lastSyncedAt ?? 0,
+          );
+
+          if (extraReconciliation.hasLocalChanges) {
+            await SnapshotSerializer.applyRemoteUpdates(extraReconciliation.localUpdates);
+          }
+
+          healedExtraIds.push(extra.id);
+        }
+      }
 
       // Step 3: Download and decrypt remote snapshot if it exists
       if (vaultExists && !options?.forceUnencrypted) {
@@ -1260,7 +1331,6 @@ export class SyncEngine implements SyncProvider {
       }
 
       // Step 4: Create local snapshot
-      const deviceId = await getOrCreateInstanceId();
       const localSnapshot = await SnapshotSerializer.createLocalSnapshot(deviceId);
 
       // Step 5: Reconcile snapshots using Record-Level LWW DiffEngine
@@ -1280,7 +1350,10 @@ export class SyncEngine implements SyncProvider {
       let encryptedUploadSucceeded = false;
 
       const shouldForceUpload = Boolean(
-        options?.forceFull || currentStorageForSync.pendingEncryptionUpgrade
+        options?.forceFull ||
+        currentStorageForSync.pendingEncryptionUpgrade ||
+        healedExtraIds.length > 0 ||
+        (options?.forceUnencrypted && extras.length > 0),
       );
 
       // Step 7: Upload reconciled merged snapshot to Drive if remote changes exist or upgrade pending
@@ -1313,6 +1386,7 @@ export class SyncEngine implements SyncProvider {
         }
 
         let uploadContent = payloadResult.content;
+        const isNewVaultFileCreation = !vaultFileId;
 
         let uploadResult = await googleDriveClient.uploadVaultFile(
           uploadContent,
@@ -1322,6 +1396,54 @@ export class SyncEngine implements SyncProvider {
         );
         if (uploadResult.success && shouldEncrypt) {
           encryptedUploadSucceeded = true;
+        }
+
+        // R4: Creation race check after creating a new vault file (POST path)
+        if (uploadResult.success && isNewVaultFileCreation) {
+          const recheckResult = await googleDriveClient.findVaultFile(VAULT_FILE_NAME);
+          if (recheckResult.success && recheckResult.data.files.length > 1) {
+            const recheck = resolveVaultFiles(recheckResult.data.files);
+            if (recheck.canonical && recheck.canonical.id !== uploadResult.data.id) {
+              const myCreatedFileId = uploadResult.data.id;
+              const canonicalFile = recheck.canonical;
+
+              const canonicalDownload = await googleDriveClient.downloadVaultFile(canonicalFile.id);
+              if (canonicalDownload.success) {
+                const canonicalParse = await this.decryptAndValidatePayload(canonicalDownload.data);
+                if (canonicalParse.success) {
+                  const raceLocalSnap = await SnapshotSerializer.createLocalSnapshot(deviceId);
+                  const storageNow = await this.loadStorageState();
+                  const raceReconciliation = DiffEngine.reconcile(
+                    raceLocalSnap,
+                    canonicalParse.remoteSnapshot,
+                    deviceId,
+                    storageNow.lastSyncedAt ?? 0,
+                  );
+                  if (raceReconciliation.hasLocalChanges) {
+                    await SnapshotSerializer.applyRemoteUpdates(raceReconciliation.localUpdates);
+                  }
+
+                  const racePayload = await this.buildUploadContent(
+                    raceReconciliation.mergedSnapshot,
+                    shouldEncrypt,
+                  );
+                  if (racePayload.success) {
+                    const raceUpload = await googleDriveClient.uploadVaultFile(
+                      racePayload.content,
+                      canonicalFile.id,
+                      VAULT_FILE_NAME,
+                      canonicalFile.version,
+                    );
+                    if (raceUpload.success) {
+                      await googleDriveClient.deleteVaultFile(myCreatedFileId);
+                      uploadResult = raceUpload;
+                      vaultFileId = canonicalFile.id;
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
 
         // OCC Conflict Resolution Loop
@@ -1503,6 +1625,28 @@ export class SyncEngine implements SyncProvider {
         }
 
         vaultFileId = uploadResult.data.id;
+
+        // R3: Safe deletion of healed duplicate extras only after canonical upload succeeds
+        if (healedExtraIds.length > 0) {
+          for (const extraId of healedExtraIds) {
+            try {
+              await googleDriveClient.deleteVaultFile(extraId);
+            } catch (delErr) {
+              console.warn(`[SyncEngine] Failed to delete healed duplicate vault file ${extraId}:`, delErr);
+            }
+          }
+        }
+
+        // R5: resetCloudVault (forceUnencrypted) deletes all extra files
+        if (options?.forceUnencrypted && extras.length > 0) {
+          for (const extra of extras) {
+            try {
+              await googleDriveClient.deleteVaultFile(extra.id);
+            } catch (delErr) {
+              console.warn(`[SyncEngine] Failed to delete extra vault file on reset: ${extra.id}`, delErr);
+            }
+          }
+        }
       }
 
       // Step 8: Update state to synced
@@ -1516,7 +1660,7 @@ export class SyncEngine implements SyncProvider {
         telemetry: {
           lastSyncedAt: now,
           pendingMutations: 0,
-          lastError: undefined,
+          lastError: nonFatalWarning,
           encrypted: isEncrypted,
         },
       });
@@ -1525,7 +1669,7 @@ export class SyncEngine implements SyncProvider {
         syncEnabled: true,
         lastSyncedAt: now,
         lastVaultFileId: vaultFileId,
-        lastError: undefined,
+        lastError: nonFatalWarning,
         isEncrypted,
         ...(encryptedUploadSucceeded ? { pendingEncryptionUpgrade: undefined } : {}),
       });

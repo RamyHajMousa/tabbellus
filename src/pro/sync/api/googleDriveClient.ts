@@ -257,7 +257,7 @@ export class GoogleDriveClient {
         fetch(
           `${DRIVE_API_BASE}?spaces=appDataFolder` +
             `&q=name='${fileName}' and trashed=false` +
-            `&fields=files(id,name,mimeType,modifiedTime,version,appProperties)`,
+            `&fields=files(id,name,mimeType,createdTime,modifiedTime,version,appProperties)`,
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -388,6 +388,23 @@ export class GoogleDriveClient {
       return { ...uploadResult, version: uploadResult.data.version };
     }
     return uploadResult;
+  }
+
+  /**
+   * Deletes a vault file from the appDataFolder by file ID.
+   *
+   * @param fileId - Google Drive file ID of the file to delete.
+   * @returns DriveApiResult indicating success or failure.
+   */
+  async deleteVaultFile(fileId: string): Promise<DriveApiResult<void>> {
+    return this.executeWithAuth(
+      (token) =>
+        fetch(`${DRIVE_API_BASE}/${fileId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      async () => undefined,
+    );
   }
 }
 

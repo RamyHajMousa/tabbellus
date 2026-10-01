@@ -304,7 +304,7 @@ describe('GoogleDriveClient', () => {
 
       await client.findVaultFile();
       const [findUrl] = mockFetch.mock.calls[0];
-      expect(findUrl).toContain('fields=files(id,name,mimeType,modifiedTime,version,appProperties)');
+      expect(findUrl).toContain('fields=files(id,name,mimeType,createdTime,modifiedTime,version,appProperties)');
       expect(findUrl).not.toContain('etag');
 
       await client.uploadVaultFile('{"test":1}', 'existing-file-001');
@@ -629,6 +629,45 @@ describe('GoogleDriveClient', () => {
       }
       // fetch should never be called
       expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // deleteVaultFile (R6)
+  // =========================================================================
+
+  describe('deleteVaultFile', () => {
+    it('sends DELETE request to files/{fileId} and returns success', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        json: () => Promise.resolve({}),
+      });
+
+      const result = await client.deleteVaultFile('file-to-delete-123');
+
+      expect(result.success).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://www.googleapis.com/drive/v3/files/file-to-delete-123');
+      expect(options.method).toBe('DELETE');
+      expect(options.headers.Authorization).toBe('Bearer test-token');
+    });
+
+    it('returns error when DELETE request fails', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      });
+
+      const result = await client.deleteVaultFile('nonexistent-file');
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.statusCode).toBe(404);
+        expect(result.error).toContain('File not found');
+      }
     });
   });
 });
