@@ -3874,6 +3874,158 @@ describe('SyncEngine', () => {
       expect(mockedDrive.deleteVaultFile).toHaveBeenCalledWith('vault-extra-2');
     });
   });
+
+  describe('Duplicate Vault Gaps: Safe Deletion & Code-Point Determinism (T1–T2)', () => {
+    it('T1: duplicates exist + disableEncryption succeeds → no deleteVaultFile call; a following syncNow merges the extra\'s data and then deletes it', async () => {
+      const now = Date.now();
+      const passphrase = 'test-passphrase-gaps';
+      const saltBytes = WebCryptoEngine.generateSalt();
+      const saltBase64 = uint8ArrayToBase64(saltBytes);
+      const key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+
+      const canonicalSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: now - 5000,
+        deviceId: 'dev-canonical',
+        spaces: [{ id: 101, name: 'Canonical Space', createdAt: now - 5000, updatedAt: now - 5000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const extraSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: now - 2000,
+        deviceId: 'dev-extra',
+        spaces: [{ id: 202, name: 'Extra Space', createdAt: now - 2000, updatedAt: now - 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const canonicalEnvelope = await WebCryptoEngine.encryptPayload(
+        JSON.stringify(canonicalSnapshot),
+        key,
+        saltBytes,
+      );
+      const canonicalEncryptedPayload: VaultPayload = {
+        schemaVersion: '2.0.0-e2ee',
+        clientTimestamp: new Date().toISOString(),
+        payload: canonicalEnvelope.ciphertext,
+        iv: canonicalEnvelope.iv,
+        salt: canonicalEnvelope.salt,
+        isEncrypted: true,
+      };
+
+      const extraPayload: VaultPayload = {
+        schemaVersion: '1.0.0',
+        clientTimestamp: new Date().toISOString(),
+        payload: JSON.stringify(extraSnapshot),
+        isEncrypted: false,
+      };
+
+      const fileOld = {
+        id: 'vault-old-100',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T10:00:00.000Z',
+        version: '1',
+      };
+      const fileNew = {
+        id: 'vault-new-200',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T12:00:00.000Z',
+        version: '1',
+      };
+
+      // Connect engine and set up active unlocked session
+      mockedAuth.getAuthToken.mockResolvedValue({ success: true, data: 'valid-token' });
+      await engine.connect();
+      await sessionKeyStore.saveSession(key, saltBase64);
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        },
+      });
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: { files: [fileOld, fileNew] },
+      });
+
+      let canonicalPayloadOnDrive: VaultPayload = canonicalEncryptedPayload;
+      mockedDrive.downloadVaultFile.mockImplementation(async (fileId: string) => {
+        if (fileId === 'vault-old-100') {
+          return { success: true, data: canonicalPayloadOnDrive };
+        }
+        if (fileId === 'vault-new-200') {
+          return { success: true, data: extraPayload };
+        }
+        return { success: false, error: 'File not found' };
+      });
+
+      mockedDrive.uploadVaultFile.mockImplementation(async (content: string, fileId?: string) => {
+        if (fileId === 'vault-old-100') {
+          canonicalPayloadOnDrive = JSON.parse(content) as VaultPayload;
+          return {
+            success: true,
+            data: { id: 'vault-old-100', name: 'tabbellus_vault.json', mimeType: 'application/json', version: '2' },
+          };
+        }
+        return { success: false, error: 'Unexpected upload fileId' };
+      });
+
+      // 1. disableEncryption succeeds
+      await engine.disableEncryption();
+
+      // R1 assertion: disableEncryption must NOT delete extra duplicate vault files!
+      expect(mockedDrive.deleteVaultFile).not.toHaveBeenCalled();
+
+      // 2. A following syncNow merges the extra's data and then deletes it
+      const syncResult = await engine.syncNow();
+      expect(syncResult.success).toBe(true);
+
+      // Verify extra was deleted by syncNow
+      expect(mockedDrive.deleteVaultFile).toHaveBeenCalledWith('vault-new-200');
+
+      // Verify local Dexie has merged both the canonical space and the extra space
+      const allSpaces = await db.spaces.toArray();
+      const localSpaceNames = allSpaces.map((s) => s.name).sort();
+      expect(localSpaceNames).toEqual(['Canonical Space', 'Extra Space']);
+
+      // Verify uploaded canonical vault contains the union
+      expect(canonicalPayloadOnDrive.isEncrypted).toBe(false);
+      const uploadedSnap = JSON.parse(canonicalPayloadOnDrive.payload) as SyncVaultSnapshot;
+      expect(uploadedSnap.spaces.map((s) => s.name).sort()).toEqual(['Canonical Space', 'Extra Space']);
+    });
+
+    it('T2: two files with identical createdTime and ids differing only in case/ordering that localeCompare and code-point order disagree on → resolver picks the code-point-smallest id', () => {
+      // In ASCII / UTF-16 code point order, 'file-B' (code point 66) < 'file-a' (code point 97).
+      // However, in standard localeCompare, 'file-a'.localeCompare('file-B') is -1 ('a' before 'b' case-insensitively).
+      // This verifies that resolveVaultFiles is deterministic and locale-insensitive across devices.
+      const fileLower = {
+        id: 'file-a',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T10:00:00.000Z',
+      };
+      const fileUpper = {
+        id: 'file-B',
+        name: 'tabbellus_vault.json',
+        mimeType: 'application/json',
+        createdTime: '2026-09-01T10:00:00.000Z',
+      };
+
+      // Test both input orderings
+      const res1 = resolveVaultFiles([fileLower, fileUpper]);
+      expect(res1.canonical?.id).toBe('file-B');
+      expect(res1.extras.map((f) => f.id)).toEqual(['file-a']);
+
+      const res2 = resolveVaultFiles([fileUpper, fileLower]);
+      expect(res2.canonical?.id).toBe('file-B');
+      expect(res2.extras.map((f) => f.id)).toEqual(['file-a']);
+    });
+  });
 });
 
 

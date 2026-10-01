@@ -39,7 +39,7 @@ export function resolveVaultFiles(files: DriveFileMetadata[]): ResolvedVaultFile
       if (timeA !== timeB) {
         return timeA - timeB;
       }
-      return a.id.localeCompare(b.id);
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     }
 
     if (hasTimeA && !hasTimeB) {
@@ -49,7 +49,7 @@ export function resolveVaultFiles(files: DriveFileMetadata[]): ResolvedVaultFile
       return 1;
     }
 
-    return a.id.localeCompare(b.id);
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
   return {

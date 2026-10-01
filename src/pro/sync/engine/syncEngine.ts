@@ -369,7 +369,7 @@ export class SyncEngine implements SyncProvider {
             throw new Error(`Failed to query remote vault: ${findResult.error}`);
           }
 
-          const { canonical, extras } = resolveVaultFiles(findResult.data.files);
+          const { canonical } = resolveVaultFiles(findResult.data.files);
           let vaultFileId: string | undefined = canonical?.id;
           // Drive version baseline, captured from metadata BEFORE downloading so the
           // downloaded content can only be equal-or-newer (conflicts err toward retry).
@@ -442,17 +442,6 @@ export class SyncEngine implements SyncProvider {
               throw new Error('Conflict: Cloud vault was modified by another device. Please try again.');
             }
             throw new Error(`Failed to upload unencrypted vault: ${uploadResult.error}`);
-          }
-
-          // Clean up any extra duplicate vault files after successful plaintext upload
-          if (extras.length > 0) {
-            for (const extra of extras) {
-              try {
-                await googleDriveClient.deleteVaultFile(extra.id);
-              } catch (delErr) {
-                console.warn(`[SyncEngine] Failed to delete duplicate vault file in disableEncryption: ${extra.id}`, delErr);
-              }
-            }
           }
 
           // 7. Only after upload succeeds: clear active session key and transition to unencrypted
