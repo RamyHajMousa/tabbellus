@@ -45,6 +45,7 @@ TabBellus is a Chrome Extension (Manifest V3) tab and workspace manager with a F
 - Local-first. Domain data in Dexie; UI state and settings in `chrome.storage`. No external backend or database.
 - The only permitted network egress is the existing Pro sync to the user's own Google Drive `appDataFolder` through `src/pro/sync/api/`. Do not add new network destinations without explicit approval.
 - Remote sync ingestion must never call `contractRegistry.notifyLocalMutation()` (anti-echo guard).
+- Forward compatibility: synced records (spaces, tabs, read-later items, rules) must never lose fields this version doesn't recognize. Every write starts from the existing record (`{ ...existing, ...changes }`) or uses a partial `update()`; never rebuild a synced record from scratch. Schema additions follow `.agents/rules/sync-and-storage.md` § Forward compatibility.
 
 ### 3.2 Pro boundary (Zero-Contamination)
 - Free-tier code must never import from `src/pro/*` or contain Pro business logic. Free-tier code is everything outside `src/pro/`: `src/features/*`, `src/lib/*`, `src/store/*`, `src/core/*`, `src/components/*`, `src/hooks/*`, `src/config/*`, `src/popup/*`, `src/content/*`, `src/background/*`, and `src/sidepanel/*`, subject only to the two entry points below.
