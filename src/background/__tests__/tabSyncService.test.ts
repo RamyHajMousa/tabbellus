@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { performSync, clearPendingSyncsForTesting, cancelPendingSync } from '@/background/tabSyncService';
-import { db } from '@/lib/db';
+import { db, type Tab } from '@/lib/db';
 
 describe('Background Tab Sync Service — performSync (In-Place Delta Upsert)', () => {
     let queryTabsMock: ReturnType<typeof vi.fn>;
@@ -421,6 +421,41 @@ describe('Background Tab Sync Service — performSync (In-Place Delta Upsert)', 
 
         // Safe no-op on non-existent windowId
         expect(() => cancelPendingSync(99999)).not.toThrow();
+    });
+
+    it('T4: tabSyncService re-syncs an open tab whose Dexie row has X = { nested: [1, 2] } -> the row still has an equal X after the upsert', async () => {
+        const spaceId = (await db.spaces.add({
+            name: 'Forward Compatibility Space',
+            createdAt: Date.now(),
+        })) as number;
+
+        const tabId = (await db.tabs.add({
+            spaceId,
+            url: 'https://example.com/future-tab',
+            title: 'Future Tab',
+            favicon: 'https://example.com/favicon.ico',
+            order: 0,
+            createdAt: 1000,
+            updatedAt: 1000,
+            futureMetadata: { nested: [1, 2] },
+        } as unknown as Tab)) as number;
+
+        queryTabsMock.mockResolvedValue([
+            {
+                id: 501,
+                windowId: 3001,
+                url: 'https://example.com/future-tab',
+                title: 'Future Tab Updated Title',
+                favIconUrl: 'https://example.com/favicon.ico',
+            },
+        ]);
+
+        await performSync(3001, spaceId);
+
+        const tabInDb = (await db.tabs.get(tabId)) as any;
+        expect(tabInDb).toBeDefined();
+        expect(tabInDb.title).toBe('Future Tab Updated Title');
+        expect(tabInDb.futureMetadata).toEqual({ nested: [1, 2] });
     });
 });
 

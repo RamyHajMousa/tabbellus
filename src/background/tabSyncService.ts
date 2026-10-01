@@ -144,6 +144,7 @@ async function executeSync(windowId: number, explicitSpaceId?: number): Promise<
                 claimedTabIds.add(match.id);
                 // In-place update: preserve existing primary key, update order/title/favicon, clear tombstone, bump updatedAt
                 tabsToUpsert.push({
+                    ...match,
                     id: match.id,
                     spaceId,
                     url: rawUrl,

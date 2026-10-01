@@ -73,6 +73,49 @@ const KNOWN_RULE_KEYS = new Set([
 ]);
 
 /**
+ * Structural deep equality comparison for JSON-compatible values.
+ * Handles primitives, null, undefined, arrays, and plain objects.
+ * Object key order does not matter.
+ */
+export function isJsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || a === undefined || b === undefined) return false;
+  if (typeof a !== typeof b) return false;
+
+  if (typeof a !== 'object') {
+    return false;
+  }
+
+  const isArrA = Array.isArray(a);
+  const isArrB = Array.isArray(b);
+  if (isArrA !== isArrB) return false;
+
+  if (isArrA && isArrB) {
+    const arrA = a as unknown[];
+    const arrB = b as unknown[];
+    if (arrA.length !== arrB.length) return false;
+    for (let i = 0; i < arrA.length; i++) {
+      if (!isJsonEqual(arrA[i], arrB[i])) return false;
+    }
+    return true;
+  }
+
+  const recA = a as Record<string, unknown>;
+  const recB = b as Record<string, unknown>;
+  const keysA = Object.keys(recA).filter((k) => recA[k] !== undefined);
+  const keysB = Object.keys(recB).filter((k) => recB[k] !== undefined);
+
+  if (keysA.length !== keysB.length) return false;
+
+  for (const k of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(recB, k)) return false;
+    if (!isJsonEqual(recA[k], recB[k])) return false;
+  }
+
+  return true;
+}
+
+/**
  * Compares two objects specifically for UNKNOWN or ARBITRARY property differences
  * (ignoring all known schema keys for that entity type).
  */
@@ -80,13 +123,15 @@ function hasUnknownFieldDiff(a: object, b: object, knownKeys: Set<string>): bool
   const recA = a as unknown as Record<string, unknown>;
   const recB = b as unknown as Record<string, unknown>;
   for (const k of Object.keys(recA)) {
-    if (!knownKeys.has(k) && recA[k] !== recB[k]) {
+    if (!knownKeys.has(k) && !isJsonEqual(recA[k], recB[k])) {
       return true;
     }
   }
   for (const k of Object.keys(recB)) {
-    if (!knownKeys.has(k) && recA[k] !== recB[k]) {
-      return true;
+    if (!knownKeys.has(k) && !(k in recA)) {
+      if (!isJsonEqual(recA[k], recB[k])) {
+        return true;
+      }
     }
   }
   return false;
@@ -246,8 +291,10 @@ export class DiffEngine {
         // Spread winning side's fields as baseline, then explicitly bind local auto-increment PK,
         // cross-device UUID, and reconciled LWW timestamps/tombstones.
         const winner = remoteWins ? remoteSpace : localSpace;
+        const loser = remoteWins ? localSpace : remoteSpace;
 
         const mergedSpace: Space = {
+          ...loser,
           ...winner,
           id: localSpaceId,
           uuid: resolvedUuid,
@@ -328,6 +375,8 @@ export class DiffEngine {
             const adoptedUuid = remoteSpace.uuid || emptyPlaceholder.uuid || crypto.randomUUID();
 
             const adoptedSpace: Space = {
+              ...emptyPlaceholder,
+              ...remoteSpace,
               id: localSpaceId,
               uuid: adoptedUuid,
               name: remoteSpace.name,
@@ -622,9 +671,11 @@ export class DiffEngine {
         }
 
         const winner = remoteWins ? remoteTab : existingLocalTab;
+        const loser = remoteWins ? existingLocalTab : remoteTab;
 
         // Set tabToUpsert.id = existingLocalTab.id to preserve Dexie primary key
         const tabToUpsert: Tab = {
+          ...loser,
           ...winner,
           id: existingLocalTab.id,
           spaceId: resolvedSpaceId,
@@ -900,8 +951,10 @@ export class DiffEngine {
           : undefined;
 
         const winner = remoteWins ? remoteItem : localItem;
+        const loser = remoteWins ? localItem : remoteItem;
 
         const mergedItem: ReadLaterItem = {
+          ...loser,
           ...winner,
           id: localItemId,
           url: remoteWins ? remoteItem.url : localItem.url,
@@ -1047,17 +1100,18 @@ export class DiffEngine {
         const mergedUpdatedAt = Math.max(localUpdatedMs, remoteUpdatedMs);
 
         const winner = remoteWins ? remoteRule : localRule;
-        const fallback = remoteWins ? localRule : remoteRule;
+        const loser = remoteWins ? localRule : remoteRule;
 
         const mergedRule: TabRule = {
+          ...loser,
           ...winner,
           id: localRule.id,
-          name: winner.name ?? fallback.name,
-          enabled: winner.enabled !== undefined ? winner.enabled : fallback.enabled,
-          priority: winner.priority !== undefined ? winner.priority : fallback.priority,
-          matchAll: winner.matchAll !== undefined ? winner.matchAll : fallback.matchAll,
-          conditions: winner.conditions ?? fallback.conditions,
-          actions: winner.actions ?? fallback.actions,
+          name: winner.name ?? loser.name,
+          enabled: winner.enabled !== undefined ? winner.enabled : loser.enabled,
+          priority: winner.priority !== undefined ? winner.priority : loser.priority,
+          matchAll: winner.matchAll !== undefined ? winner.matchAll : loser.matchAll,
+          conditions: winner.conditions ?? loser.conditions,
+          actions: winner.actions ?? loser.actions,
           createdAt: mergedCreatedAt,
           updatedAt: mergedUpdatedAt,
           ...(resolvedDeletedAt !== undefined ? { deletedAt: resolvedDeletedAt } : {}),

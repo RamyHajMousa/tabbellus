@@ -16,6 +16,7 @@ import type { SyncVaultSnapshot } from '../types';
 import { db, type Space, type Tab, type ReadLaterItem } from '@/lib/db';
 import { spaceService } from '@/lib/spaceService';
 import type { TabRule } from '@/core/contracts/rules';
+import { useAppStore } from '@/store/appStore';
 
 describe('DiffEngine', () => {
   const localDeviceId = 'local-device-001';
@@ -2454,6 +2455,414 @@ describe('DiffEngine', () => {
       // In mergedSnapshot, Tab B remains tombstoned
       const mergedTabB = result.mergedSnapshot.tabs.find((t) => t.url === 'https://tab-b.com');
       expect(mergedTabB?.deletedAt).toBe(t0);
+    });
+  });
+
+  describe('Forward-compatibility unknown fields preservation', () => {
+    it('T1: Tab exists locally WITHOUT unknown field X; remote copy HAS X = "v"; local wins LWW -> merged tab and uploaded snapshot contain X = "v"', () => {
+      const spaceCreatedAt = 1000;
+      const tabCreatedAt = 1000;
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: 2000 }],
+        tabs: [
+          {
+            id: 10,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            title: 'Local Winner Tab',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: 2000, // newer than remote 1500 -> local wins LWW
+          },
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2500,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: 2000 }],
+        tabs: [
+          {
+            id: 1,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            title: 'Remote Loser Tab',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: 1500,
+            unknownFieldX: 'v',
+          } as unknown as Tab,
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      // Merged tab in mergedSnapshot (which is uploaded to vault) must contain unknownFieldX = 'v'
+      const mergedTab = result.mergedSnapshot.tabs.find((t) => t.url === 'https://example.com/tab');
+      expect((mergedTab as any)?.unknownFieldX).toBe('v');
+      // Winner's known fields are preserved
+      expect(mergedTab?.title).toBe('Local Winner Tab');
+
+      // Local update must be queued so local Dexie acquires the unknown field
+      const localUpdate = result.localUpdates.tabs.find((t) => t.url === 'https://example.com/tab');
+      expect(localUpdate).toBeDefined();
+      expect((localUpdate as any)?.unknownFieldX).toBe('v');
+    });
+
+    it('T2: Both sides have X with different values -> winner value is kept', () => {
+      const spaceCreatedAt = 1000;
+      const tabCreatedAt = 1000;
+
+      // Case A: Local wins LWW
+      const localA: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: 2000 }],
+        tabs: [
+          {
+            id: 10,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: 2000,
+            unknownFieldX: 'localVal',
+          } as unknown as Tab,
+        ],
+        readLater: [],
+      };
+      const remoteA: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2500,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: 2000 }],
+        tabs: [
+          {
+            id: 1,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: 1500,
+            unknownFieldX: 'remoteVal',
+          } as unknown as Tab,
+        ],
+        readLater: [],
+      };
+      const resultA = DiffEngine.reconcile(localA, remoteA, localDeviceId);
+      const mergedTabA = resultA.mergedSnapshot.tabs.find((t) => t.url === 'https://example.com/tab');
+      expect((mergedTabA as any)?.unknownFieldX).toBe('localVal');
+
+      // Case B: Remote wins LWW
+      const localB: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: 1000 }],
+        tabs: [
+          {
+            id: 10,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: 1000,
+            unknownFieldX: 'localVal',
+          } as unknown as Tab,
+        ],
+        readLater: [],
+      };
+      const remoteB: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 3000,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: 2000 }],
+        tabs: [
+          {
+            id: 1,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: 2000,
+            unknownFieldX: 'remoteVal',
+          } as unknown as Tab,
+        ],
+        readLater: [],
+      };
+      const resultB = DiffEngine.reconcile(localB, remoteB, localDeviceId);
+      const mergedTabB = resultB.mergedSnapshot.tabs.find((t) => t.url === 'https://example.com/tab');
+      expect((mergedTabB as any)?.unknownFieldX).toBe('remoteVal');
+    });
+
+    describe('T3: Forward-compatibility for spaces, readLater and rules', () => {
+      it('T3 (spaces): Space exists locally WITHOUT unknown field X; remote copy HAS X = "v"; local wins LWW -> merged space and local update contain X = "v"', () => {
+        const base = 1000;
+        const local: SyncVaultSnapshot = {
+          version: 1,
+          clientTimestamp: 3000,
+          deviceId: localDeviceId,
+          spaces: [{ id: 1, uuid: 'space-uuid-1', name: 'Local Space', createdAt: base, updatedAt: 2000 }],
+          tabs: [],
+          readLater: [],
+        };
+        const remote: SyncVaultSnapshot = {
+          version: 1,
+          clientTimestamp: 2500,
+          deviceId: remoteDeviceId,
+          spaces: [{ id: 1, uuid: 'space-uuid-1', name: 'Remote Space', createdAt: base, updatedAt: 1500, unknownSpaceX: 'v' } as unknown as Space],
+          tabs: [],
+          readLater: [],
+        };
+
+        const result = DiffEngine.reconcile(local, remote, localDeviceId);
+        expect((result.mergedSnapshot.spaces[0] as any)?.unknownSpaceX).toBe('v');
+        expect(result.mergedSnapshot.spaces[0].name).toBe('Local Space');
+
+        const localUpdate = result.localUpdates.spaces.find((s) => s.id === 1);
+        expect(localUpdate).toBeDefined();
+        expect((localUpdate as any)?.unknownSpaceX).toBe('v');
+      });
+
+      it('T3 (readLater): ReadLater exists locally WITHOUT unknown field X; remote copy HAS X = "v"; local wins LWW -> merged readLater and local update contain X = "v"', () => {
+        const base = 1000;
+        const local: SyncVaultSnapshot = {
+          version: 1,
+          clientTimestamp: 3000,
+          deviceId: localDeviceId,
+          spaces: [],
+          tabs: [],
+          readLater: [{ id: 1, url: 'https://article.com', addedAt: base, updatedAt: 2000, status: 'unread', title: 'Local Title' }],
+        };
+        const remote: SyncVaultSnapshot = {
+          version: 1,
+          clientTimestamp: 2500,
+          deviceId: remoteDeviceId,
+          spaces: [],
+          tabs: [],
+          readLater: [{ id: 1, url: 'https://article.com', addedAt: base, updatedAt: 1500, status: 'unread', title: 'Remote Title', unknownReadLaterX: 'v' } as unknown as ReadLaterItem],
+        };
+
+        const result = DiffEngine.reconcile(local, remote, localDeviceId);
+        expect((result.mergedSnapshot.readLater[0] as any)?.unknownReadLaterX).toBe('v');
+        expect(result.mergedSnapshot.readLater[0].title).toBe('Local Title');
+
+        const localUpdate = result.localUpdates.readLater.find((r) => r.url === 'https://article.com');
+        expect(localUpdate).toBeDefined();
+        expect((localUpdate as any)?.unknownReadLaterX).toBe('v');
+      });
+
+      it('T3 (rules): Rule exists locally WITHOUT unknown field X; remote copy HAS X = "v"; local wins LWW -> merged rule and local update contain X = "v"', () => {
+        const base = 1000;
+        const local: SyncVaultSnapshot = {
+          version: 1,
+          clientTimestamp: 3000,
+          deviceId: localDeviceId,
+          spaces: [],
+          tabs: [],
+          readLater: [],
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Local Rule',
+              enabled: true,
+              priority: 0,
+              matchAll: true,
+              conditions: [],
+              actions: [],
+              createdAt: base,
+              updatedAt: 2000,
+            },
+          ],
+        };
+        const remote: SyncVaultSnapshot = {
+          version: 1,
+          clientTimestamp: 2500,
+          deviceId: remoteDeviceId,
+          spaces: [],
+          tabs: [],
+          readLater: [],
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Remote Rule',
+              enabled: true,
+              priority: 0,
+              matchAll: true,
+              conditions: [],
+              actions: [],
+              createdAt: base,
+              updatedAt: 1500,
+              unknownRuleX: 'v',
+            } as unknown as TabRule,
+          ],
+        };
+
+        const result = DiffEngine.reconcile(local, remote, localDeviceId);
+        const mergedRule = result.mergedSnapshot.rules?.find((r) => r.id === 'rule-1');
+        expect((mergedRule as any)?.unknownRuleX).toBe('v');
+        expect(mergedRule?.name).toBe('Local Rule');
+
+        const localUpdate = result.localUpdates.rules?.find((r) => r.id === 'rule-1');
+        expect(localUpdate).toBeDefined();
+        expect((localUpdate as any)?.unknownRuleX).toBe('v');
+      });
+    });
+
+    it('T5: Local and remote records identical, including an object-valued unknown field (separate object instances, different key order) -> no local update, hasRemoteChanges false', () => {
+      const spaceCreatedAt = 1000;
+      const tabCreatedAt = 1000;
+      const ts = 2000;
+
+      const local: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: ts,
+        deviceId: localDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: ts }],
+        tabs: [
+          {
+            id: 1,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            title: 'Tab 1',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: ts,
+            futureObject: { alpha: 1, beta: [1, 2], gamma: { inner: 'ok' } },
+          } as unknown as Tab,
+        ],
+        readLater: [],
+      };
+
+      const remote: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: ts,
+        deviceId: remoteDeviceId,
+        spaces: [{ id: 1, name: 'Work', createdAt: spaceCreatedAt, updatedAt: ts }],
+        tabs: [
+          {
+            id: 1,
+            spaceId: 1,
+            url: 'https://example.com/tab',
+            title: 'Tab 1',
+            order: 0,
+            createdAt: tabCreatedAt,
+            updatedAt: ts,
+            // Different key order, separate object instances
+            futureObject: { gamma: { inner: 'ok' }, beta: [1, 2], alpha: 1 },
+          } as unknown as Tab,
+        ],
+        readLater: [],
+      };
+
+      const result = DiffEngine.reconcile(local, remote, localDeviceId);
+
+      expect(result.localUpdates.tabs).toHaveLength(0);
+      expect(result.localUpdates.spaces).toHaveLength(0);
+      expect(result.hasLocalChanges).toBe(false);
+      expect(result.hasRemoteChanges).toBe(false);
+      expect(result.hasChanges).toBe(false);
+    });
+
+    it('T6 (end-to-end): A vault record with unknown fields survives download -> reconcile -> applyRemoteUpdates -> createLocalSnapshot -> upload unchanged', async () => {
+      await db.spaces.clear();
+      await db.tabs.clear();
+      await db.readLater.clear();
+
+      const base = 1000;
+      useAppStore.getState().updateSettings({
+        duplicateTabBehavior: 'allow',
+        spaceRestoreTrigger: 'single',
+        readLaterOpenBehavior: 'foreground',
+        readLaterAutoArchive: false,
+        settingsUpdatedAt: base,
+      }, { skipMutationNotification: true });
+
+      const remoteSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: base,
+        deviceId: remoteDeviceId,
+        spaces: [
+          {
+            id: 1,
+            uuid: 'cloud-space-uuid-001',
+            name: 'Cloud Space',
+            createdAt: base,
+            updatedAt: base,
+            unknownSpaceProp: { spaceTier: 'ultra' },
+          } as unknown as Space,
+        ],
+        tabs: [
+          {
+            id: 1,
+            spaceId: 1,
+            url: 'https://example.com/cloud-tab',
+            title: 'Cloud Tab',
+            order: 0,
+            createdAt: base,
+            updatedAt: base,
+            unknownTabProp: { tags: ['a', 'b'], priority: 1 },
+          } as unknown as Tab,
+        ],
+        readLater: [
+          {
+            id: 1,
+            url: 'https://example.com/cloud-article',
+            title: 'Cloud Article',
+            addedAt: base,
+            updatedAt: base,
+            status: 'unread',
+            unknownReadLaterProp: 'futureValue',
+          } as unknown as ReadLaterItem,
+        ],
+        settings: {
+          duplicateTabBehavior: 'allow',
+          spaceRestoreTrigger: 'single',
+          readLaterOpenBehavior: 'foreground',
+          readLaterAutoArchive: false,
+          updatedAt: base,
+        },
+      };
+
+      // 1. Validate remote snapshot
+      const isValid = SnapshotSerializer.validateSnapshot(remoteSnapshot);
+      expect(isValid).toBe(true);
+
+      // 2. Initial reconcile against empty local snapshot
+      const localSnapshotInitial = await SnapshotSerializer.createLocalSnapshot(localDeviceId);
+      const reconcileResult = DiffEngine.reconcile(localSnapshotInitial, remoteSnapshot, localDeviceId);
+
+      // 3. Apply remote updates to local Dexie
+      await SnapshotSerializer.applyRemoteUpdates(reconcileResult.localUpdates);
+
+      // Verify Dexie rows preserved unknown fields
+      const dexieSpaces = await db.spaces.toArray();
+      expect((dexieSpaces[0] as any).unknownSpaceProp).toEqual({ spaceTier: 'ultra' });
+
+      const dexieTabs = await db.tabs.toArray();
+      expect((dexieTabs[0] as any).unknownTabProp).toEqual({ tags: ['a', 'b'], priority: 1 });
+
+      const dexieReadLater = await db.readLater.toArray();
+      expect((dexieReadLater[0] as any).unknownReadLaterProp).toBe('futureValue');
+
+      // 4. Create local snapshot from Dexie
+      const localSnapshotNext = await SnapshotSerializer.createLocalSnapshot(localDeviceId);
+      expect((localSnapshotNext.spaces[0] as any).unknownSpaceProp).toEqual({ spaceTier: 'ultra' });
+      expect((localSnapshotNext.tabs[0] as any).unknownTabProp).toEqual({ tags: ['a', 'b'], priority: 1 });
+      expect((localSnapshotNext.readLater[0] as any).unknownReadLaterProp).toBe('futureValue');
+
+      // 5. Re-reconcile to verify no oscillation or spurious upload
+      const reconcileCycle2 = DiffEngine.reconcile(localSnapshotNext, remoteSnapshot, localDeviceId, base);
+      expect(reconcileCycle2.hasLocalChanges).toBe(false);
+      expect(reconcileCycle2.hasRemoteChanges).toBe(false);
+      expect(reconcileCycle2.hasChanges).toBe(false);
     });
   });
 });
