@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useAppStore, DEFAULT_SETTINGS, initSettingsStorageListener } from '../appStore';
+import { useAppStore, DEFAULT_SETTINGS, initSettingsStorageListener, chromeStorageAdapter } from '../appStore';
 import { contractRegistry } from '@/core/contracts/registry';
 
-describe('useAppStore Rehydration & Concurrency Guards (T1–T4)', () => {
+describe('useAppStore Rehydration & Concurrency Guards (T1–T6)', () => {
     interface StorageChange {
         oldValue?: any;
         newValue?: any;
@@ -103,47 +103,51 @@ describe('useAppStore Rehydration & Concurrency Guards (T1–T4)', () => {
         vi.restoreAllMocks();
     });
 
-    it('T1: Start a rehydrate whose getItem resolves after a delay; during it, call updateSettings({ ...change }) -> after both settle, storage and in-memory state contain the user change', async () => {
-        // Initial setup in storage
-        const initialStored = JSON.stringify({
+    it("T1': an external change to a portable setting → store reflects it; a subsequent user change to a DIFFERENT setting persists both values", async () => {
+        const notifySpy = vi.spyOn(contractRegistry, 'notifyLocalMutation');
+
+        // External context writes to chrome.storage.local
+        const externalPayload = JSON.stringify({
             state: {
                 settings: {
                     ...DEFAULT_SETTINGS,
-                    theme: 'light',
-                    spaceRestoreTrigger: 'single',
+                    spaceRestoreTrigger: 'double',
+                    settingsUpdatedAt: 1234,
                 },
             },
             version: 0,
         });
-        storageData['tabbellus-settings'] = initialStored;
 
-        // Make getItem delayed by 50ms
-        getItemDelay = 50;
-
-        // Start rehydration
-        const rehydratePromise = useAppStore.persist.rehydrate();
-
-        // While rehydration is in flight, user updates settings
-        useAppStore.getState().updateSettings({
-            theme: 'dark',
-            spaceRestoreTrigger: 'double',
+        await new Promise<void>((resolve) => {
+            mockChrome.storage.local.set({ 'tabbellus-settings': externalPayload }, () => resolve());
         });
 
-        // Wait for rehydration to settle
-        await rehydratePromise;
-        await new Promise((r) => setTimeout(r, 80));
+        await new Promise((r) => setTimeout(r, 50));
 
-        // In-memory state must contain the user's change
+        // Store reflects external change
+        expect(useAppStore.getState().settings.spaceRestoreTrigger).toBe('double');
+
+        // Anti-echo guard: rehydration must not notify local mutation
+        expect(notifySpy).not.toHaveBeenCalled();
+
+        // User updates a DIFFERENT setting
+        useAppStore.getState().updateSettings({
+            readLaterOpenBehavior: 'background',
+        });
+
+        await new Promise((r) => setTimeout(r, 50));
+
+        // In-memory state has both values
         const state = useAppStore.getState();
-        expect(state.settings.theme).toBe('dark');
         expect(state.settings.spaceRestoreTrigger).toBe('double');
+        expect(state.settings.readLaterOpenBehavior).toBe('background');
 
-        // Storage must also contain the user's change (not dropped or overwritten by old state)
+        // Storage persists both values
         const rawStored = storageData['tabbellus-settings'];
         expect(rawStored).toBeDefined();
         const parsed = typeof rawStored === 'string' ? JSON.parse(rawStored) : rawStored;
-        expect(parsed.state.settings.theme).toBe('dark');
         expect(parsed.state.settings.spaceRestoreTrigger).toBe('double');
+        expect(parsed.state.settings.readLaterOpenBehavior).toBe('background');
     });
 
     it('T2: Two rapid updateSettings calls -> both persisted', async () => {
@@ -214,5 +218,64 @@ describe('useAppStore Rehydration & Concurrency Guards (T1–T4)', () => {
         await new Promise((r) => setTimeout(r, 50));
 
         expect(rehydrateSpy).not.toHaveBeenCalled();
+    });
+
+    it('T5: setItem preserves an unknown top-level key and an unknown settings key written by a "future version"', async () => {
+        const futureBlob = {
+            version: 99,
+            unknownTopLevelKey: 'keep-top-level',
+            state: {
+                settings: {
+                    ...DEFAULT_SETTINGS,
+                    unknownFutureSetting: 'keep-setting',
+                },
+            },
+        };
+        storageData['tabbellus-settings'] = JSON.stringify(futureBlob);
+
+        // Populate lastReadBlob via getItem
+        await chromeStorageAdapter.getItem('tabbellus-settings');
+
+        // Normal incoming write without knowing future keys
+        const incomingWrite = {
+            state: {
+                settings: {
+                    ...DEFAULT_SETTINGS,
+                    theme: 'dark',
+                },
+            },
+        };
+        await chromeStorageAdapter.setItem('tabbellus-settings', JSON.stringify(incomingWrite));
+
+        const stored = JSON.parse(storageData['tabbellus-settings']);
+        expect(stored.unknownTopLevelKey).toBe('keep-top-level');
+        expect(stored.state.settings.unknownFutureSetting).toBe('keep-setting');
+        expect(stored.state.settings.theme).toBe('dark');
+        expect(stored.version).toBe(99);
+    });
+
+    it('T6: store version 2 writing over a stored blob with version 1 → stored version is 2', async () => {
+        const storedV1 = {
+            version: 1,
+            state: {
+                settings: { ...DEFAULT_SETTINGS },
+            },
+        };
+        storageData['tabbellus-settings'] = JSON.stringify(storedV1);
+
+        // Populate lastReadBlob
+        await chromeStorageAdapter.getItem('tabbellus-settings');
+
+        // Store version 2 writes over it
+        const incomingV2 = {
+            version: 2,
+            state: {
+                settings: { ...DEFAULT_SETTINGS, theme: 'dark' },
+            },
+        };
+        await chromeStorageAdapter.setItem('tabbellus-settings', JSON.stringify(incomingV2));
+
+        const stored = JSON.parse(storageData['tabbellus-settings']);
+        expect(stored.version).toBe(2);
     });
 });

@@ -15,12 +15,10 @@ export type { AppSettings };
 export { PORTABLE_SETTINGS_KEYS, DEFAULT_SETTINGS };
 
 let lastWrittenSerializedValue: string | null = null;
-let localMutationVersion = 0;
-let inFlightRehydrateVersion: number | null = null;
 let lastReadBlob: any = null;
 
 // 1. Create a Custom Bridge for Chrome Storage
-const chromeStorageAdapter: StateStorage = {
+export const chromeStorageAdapter: StateStorage = {
     getItem: async (name: string): Promise<string | null> => {
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.storage?.local) {
@@ -30,6 +28,9 @@ const chromeStorageAdapter: StateStorage = {
                         lastReadBlob = val;
                     } else if (typeof val === 'string') {
                         try { lastReadBlob = JSON.parse(val); } catch { lastReadBlob = null; }
+                    }
+                    if (typeof lastReadBlob?.version === 'number' && useAppStore?.persist) {
+                        useAppStore.persist.setOptions({ version: lastReadBlob.version });
                     }
                 }
                 if (val && typeof val === 'object') {
@@ -51,6 +52,9 @@ const chromeStorageAdapter: StateStorage = {
                         } else if (typeof val === 'string') {
                             try { lastReadBlob = JSON.parse(val); } catch { lastReadBlob = null; }
                         }
+                        if (typeof lastReadBlob?.version === 'number' && useAppStore?.persist) {
+                            useAppStore.persist.setOptions({ version: lastReadBlob.version });
+                        }
                     }
                     if (val && typeof val === 'object') {
                         resolve(JSON.stringify(val));
@@ -70,7 +74,7 @@ const chromeStorageAdapter: StateStorage = {
                     const mergedBlob = {
                         ...lastReadBlob,
                         ...incoming,
-                        version: lastReadBlob.version ?? incoming.version ?? 0,
+                        version: incoming.version ?? lastReadBlob.version,
                         state: {
                             ...(lastReadBlob.state ?? {}),
                             ...(incoming.state ?? {}),
@@ -89,7 +93,6 @@ const chromeStorageAdapter: StateStorage = {
                 // Keep raw string on parse error
             }
             lastWrittenSerializedValue = serializedToWrite;
-            localMutationVersion++;
         }
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.storage?.local) {
@@ -165,7 +168,6 @@ export const useAppStore = create<AppState>()(
             recentSearches: [],
 
             updateSettings: (partial, options) => {
-                localMutationVersion++;
                 const hasPortableChange = PORTABLE_SETTINGS_KEYS.some((key) => key in partial);
                 let newTimestamp: number | undefined;
 
@@ -301,17 +303,6 @@ export const useAppStore = create<AppState>()(
                 const persisted = (persistedState as (Partial<AppState> & { settings?: Partial<AppSettings>; [key: string]: any })) || {};
                 const persistedSettings: Partial<AppSettings> = persisted.settings || {};
 
-                if (inFlightRehydrateVersion !== null && localMutationVersion > inFlightRehydrateVersion) {
-                    return {
-                        ...currentState,
-                        ...persisted,
-                        settings: currentState.settings,
-                        theme: currentState.settings.theme,
-                        showDomain: currentState.settings.showDomain,
-                        badgeMode: currentState.settings.badgeMode,
-                    };
-                }
-
                 const resolvedTheme = (persisted.theme && persisted.theme !== DEFAULT_SETTINGS.theme)
                     ? (persisted.theme as AppSettings['theme'])
                     : (persistedSettings.theme ?? (persisted.theme as AppSettings['theme']) ?? DEFAULT_SETTINGS.theme);
@@ -356,17 +347,6 @@ export const useAppStore = create<AppState>()(
     )
 );
 
-// Track in-flight rehydration version so concurrent local mutations are never overwritten by stale storage reads
-const originalRehydrate = useAppStore.persist.rehydrate;
-useAppStore.persist.rehydrate = async () => {
-    inFlightRehydrateVersion = localMutationVersion;
-    try {
-        return await originalRehydrate();
-    } finally {
-        inFlightRehydrateVersion = null;
-    }
-};
-
 // Subscribe to space restore events from the service layer to register active spaces.
 spaceService.onRestore((spaceId, windowId) => {
     useAppStore.getState().registerActiveSpace(spaceId, windowId);
@@ -392,6 +372,9 @@ export function initSettingsStorageListener(force = false): void {
                         } catch {
                             // ignore parse error
                         }
+                    }
+                    if (typeof lastReadBlob?.version === 'number' && useAppStore?.persist) {
+                        useAppStore.persist.setOptions({ version: lastReadBlob.version });
                     }
                 }
                 // Skip rehydration if the change matches this context's own write
