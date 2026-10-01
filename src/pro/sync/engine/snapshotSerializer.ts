@@ -14,7 +14,7 @@ import { db } from '@/lib/db';
 import type { TabRule } from '@/core/contracts/rules';
 import { loadRules } from '@/pro/rules/storage/ruleStorage';
 import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
-import { useAppStore } from '@/store/appStore';
+import { getStoredSyncedSettings, applyRemoteSyncedSettings } from './settingsAdapter';
 import {
   CURRENT_SCHEMA_MAJOR,
   SNAPSHOT_SCHEMA_VERSION,
@@ -62,14 +62,7 @@ export class SnapshotSerializer {
       rules = [];
     }
 
-    const appSettings = useAppStore.getState().settings;
-    const settings: SyncedSettings = {
-      duplicateTabBehavior: appSettings.duplicateTabBehavior,
-      spaceRestoreTrigger: appSettings.spaceRestoreTrigger,
-      readLaterOpenBehavior: appSettings.readLaterOpenBehavior,
-      readLaterAutoArchive: appSettings.readLaterAutoArchive,
-      updatedAt: appSettings.settingsUpdatedAt || Date.now(),
-    };
+    const settings = await getStoredSyncedSettings();
 
     return {
       version: CURRENT_SCHEMA_MAJOR,
@@ -152,17 +145,8 @@ export class SnapshotSerializer {
     }
 
     if (settings) {
-      // Anti-echo guard: bypass notifyLocalMutation()
-      useAppStore.getState().updateSettings(
-        {
-          duplicateTabBehavior: settings.duplicateTabBehavior,
-          spaceRestoreTrigger: settings.spaceRestoreTrigger,
-          readLaterOpenBehavior: settings.readLaterOpenBehavior,
-          readLaterAutoArchive: settings.readLaterAutoArchive,
-          settingsUpdatedAt: settings.updatedAt,
-        },
-        { skipMutationNotification: true },
-      );
+      // Anti-echo guard: bypass notifyLocalMutation() via storage-backed adapter
+      await applyRemoteSyncedSettings(settings);
     }
   }
 

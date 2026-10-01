@@ -37,7 +37,7 @@ tabbellus/
     │   ├── licensing/          # Entitlement validation, signature verification, and cache manager
     │   ├── sync/               # Cloud sync modules (Drive REST client, diffEngine, syncEngine, E2EE crypto)
     │   ├── rules/              # Tab automation rules engine (matcher, executor, templates, UI cards)
-    │   ├── headless.ts         # DOM-free, React-free headless export barrel for service worker
+    │   ├── background.ts       # DOM-free, React-free background export barrel for service worker
     │   └── index.ts            # Public Pro root barrel & runtime contract registration
     ├── features/               # Feature domain modules (tabs, spaces, read-later, search, settings, history)
     ├── lib/                    # Domain services (spaceService, tabService, readLaterService, dataService, db)
@@ -64,7 +64,7 @@ The codebase strictly separates the open Free core from the proprietary Pro subs
 - **Boundary Invariant:** Free core code never imports from `src/pro/*` or contains Pro business logic.
 - **Two Permitted Entry Points:**
   1. `src/sidepanel/index.tsx` dynamically imports `@/pro` on mount via dynamic `import()`.
-  2. `src/background/index.ts` statically imports `rulesEngine` exclusively from `@/pro/headless` (due to the HTML spec disallowing dynamic imports in `ServiceWorkerGlobalScope`).
+  2. `src/background/index.ts` statically imports `rulesEngine` exclusively from `@/pro/background` (due to the HTML spec disallowing dynamic imports in `ServiceWorkerGlobalScope`).
 - **Vendor Chunk Isolation:** Rollup `manualChunks` in `vite.config.ts` divides `vendor-react`, `vendor-dexie`, `vendor-ui`, `vendor-dnd`, and `vendor-virtuoso`, ensuring the service worker bundle remains completely free of React and DOM dependencies.
 - *See:* [`docs/architecture/ADR-002-zero-contamination-pro-boundary.md`](file:///d:/Projects/tabbellus/docs/architecture/ADR-002-zero-contamination-pro-boundary.md).
 

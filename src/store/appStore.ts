@@ -4,43 +4,29 @@ import { spaceService } from '@/lib/spaceService';
 
 import { contractRegistry } from '@/core/contracts/registry';
 
-export interface AppSettings {
-    theme: 'light' | 'dark' | 'system';
-    badgeMode: 'none' | 'tabs' | 'read-later';
-    showDomain: boolean;
-    readLaterOpenBehavior: 'foreground' | 'background';
-    readLaterAutoArchive: boolean;
-    autoDiscardInterval: 0 | 15 | 30 | 60 | 120;
-    spaceRestoreTrigger: 'single' | 'double';
-    duplicateTabBehavior: 'allow' | 'focus-existing';
-    settingsUpdatedAt: number;
-}
+import {
+    type AppSettings,
+    PORTABLE_SETTINGS_KEYS,
+    DEFAULT_SETTINGS,
+    memoryStorageFallback,
+} from '@/lib/settings';
 
-export const PORTABLE_SETTINGS_KEYS: (keyof AppSettings)[] = [
-    'duplicateTabBehavior',
-    'spaceRestoreTrigger',
-    'readLaterOpenBehavior',
-    'readLaterAutoArchive',
-];
+export type { AppSettings };
+export { PORTABLE_SETTINGS_KEYS, DEFAULT_SETTINGS };
 
-export const DEFAULT_SETTINGS: AppSettings = {
-    theme: 'system',
-    badgeMode: 'read-later',
-    showDomain: true,
-    readLaterOpenBehavior: 'foreground',
-    readLaterAutoArchive: true,
-    autoDiscardInterval: 0,
-    spaceRestoreTrigger: 'single',
-    duplicateTabBehavior: 'focus-existing',
-    settingsUpdatedAt: 0,
-};
+let isRehydrating = false;
 
 // 1. Create a Custom Bridge for Chrome Storage
 const chromeStorageAdapter: StateStorage = {
     getItem: async (name: string): Promise<string | null> => {
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.storage?.local) {
-                resolve(null);
+                const val = memoryStorageFallback[name];
+                if (val && typeof val === 'object') {
+                    resolve(JSON.stringify(val));
+                } else {
+                    resolve((val as string) || null);
+                }
                 return;
             }
             chrome.storage.local.get([name], (result) => {
@@ -48,14 +34,23 @@ const chromeStorageAdapter: StateStorage = {
                     console.error('Error loading state:', chrome.runtime.lastError);
                     resolve(null);
                 } else {
-                    resolve(result[name] || null);
+                    const val = result[name];
+                    if (val && typeof val === 'object') {
+                        resolve(JSON.stringify(val));
+                    } else {
+                        resolve(val || null);
+                    }
                 }
             });
         });
     },
     setItem: async (name: string, value: string): Promise<void> => {
+        if (isRehydrating) {
+            return;
+        }
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+                memoryStorageFallback[name] = value;
                 resolve();
                 return;
             }
@@ -70,6 +65,7 @@ const chromeStorageAdapter: StateStorage = {
     removeItem: async (name: string): Promise<void> => {
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+                delete memoryStorageFallback[name];
                 resolve();
                 return;
             }
@@ -258,17 +254,20 @@ export const useAppStore = create<AppState>()(
                 recentSearches: state.recentSearches,
             }),
             merge: (persistedState: unknown, currentState: AppState) => {
-                const persisted = (persistedState as Partial<AppState> & { settings?: Partial<AppSettings> }) || {};
+                const persisted = (persistedState as (Partial<AppState> & { settings?: Partial<AppSettings>; [key: string]: any })) || {};
+                const persistedSettings: Partial<AppSettings> = persisted.settings || {};
                 const mergedSettings: AppSettings = {
-                    theme: persisted.settings?.theme ?? (persisted.theme as AppSettings['theme']) ?? DEFAULT_SETTINGS.theme,
-                    showDomain: persisted.settings?.showDomain ?? (persisted as any).showDomain ?? DEFAULT_SETTINGS.showDomain,
-                    badgeMode: persisted.settings?.badgeMode ?? (persisted.badgeMode as AppSettings['badgeMode']) ?? DEFAULT_SETTINGS.badgeMode,
-                    readLaterOpenBehavior: persisted.settings?.readLaterOpenBehavior ?? DEFAULT_SETTINGS.readLaterOpenBehavior,
-                    readLaterAutoArchive: persisted.settings?.readLaterAutoArchive ?? DEFAULT_SETTINGS.readLaterAutoArchive,
-                    autoDiscardInterval: persisted.settings?.autoDiscardInterval ?? DEFAULT_SETTINGS.autoDiscardInterval,
-                    spaceRestoreTrigger: persisted.settings?.spaceRestoreTrigger ?? DEFAULT_SETTINGS.spaceRestoreTrigger,
-                    duplicateTabBehavior: persisted.settings?.duplicateTabBehavior ?? DEFAULT_SETTINGS.duplicateTabBehavior,
-                    settingsUpdatedAt: persisted.settings?.settingsUpdatedAt ?? DEFAULT_SETTINGS.settingsUpdatedAt,
+                    ...DEFAULT_SETTINGS,
+                    ...persistedSettings,
+                    theme: persistedSettings.theme ?? (persisted.theme as AppSettings['theme']) ?? DEFAULT_SETTINGS.theme,
+                    showDomain: persistedSettings.showDomain ?? (persisted.showDomain as boolean) ?? DEFAULT_SETTINGS.showDomain,
+                    badgeMode: persistedSettings.badgeMode ?? (persisted.badgeMode as AppSettings['badgeMode']) ?? DEFAULT_SETTINGS.badgeMode,
+                    readLaterOpenBehavior: persistedSettings.readLaterOpenBehavior ?? DEFAULT_SETTINGS.readLaterOpenBehavior,
+                    readLaterAutoArchive: persistedSettings.readLaterAutoArchive ?? DEFAULT_SETTINGS.readLaterAutoArchive,
+                    autoDiscardInterval: persistedSettings.autoDiscardInterval ?? DEFAULT_SETTINGS.autoDiscardInterval,
+                    spaceRestoreTrigger: persistedSettings.spaceRestoreTrigger ?? DEFAULT_SETTINGS.spaceRestoreTrigger,
+                    duplicateTabBehavior: persistedSettings.duplicateTabBehavior ?? DEFAULT_SETTINGS.duplicateTabBehavior,
+                    settingsUpdatedAt: persistedSettings.settingsUpdatedAt ?? DEFAULT_SETTINGS.settingsUpdatedAt,
                 };
                 return {
                     ...currentState,
@@ -279,14 +278,44 @@ export const useAppStore = create<AppState>()(
                     badgeMode: mergedSettings.badgeMode,
                 };
             },
+            migrate: (persistedState: any) => persistedState,
             onRehydrateStorage: () => (state) => {
-                state?.setHydrated(true);
+                if (state && !state.isHydrated) {
+                    state.setHydrated(true);
+                }
             }
         }
     )
 );
 
+// Wrap rehydrate to suppress write-backs while rehydrating from storage (Anti-Echo / No Echo Loop Guard)
+const originalRehydrate = useAppStore.persist.rehydrate;
+useAppStore.persist.rehydrate = async () => {
+    isRehydrating = true;
+    try {
+        return await originalRehydrate();
+    } finally {
+        isRehydrating = false;
+    }
+};
+
 // Subscribe to space restore events from the service layer to register active spaces.
 spaceService.onRestore((spaceId, windowId) => {
     useAppStore.getState().registerActiveSpace(spaceId, windowId);
 });
+
+// R3: Rehydrate store when chrome.storage.onChanged reports a change to 'tabbellus-settings' in 'local' area.
+// Rehydration uses the persist API's rehydrate, which does not trigger notifyLocalMutation or write back to storage.
+let settingsSyncListenerRegistered = false;
+export function initSettingsStorageListener(force = false): void {
+    if (settingsSyncListenerRegistered && !force) return;
+    if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+        settingsSyncListenerRegistered = true;
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+            if (areaName === 'local' && changes['tabbellus-settings']) {
+                useAppStore.persist.rehydrate();
+            }
+        });
+    }
+}
+initSettingsStorageListener();

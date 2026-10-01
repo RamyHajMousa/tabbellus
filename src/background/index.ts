@@ -8,7 +8,7 @@ import { runDiscardSweep } from './discardService';
 import { rulesDispatcher } from './rulesDispatcher';
 import { performSync, cancelPendingSync } from './tabSyncService';
 import { contractRegistry } from '@/core/contracts/registry';
-import { rulesEngine } from '@/pro/headless';
+import { rulesEngine } from '@/pro/background';
 
 export { performSync, cancelPendingSync };
 
@@ -30,12 +30,11 @@ console.log('TabBellus Service Worker Initialized');
 // attach Pro at runtime — only a static import, resolved at module
 // registration time, is possible here.
 //
-// Scoped to ONLY the concrete rules engine module (`@/pro/rules/engine/
-// rulesEngine`, which itself pulls in just the matcher/executor/storage —
-// no licensing, no sync, no React/UI component code) — the one piece of
-// Pro that must actually execute inside the background to automate tabs.
-// Licensing and sync remain excluded from the background entirely, as
-// before; only the sidepanel needs those.
+// Scoped strictly to `@/pro/background` (`src/pro/background.ts`),
+// which exports only pure, DOM-free, React-free engines (rules engine
+// today; sync and licensing engines in Phase 2). In Phase 1, sync and
+// licensing engines remain excluded from this entry to avoid running
+// constructors with unisolated side effects (mutation listeners, timers).
 contractRegistry.registerRulesProvider(rulesEngine);
 
 // Bind tab lifecycle listeners for the automation rules engine. Registered

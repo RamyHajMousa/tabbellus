@@ -21,6 +21,7 @@ export interface SyncedSettings {
   readLaterOpenBehavior: 'foreground' | 'background';
   readLaterAutoArchive: boolean;
   updatedAt: number;
+  [key: string]: unknown;
 }
 
 export const CURRENT_SCHEMA_MAJOR = 1;

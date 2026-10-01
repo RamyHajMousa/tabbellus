@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { db } from '@/lib/db';
 import { SnapshotSerializer, TOMBSTONE_TTL_MS } from '../snapshotSerializer';
 import type { SyncVaultSnapshot } from '../types';
-import { useAppStore } from '@/store/appStore';
+import { useAppStore, DEFAULT_SETTINGS, initSettingsStorageListener } from '@/store/appStore';
 import { contractRegistry } from '@/core/contracts/registry';
 import { rulesEngine } from '@/pro/rules/engine/rulesEngine';
 import type { TabRule } from '@/core/contracts/rules';
@@ -24,15 +24,42 @@ describe('SnapshotSerializer', () => {
     Object.keys(localStore).forEach((k) => delete localStore[k]);
     Object.keys(syncStore).forEach((k) => delete syncStore[k]);
 
+    const storageListeners = new Set<(changes: any, area: string) => void>();
+
     vi.stubGlobal('chrome', {
       storage: {
         local: {
-          get: vi.fn(async (key: string) => ({ [key]: localStore[key] })),
-          set: vi.fn(async (items: Record<string, unknown>) => {
-            Object.assign(localStore, items);
+          get: vi.fn(async (keys: string | string[], cb?: (result: any) => void) => {
+            const result: Record<string, unknown> = {};
+            const keyList = Array.isArray(keys) ? keys : [keys];
+            keyList.forEach((k) => {
+              result[k] = localStore[k];
+            });
+            if (cb) cb(result);
+            return result;
           }),
-          remove: vi.fn(async (key: string) => {
-            delete localStore[key];
+          set: vi.fn(async (items: Record<string, unknown>, cb?: () => void) => {
+            const changes: Record<string, { oldValue: unknown; newValue: unknown }> = {};
+            for (const [k, v] of Object.entries(items)) {
+              changes[k] = { oldValue: localStore[k], newValue: v };
+            }
+            Object.assign(localStore, items);
+            if (cb) cb();
+            for (const listener of storageListeners) {
+              listener(changes, 'local');
+            }
+          }),
+          remove: vi.fn(async (keys: string | string[], cb?: () => void) => {
+            const changes: Record<string, { oldValue: unknown; newValue: unknown }> = {};
+            const keyList = Array.isArray(keys) ? keys : [keys];
+            keyList.forEach((k) => {
+              changes[k] = { oldValue: localStore[k], newValue: undefined };
+              delete localStore[k];
+            });
+            if (cb) cb();
+            for (const listener of storageListeners) {
+              listener(changes, 'local');
+            }
           }),
         },
         sync: {
@@ -45,11 +72,13 @@ describe('SnapshotSerializer', () => {
           }),
         },
         onChanged: {
-          addListener: vi.fn(),
-          removeListener: vi.fn(),
+          addListener: vi.fn((listener) => storageListeners.add(listener)),
+          removeListener: vi.fn((listener) => storageListeners.delete(listener)),
         },
       },
     });
+
+    initSettingsStorageListener(true);
 
     await db.spaces.clear();
     await db.tabs.clear();
@@ -486,6 +515,8 @@ describe('SnapshotSerializer', () => {
           },
         });
 
+        await useAppStore.persist.rehydrate();
+
         // 1. Check settings applied to store
         const storeSettings = useAppStore.getState().settings;
         expect(storeSettings.duplicateTabBehavior).toBe('allow');
@@ -498,6 +529,158 @@ describe('SnapshotSerializer', () => {
         expect(mutationListener).not.toHaveBeenCalled();
       } finally {
         unsub();
+      }
+    });
+
+    it('T1: createLocalSnapshot uses settings from chrome.storage.local even when the Zustand store has not hydrated', async () => {
+      // 1. Ensure Zustand store has default settings and is NOT hydrated
+      useAppStore.setState({
+        settings: { ...DEFAULT_SETTINGS },
+        isHydrated: false,
+      });
+
+      // 2. Setup chrome.storage.local with custom non-default settings directly in storage
+      const nonDefaultPersisted = {
+        state: {
+          settings: {
+            ...DEFAULT_SETTINGS,
+            duplicateTabBehavior: 'allow',
+            spaceRestoreTrigger: 'double',
+            readLaterOpenBehavior: 'background',
+            readLaterAutoArchive: false,
+            settingsUpdatedAt: 8888,
+          },
+        },
+        version: 1,
+      };
+      localStore['tabbellus-settings'] = JSON.stringify(nonDefaultPersisted);
+
+      // Verify the in-memory Zustand store is still holding DEFAULT_SETTINGS
+      expect(useAppStore.getState().settings.duplicateTabBehavior).toBe('focus-existing');
+
+      const snapshot = await SnapshotSerializer.createLocalSnapshot('device-t1');
+      expect(snapshot.settings).toBeDefined();
+      expect(snapshot.settings!.duplicateTabBehavior).toBe('allow');
+      expect(snapshot.settings!.spaceRestoreTrigger).toBe('double');
+      expect(snapshot.settings!.readLaterOpenBehavior).toBe('background');
+      expect(snapshot.settings!.readLaterAutoArchive).toBe(false);
+      expect(snapshot.settings!.updatedAt).toBe(8888);
+    });
+
+    it('T2: applyRemoteUpdates with newer remote settings writes them to storage, preserving version, other persisted keys, and an unknown settings field; notifyLocalMutation is not called', async () => {
+      const initialPersisted = {
+        state: {
+          settings: {
+            ...DEFAULT_SETTINGS,
+            duplicateTabBehavior: 'focus-existing',
+            spaceRestoreTrigger: 'single',
+            readLaterOpenBehavior: 'foreground',
+            readLaterAutoArchive: true,
+            settingsUpdatedAt: 1000,
+            existingCustomSetting: 'keep-me',
+          },
+          theme: 'dark',
+          activeView: 'spaces',
+          otherPersistedKey: 42,
+        },
+        version: 3,
+      };
+      await chrome.storage.local.set({
+        'tabbellus-settings': JSON.stringify(initialPersisted),
+      });
+
+      const mutationListener = vi.fn();
+      const unsub = contractRegistry.subscribeLocalMutation(mutationListener);
+
+      try {
+        await SnapshotSerializer.applyRemoteUpdates({
+          spaces: [],
+          tabs: [],
+          readLater: [],
+          settings: {
+            duplicateTabBehavior: 'allow',
+            spaceRestoreTrigger: 'double',
+            readLaterOpenBehavior: 'background',
+            readLaterAutoArchive: false,
+            updatedAt: 9999,
+            newUnknownField: 'forward-compat-value',
+          },
+        });
+
+        // 1. Storage should contain updated settings
+        const res = await chrome.storage.local.get('tabbellus-settings');
+        const raw = res['tabbellus-settings'];
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+        // Version and other persisted keys are strictly preserved
+        expect(parsed.version).toBe(3);
+        expect(parsed.state.theme).toBe('dark');
+        expect(parsed.state.activeView).toBe('spaces');
+        expect(parsed.state.otherPersistedKey).toBe(42);
+
+        // Unknown settings fields are preserved
+        expect(parsed.state.settings.existingCustomSetting).toBe('keep-me');
+        expect(parsed.state.settings.newUnknownField).toBe('forward-compat-value');
+
+        // Merged portable settings updated
+        expect(parsed.state.settings.duplicateTabBehavior).toBe('allow');
+        expect(parsed.state.settings.spaceRestoreTrigger).toBe('double');
+        expect(parsed.state.settings.readLaterOpenBehavior).toBe('background');
+        expect(parsed.state.settings.readLaterAutoArchive).toBe(false);
+        expect(parsed.state.settings.settingsUpdatedAt).toBe(9999);
+
+        // Anti-echo guard: notifyLocalMutation must NOT be called
+        expect(mutationListener).not.toHaveBeenCalled();
+      } finally {
+        unsub();
+      }
+    });
+
+    it('T3: After T2 write, the side-panel store reflects the new settings via rehydration, and no notifyLocalMutation fires and no write-back occurs', async () => {
+      // Prepare storage with new settings
+      const persistedState = {
+        state: {
+          settings: {
+            ...DEFAULT_SETTINGS,
+            duplicateTabBehavior: 'allow',
+            spaceRestoreTrigger: 'double',
+            readLaterOpenBehavior: 'background',
+            readLaterAutoArchive: false,
+            settingsUpdatedAt: 7777,
+          },
+          theme: 'light',
+        },
+        version: 0,
+      };
+      await chrome.storage.local.set({
+        'tabbellus-settings': JSON.stringify(persistedState),
+      });
+
+      const mutationListener = vi.fn();
+      const unsub = contractRegistry.subscribeLocalMutation(mutationListener);
+
+      const setSpy = vi.spyOn(chrome.storage.local, 'set');
+      setSpy.mockClear();
+
+      try {
+        // Trigger rehydrate
+        await useAppStore.persist.rehydrate();
+
+        const currentSettings = useAppStore.getState().settings;
+        expect(currentSettings.duplicateTabBehavior).toBe('allow');
+        expect(currentSettings.spaceRestoreTrigger).toBe('double');
+        expect(currentSettings.readLaterOpenBehavior).toBe('background');
+        expect(currentSettings.readLaterAutoArchive).toBe(false);
+        expect(currentSettings.settingsUpdatedAt).toBe(7777);
+
+        // No anti-echo notification
+        expect(mutationListener).not.toHaveBeenCalled();
+
+        // No write-back to storage during rehydrate
+        expect(setSpy).not.toHaveBeenCalled();
+      } finally {
+        unsub();
+        setSpy.mockRestore();
       }
     });
   });

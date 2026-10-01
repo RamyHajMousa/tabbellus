@@ -17,4 +17,9 @@ export { SnapshotSerializer } from './snapshotSerializer';
 export { DiffEngine } from './diffEngine';
 export { SyncEngine, syncEngine } from './syncEngine';
 export { resolveVaultFiles, type ResolvedVaultFiles } from './vaultResolver';
+export {
+  getStoredSyncedSettings,
+  applyRemoteSyncedSettings,
+  SETTINGS_STORAGE_KEY,
+} from './settingsAdapter';
 

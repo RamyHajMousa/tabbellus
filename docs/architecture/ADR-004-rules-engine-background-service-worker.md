@@ -18,7 +18,7 @@ Implementing tab automation in a Manifest V3 Chrome Extension poses several arch
 We implemented a **Headless Background Rules Engine with Reactive Storage Synchronization and Guarded Condition Matching**:
 
 1. **Headless Background Integration:**
-   The background service worker statically imports `rulesEngine` from `@/pro/headless` and registers it with `contractRegistry` on startup (`src/background/index.ts`). A dedicated `rulesDispatcher` listens to `chrome.tabs.onCreated` and `chrome.tabs.onUpdated` events, invoking `rulesEngine.evaluateAndExecute(tab)` with runtime entitlement checks.
+   The background service worker statically imports `rulesEngine` from `@/pro/background` and registers it with `contractRegistry` on startup (`src/background/index.ts`). A dedicated `rulesDispatcher` listens to `chrome.tabs.onCreated` and `chrome.tabs.onUpdated` events, invoking `rulesEngine.evaluateAndExecute(tab)` with runtime entitlement checks.
 2. **Cross-Context Storage Synchronization:**
    Rules are persisted in `chrome.storage.sync` with automatic fallback to `chrome.storage.local` under the key `tabbellus_tab_rules`. Each `RulesEngine` singleton binds a `chrome.storage.onChanged` listener (`bindStorageListener`). When the sidepanel saves rule changes, the background instance immediately receives the change event and re-hydrates its in-memory rule set.
 3. **Guarded Pattern Matching & ReDoS Static Complexity Heuristic:**
