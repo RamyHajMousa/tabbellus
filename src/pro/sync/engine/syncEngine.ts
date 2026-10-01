@@ -353,7 +353,13 @@ export class SyncEngine implements SyncProvider {
           throw new Error('Cannot disable encryption while vault is locked. Please unlock first.');
         }
 
-        this.updateStatus({ state: 'syncing' });
+        this.updateStatus({
+          state: 'syncing',
+          telemetry: {
+            ...this.status.telemetry,
+            encrypted: true,
+          },
+        });
 
         try {
           // 1. Download remote vault file if it exists
@@ -406,25 +412,10 @@ export class SyncEngine implements SyncProvider {
             await SnapshotSerializer.applyRemoteUpdates(reconciliation.localUpdates);
           }
 
-          // 5. Only after reconciliation and local Dexie persistence succeed:
-          // Purge active encryption keys
-          await this.sessionKeyStore.clearSession();
-
-          // Reset storage state
+          // 5. Persist removal of any pending encryption upgrade prior to uploading.
+          // Keep session keys, isEncrypted, and vaultSalt intact until the plaintext upload succeeds.
           await this.saveStorageState({
-            isEncrypted: false,
-            vaultSalt: undefined,
-            lastError: undefined,
             pendingEncryptionUpgrade: undefined,
-          });
-
-          // Update in-memory telemetry immediately
-          this.updateStatus({
-            telemetry: {
-              ...this.status.telemetry,
-              encrypted: false,
-              lastError: undefined,
-            },
           });
 
           // 6. Upload unified mergedSnapshot as unencrypted plaintext JSON (isEncrypted: false)
@@ -447,8 +438,14 @@ export class SyncEngine implements SyncProvider {
           );
 
           if (!uploadResult.success) {
+            if ('conflict' in uploadResult && uploadResult.conflict) {
+              throw new Error('Conflict: Cloud vault was modified by another device. Please try again.');
+            }
             throw new Error(`Failed to upload unencrypted vault: ${uploadResult.error}`);
           }
+
+          // 7. Only after upload succeeds: clear active session key and transition to unencrypted
+          await this.sessionKeyStore.clearSession();
 
           const now = Date.now();
           await this.saveStorageState({
@@ -457,9 +454,10 @@ export class SyncEngine implements SyncProvider {
             lastVaultFileId: uploadResult.data.id,
             lastError: undefined,
             isEncrypted: false,
+            vaultSalt: undefined,
           });
 
-          // 7. Transition state to 'synced' and notify subscribers
+          // Transition state to 'synced' and notify subscribers
           this.updateStatus({
             state: 'synced',
             isConnected: true,
@@ -477,6 +475,7 @@ export class SyncEngine implements SyncProvider {
             state: 'error',
             telemetry: {
               ...this.status.telemetry,
+              encrypted: true,
               lastError: message,
             },
           });

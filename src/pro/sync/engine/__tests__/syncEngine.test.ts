@@ -2520,6 +2520,284 @@ describe('SyncEngine', () => {
   });
 
   // =========================================================================
+  // disableEncryption Session Key & State Lifecycle Safety (T1–T5)
+  // =========================================================================
+
+  describe('disableEncryption Session Key & State Lifecycle Safety (T1–T5)', () => {
+    let passphrase = 'disable-e2ee-lifecycle-pass';
+    let saltBytes: Uint8Array;
+    let saltBase64: string;
+    let key: CryptoKey;
+    let remoteEncryptedPayload: VaultPayload;
+
+    beforeEach(async () => {
+      mockedAuth.getAuthToken.mockResolvedValue({
+        success: true,
+        data: 'valid-token',
+      });
+
+      saltBytes = WebCryptoEngine.generateSalt();
+      saltBase64 = uint8ArrayToBase64(saltBytes);
+      key = await WebCryptoEngine.deriveKeyFromPassphrase(passphrase, saltBytes);
+
+      await db.spaces.add({
+        name: 'Local Only Space',
+        createdAt: 1000,
+        updatedAt: 1000,
+      });
+
+      const remoteSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: 'remote-device-x',
+        spaces: [{ id: 99, name: 'Remote Encrypted Space', createdAt: 2000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+
+      const envelope = await WebCryptoEngine.encryptPayload(
+        JSON.stringify(remoteSnapshot),
+        key,
+        saltBytes,
+      );
+
+      remoteEncryptedPayload = {
+        schemaVersion: '2.0.0-e2ee',
+        clientTimestamp: new Date().toISOString(),
+        payload: envelope.ciphertext,
+        iv: envelope.iv,
+        salt: envelope.salt,
+        isEncrypted: true,
+      };
+
+      mockedDrive.findVaultFile.mockResolvedValue({
+        success: true,
+        data: {
+          files: [
+            {
+              id: 'vault-file-123',
+              name: 'tabbellus_vault.json',
+              modifiedTime: '2026-09-01T12:00:00Z',
+              mimeType: 'application/json',
+              version: '10',
+            },
+          ],
+        },
+      });
+
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: remoteEncryptedPayload,
+      });
+
+      await engine.connect();
+      await sessionKeyStore.saveSession(key, saltBase64);
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+        },
+      });
+
+      mockedDrive.uploadVaultFile.mockClear();
+    });
+
+    it('T1: Upload fails (network error) → disableEncryption rejects; sessionKeyStore still unlocked; storage isEncrypted true and vaultSalt unchanged; telemetry.encrypted true; status error. A second disableEncryption with a working upload then succeeds.', async () => {
+      mockedDrive.uploadVaultFile.mockResolvedValueOnce({
+        success: false,
+        error: 'Network timeout: Failed to fetch',
+      });
+
+      await expect(engine.disableEncryption()).rejects.toThrow(/Failed to upload unencrypted vault/i);
+
+      expect(await sessionKeyStore.isUnlocked()).toBe(true);
+      const storage = await chrome.storage.local.get('tabbellus_sync_state');
+      const state = storage.tabbellus_sync_state as SyncStorageState;
+      expect(state.isEncrypted).toBe(true);
+      expect(state.vaultSalt).toBe(saltBase64);
+      const status = await engine.getStatus();
+      expect(status.state).toBe('error');
+      expect(status.telemetry.encrypted).toBe(true);
+
+      // A second disableEncryption with a working upload then succeeds
+      mockedDrive.uploadVaultFile.mockResolvedValueOnce({
+        success: true,
+        data: { id: 'vault-file-123', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      await engine.disableEncryption();
+
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      const storage2 = await chrome.storage.local.get('tabbellus_sync_state');
+      const state2 = storage2.tabbellus_sync_state as SyncStorageState;
+      expect(state2.isEncrypted).toBe(false);
+      expect(state2.vaultSalt).toBeUndefined();
+      const status2 = await engine.getStatus();
+      expect(status2.state).toBe('synced');
+      expect(status2.telemetry.encrypted).toBe(false);
+    });
+
+    it('T2: Upload returns conflict → same assertions as T1, and the error message tells the user to try again.', async () => {
+      mockedDrive.uploadVaultFile.mockResolvedValueOnce({
+        success: false,
+        error: 'Conflict: Remote file version mismatch (expected: 10, remote: 11).',
+        conflict: true,
+        statusCode: 409,
+      });
+
+      await expect(engine.disableEncryption()).rejects.toThrow(/try again/i);
+
+      expect(await sessionKeyStore.isUnlocked()).toBe(true);
+      const storage = await chrome.storage.local.get('tabbellus_sync_state');
+      const state = storage.tabbellus_sync_state as SyncStorageState;
+      expect(state.isEncrypted).toBe(true);
+      expect(state.vaultSalt).toBe(saltBase64);
+      const status = await engine.getStatus();
+      expect(status.state).toBe('error');
+      expect(status.telemetry.encrypted).toBe(true);
+      expect(status.telemetry.lastError).toMatch(/try again/i);
+    });
+
+    it('T3 (regression): Happy path — plaintext uploaded, session cleared, isEncrypted false, status synced.', async () => {
+      mockedDrive.uploadVaultFile.mockResolvedValueOnce({
+        success: true,
+        data: { id: 'vault-file-123', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      await engine.disableEncryption();
+
+      expect(mockedDrive.uploadVaultFile).toHaveBeenCalledTimes(1);
+      const uploadedPayload = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]) as VaultPayload;
+      expect(uploadedPayload.isEncrypted).toBe(false);
+      expect(uploadedPayload.iv).toBeUndefined();
+      expect(uploadedPayload.salt).toBeUndefined();
+
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      const storage = await chrome.storage.local.get('tabbellus_sync_state');
+      const state = storage.tabbellus_sync_state as SyncStorageState;
+      expect(state.isEncrypted).toBe(false);
+      expect(state.vaultSalt).toBeUndefined();
+      expect(state.lastError).toBeUndefined();
+      expect(state.syncEnabled).toBe(true);
+
+      const status = await engine.getStatus();
+      expect(status.state).toBe('synced');
+      expect(status.telemetry.encrypted).toBe(false);
+    });
+
+    it('T4 (R3): Simulate a stop after a successful plaintext upload (storage still isEncrypted:true with an unlocked session; remote plaintext) → syncNow() → session cleared, isEncrypted false, no encrypted upload.', async () => {
+      const plaintextRemoteSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: 'remote-device-x',
+        spaces: [{ id: 99, name: 'Remote Plaintext Space', createdAt: 2000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const plaintextRemotePayload: VaultPayload = {
+        schemaVersion: '1.0.0',
+        clientTimestamp: new Date().toISOString(),
+        payload: JSON.stringify(plaintextRemoteSnapshot),
+        isEncrypted: false,
+      };
+
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: plaintextRemotePayload,
+      });
+
+      // Storage still has isEncrypted:true, unlocked session, but pendingEncryptionUpgrade cleared
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+          pendingEncryptionUpgrade: undefined,
+        },
+      });
+
+      // Mock upload for syncNow reconciliation upload
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-file-123', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      const syncResult = await engine.syncNow();
+      expect(syncResult.success).toBe(true);
+
+      // Verify no encrypted upload occurred: any upload that occurred must be plaintext
+      if (mockedDrive.uploadVaultFile.mock.calls.length > 0) {
+        const uploaded = JSON.parse(mockedDrive.uploadVaultFile.mock.calls[0][0]) as VaultPayload;
+        expect(uploaded.isEncrypted).toBe(false);
+      }
+
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+      const storage = await chrome.storage.local.get('tabbellus_sync_state');
+      const state = storage.tabbellus_sync_state as SyncStorageState;
+      expect(state.isEncrypted).toBe(false);
+      expect(state.vaultSalt).toBeUndefined();
+
+      const status = await engine.getStatus();
+      expect(status.telemetry.encrypted).toBe(false);
+    });
+
+    it('T5 (R4): pendingEncryptionUpgrade=true, remote plaintext; disableEncryption with a failing upload → a subsequent syncNow() does NOT upload an encrypted vault and ends with isEncrypted false.', async () => {
+      const plaintextRemoteSnapshot: SyncVaultSnapshot = {
+        version: 1,
+        clientTimestamp: 2000,
+        deviceId: 'remote-device-x',
+        spaces: [{ id: 99, name: 'Remote Plaintext Space', createdAt: 2000, updatedAt: 2000 }],
+        tabs: [],
+        readLater: [],
+      };
+      const plaintextRemotePayload: VaultPayload = {
+        schemaVersion: '1.0.0',
+        clientTimestamp: new Date().toISOString(),
+        payload: JSON.stringify(plaintextRemoteSnapshot),
+        isEncrypted: false,
+      };
+
+      mockedDrive.downloadVaultFile.mockResolvedValue({
+        success: true,
+        data: plaintextRemotePayload,
+      });
+
+      await chrome.storage.local.set({
+        tabbellus_sync_state: {
+          syncEnabled: true,
+          isEncrypted: true,
+          vaultSalt: saltBase64,
+          pendingEncryptionUpgrade: true,
+        },
+      });
+
+      mockedDrive.uploadVaultFile.mockResolvedValueOnce({
+        success: false,
+        error: 'Upload connection reset',
+      });
+
+      await expect(engine.disableEncryption()).rejects.toThrow();
+
+      const storageAfterFail = await chrome.storage.local.get('tabbellus_sync_state');
+      expect((storageAfterFail.tabbellus_sync_state as SyncStorageState).pendingEncryptionUpgrade).toBeUndefined();
+
+      // Subsequent syncNow
+      mockedDrive.uploadVaultFile.mockResolvedValue({
+        success: true,
+        data: { id: 'vault-file-123', name: 'tabbellus_vault.json', mimeType: 'application/json' },
+      });
+
+      const syncResult = await engine.syncNow();
+      expect(syncResult.success).toBe(true);
+
+      const storageFinal = await chrome.storage.local.get('tabbellus_sync_state');
+      expect((storageFinal.tabbellus_sync_state as SyncStorageState).isEncrypted).toBe(false);
+      expect(await sessionKeyStore.isUnlocked()).toBe(false);
+    });
+  });
+
+  // =========================================================================
   // User-Initiated Encryption Operations Lock Contention (T1–T4)
   // =========================================================================
 
