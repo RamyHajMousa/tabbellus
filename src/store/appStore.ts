@@ -14,7 +14,10 @@ import {
 export type { AppSettings };
 export { PORTABLE_SETTINGS_KEYS, DEFAULT_SETTINGS };
 
-let isRehydrating = false;
+let lastWrittenSerializedValue: string | null = null;
+let localMutationVersion = 0;
+let inFlightRehydrateVersion: number | null = null;
+let lastReadBlob: any = null;
 
 // 1. Create a Custom Bridge for Chrome Storage
 const chromeStorageAdapter: StateStorage = {
@@ -22,6 +25,13 @@ const chromeStorageAdapter: StateStorage = {
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.storage?.local) {
                 const val = memoryStorageFallback[name];
+                if (name === 'tabbellus-settings') {
+                    if (val && typeof val === 'object') {
+                        lastReadBlob = val;
+                    } else if (typeof val === 'string') {
+                        try { lastReadBlob = JSON.parse(val); } catch { lastReadBlob = null; }
+                    }
+                }
                 if (val && typeof val === 'object') {
                     resolve(JSON.stringify(val));
                 } else {
@@ -35,6 +45,13 @@ const chromeStorageAdapter: StateStorage = {
                     resolve(null);
                 } else {
                     const val = result[name];
+                    if (name === 'tabbellus-settings') {
+                        if (val && typeof val === 'object') {
+                            lastReadBlob = val;
+                        } else if (typeof val === 'string') {
+                            try { lastReadBlob = JSON.parse(val); } catch { lastReadBlob = null; }
+                        }
+                    }
                     if (val && typeof val === 'object') {
                         resolve(JSON.stringify(val));
                     } else {
@@ -45,16 +62,42 @@ const chromeStorageAdapter: StateStorage = {
         });
     },
     setItem: async (name: string, value: string): Promise<void> => {
-        if (isRehydrating) {
-            return;
+        let serializedToWrite = value;
+        if (name === 'tabbellus-settings') {
+            try {
+                const incoming = JSON.parse(value);
+                if (lastReadBlob && typeof lastReadBlob === 'object') {
+                    const mergedBlob = {
+                        ...lastReadBlob,
+                        ...incoming,
+                        version: lastReadBlob.version ?? incoming.version ?? 0,
+                        state: {
+                            ...(lastReadBlob.state ?? {}),
+                            ...(incoming.state ?? {}),
+                            settings: {
+                                ...(lastReadBlob.state?.settings ?? {}),
+                                ...(incoming.state?.settings ?? {}),
+                            },
+                        },
+                    };
+                    lastReadBlob = mergedBlob;
+                    serializedToWrite = JSON.stringify(mergedBlob);
+                } else {
+                    lastReadBlob = incoming;
+                }
+            } catch {
+                // Keep raw string on parse error
+            }
+            lastWrittenSerializedValue = serializedToWrite;
+            localMutationVersion++;
         }
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.storage?.local) {
-                memoryStorageFallback[name] = value;
+                memoryStorageFallback[name] = serializedToWrite;
                 resolve();
                 return;
             }
-            chrome.storage.local.set({ [name]: value }, () => {
+            chrome.storage.local.set({ [name]: serializedToWrite }, () => {
                 if (chrome.runtime?.lastError) {
                     console.error('Error saving state:', chrome.runtime.lastError);
                 }
@@ -122,6 +165,7 @@ export const useAppStore = create<AppState>()(
             recentSearches: [],
 
             updateSettings: (partial, options) => {
+                localMutationVersion++;
                 const hasPortableChange = PORTABLE_SETTINGS_KEYS.some((key) => key in partial);
                 let newTimestamp: number | undefined;
 
@@ -256,12 +300,36 @@ export const useAppStore = create<AppState>()(
             merge: (persistedState: unknown, currentState: AppState) => {
                 const persisted = (persistedState as (Partial<AppState> & { settings?: Partial<AppSettings>; [key: string]: any })) || {};
                 const persistedSettings: Partial<AppSettings> = persisted.settings || {};
+
+                if (inFlightRehydrateVersion !== null && localMutationVersion > inFlightRehydrateVersion) {
+                    return {
+                        ...currentState,
+                        ...persisted,
+                        settings: currentState.settings,
+                        theme: currentState.settings.theme,
+                        showDomain: currentState.settings.showDomain,
+                        badgeMode: currentState.settings.badgeMode,
+                    };
+                }
+
+                const resolvedTheme = (persisted.theme && persisted.theme !== DEFAULT_SETTINGS.theme)
+                    ? (persisted.theme as AppSettings['theme'])
+                    : (persistedSettings.theme ?? (persisted.theme as AppSettings['theme']) ?? DEFAULT_SETTINGS.theme);
+
+                const resolvedShowDomain = (persisted.showDomain !== undefined && persisted.showDomain !== DEFAULT_SETTINGS.showDomain)
+                    ? (persisted.showDomain as boolean)
+                    : (persistedSettings.showDomain ?? (persisted.showDomain as boolean) ?? DEFAULT_SETTINGS.showDomain);
+
+                const resolvedBadgeMode = (persisted.badgeMode && persisted.badgeMode !== DEFAULT_SETTINGS.badgeMode)
+                    ? (persisted.badgeMode as AppSettings['badgeMode'])
+                    : (persistedSettings.badgeMode ?? (persisted.badgeMode as AppSettings['badgeMode']) ?? DEFAULT_SETTINGS.badgeMode);
+
                 const mergedSettings: AppSettings = {
                     ...DEFAULT_SETTINGS,
                     ...persistedSettings,
-                    theme: persistedSettings.theme ?? (persisted.theme as AppSettings['theme']) ?? DEFAULT_SETTINGS.theme,
-                    showDomain: persistedSettings.showDomain ?? (persisted.showDomain as boolean) ?? DEFAULT_SETTINGS.showDomain,
-                    badgeMode: persistedSettings.badgeMode ?? (persisted.badgeMode as AppSettings['badgeMode']) ?? DEFAULT_SETTINGS.badgeMode,
+                    theme: resolvedTheme,
+                    showDomain: resolvedShowDomain,
+                    badgeMode: resolvedBadgeMode,
                     readLaterOpenBehavior: persistedSettings.readLaterOpenBehavior ?? DEFAULT_SETTINGS.readLaterOpenBehavior,
                     readLaterAutoArchive: persistedSettings.readLaterAutoArchive ?? DEFAULT_SETTINGS.readLaterAutoArchive,
                     autoDiscardInterval: persistedSettings.autoDiscardInterval ?? DEFAULT_SETTINGS.autoDiscardInterval,
@@ -288,14 +356,14 @@ export const useAppStore = create<AppState>()(
     )
 );
 
-// Wrap rehydrate to suppress write-backs while rehydrating from storage (Anti-Echo / No Echo Loop Guard)
+// Track in-flight rehydration version so concurrent local mutations are never overwritten by stale storage reads
 const originalRehydrate = useAppStore.persist.rehydrate;
 useAppStore.persist.rehydrate = async () => {
-    isRehydrating = true;
+    inFlightRehydrateVersion = localMutationVersion;
     try {
         return await originalRehydrate();
     } finally {
-        isRehydrating = false;
+        inFlightRehydrateVersion = null;
     }
 };
 
@@ -313,6 +381,23 @@ export function initSettingsStorageListener(force = false): void {
         settingsSyncListenerRegistered = true;
         chrome.storage.onChanged.addListener((changes, areaName) => {
             if (areaName === 'local' && changes['tabbellus-settings']) {
+                const change = changes['tabbellus-settings'];
+                const newValue = change.newValue;
+                if (newValue) {
+                    if (typeof newValue === 'object') {
+                        lastReadBlob = newValue;
+                    } else if (typeof newValue === 'string') {
+                        try {
+                            lastReadBlob = JSON.parse(newValue);
+                        } catch {
+                            // ignore parse error
+                        }
+                    }
+                }
+                // Skip rehydration if the change matches this context's own write
+                if (newValue !== undefined && newValue === lastWrittenSerializedValue) {
+                    return;
+                }
                 useAppStore.persist.rehydrate();
             }
         });
