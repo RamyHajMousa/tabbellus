@@ -38,8 +38,13 @@ contractRegistry.registerLicensingProvider(proLicensingEngine);
 contractRegistry.registerRulesProvider(rulesEngine);
 contractRegistry.registerSyncProvider(syncEngine);
 
+// Register scheduler listeners synchronously during initial evaluation so events
+// that wake the service worker (alarms, onStartup, onInstalled, local mutations)
+// are registered immediately and never missed.
+syncScheduler.registerListeners();
+
 // Initialize sync engine and scheduler with explicit lifecycle
-syncEngine.start().then(() => syncScheduler.init()).catch((err) => {
+syncEngine.start().then(() => syncScheduler.recheckAlarms()).catch((err) => {
     console.warn('Background: Sync engine initialization notice:', err);
 });
 

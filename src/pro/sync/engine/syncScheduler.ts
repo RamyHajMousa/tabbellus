@@ -54,9 +54,11 @@ export class SyncScheduler {
   }
 
   /**
-   * Initializes background scheduler event listeners and periodic alarm state.
+   * Registers all background scheduler event listeners synchronously without awaiting storage.
+   * Called at the top level of the service worker during module evaluation to ensure
+   * events that wake the worker (alarms, onStartup, onInstalled, local mutations) are never missed.
    */
-  async init(): Promise<void> {
+  registerListeners(): void {
     // 1. Subscribe to local domain mutations
     if (!this.mutationUnsubscribe) {
       this.mutationUnsubscribe = contractRegistry.subscribeLocalMutation(() => {
@@ -75,6 +77,7 @@ export class SyncScheduler {
     if (typeof chrome !== 'undefined' && chrome.alarms?.onAlarm) {
       if (!this.alarmListener) {
         this.alarmListener = async (alarm: chrome.alarms.Alarm) => {
+          await this.syncEngine.ready;
           if (alarm.name === DEBOUNCE_ALARM_NAME) {
             await this.runDebouncedCycle('alarm');
           } else if (alarm.name === PERIODIC_ALARM_NAME) {
@@ -89,6 +92,7 @@ export class SyncScheduler {
     if (typeof chrome !== 'undefined' && chrome.runtime?.onStartup) {
       if (!this.startupListener) {
         this.startupListener = async () => {
+          await this.syncEngine.ready;
           await this.recheckAlarms();
           const check = await this.canSync();
           if (check.eligible) {
@@ -108,6 +112,7 @@ export class SyncScheduler {
       if (!this.installedListener) {
         this.installedListener = async (details: { reason: string }) => {
           if (details.reason === 'update') {
+            await this.syncEngine.ready;
             await this.recheckAlarms();
             const check = await this.canSync();
             if (check.eligible) {
@@ -122,8 +127,13 @@ export class SyncScheduler {
         chrome.runtime.onInstalled.addListener(this.installedListener);
       }
     }
+  }
 
-    // 5. Ensure periodic alarm if entitled and enabled
+  /**
+   * Initializes background scheduler event listeners and periodic alarm state.
+   */
+  async init(): Promise<void> {
+    this.registerListeners();
     await this.recheckAlarms();
   }
 
@@ -131,6 +141,11 @@ export class SyncScheduler {
    * Cleans up all registered listeners, active timers, and alarms.
    */
   dispose(): void {
+    if (this.mutationUnsubscribe) {
+      this.mutationUnsubscribe();
+      this.mutationUnsubscribe = null;
+    }
+
     if (this.lockOrDisconnectUnsubscribe) {
       this.lockOrDisconnectUnsubscribe();
       this.lockOrDisconnectUnsubscribe = null;
@@ -142,6 +157,14 @@ export class SyncScheduler {
       if (this.alarmListener && chrome.alarms?.onAlarm) {
         chrome.alarms.onAlarm.removeListener(this.alarmListener);
         this.alarmListener = null;
+      }
+      if (this.startupListener && chrome.runtime?.onStartup) {
+        chrome.runtime.onStartup.removeListener?.(this.startupListener);
+        this.startupListener = null;
+      }
+      if (this.installedListener && chrome.runtime?.onInstalled) {
+        chrome.runtime.onInstalled.removeListener?.(this.installedListener);
+        this.installedListener = null;
       }
     }
   }
@@ -187,6 +210,11 @@ export class SyncScheduler {
         }
       }
 
+      const status = await this.syncEngine.getStatus();
+      if (status.state === 'locked') {
+        return { eligible: false, locked: true };
+      }
+
       return { eligible: true };
     } catch {
       return { eligible: false };
@@ -195,9 +223,10 @@ export class SyncScheduler {
 
   /**
    * Marks synchronization dirty in response to local mutations:
-   * - Sets session storage dirty flag
+   * - Sets session storage dirty flag immediately
    * - Restarts 3s in-memory timer
-   * - Creates/resets 0.5-min debounce alarm
+   * - Creates/resets 0.5-min debounce alarm immediately
+   * - Must work before engine readiness; cycles themselves await readiness.
    */
   async markDirty(): Promise<void> {
     // 1. Restart in-memory debounce timer (3s) synchronously
@@ -210,7 +239,7 @@ export class SyncScheduler {
       this.runDebouncedCycle('timer');
     }, this.autoSyncDebounceMs);
 
-    // 2. Set persistent dirty flag in session storage
+    // 2. Set persistent dirty flag in session storage immediately
     if (typeof chrome !== 'undefined' && chrome.storage?.session) {
       try {
         await chrome.storage.session.set({ [DIRTY_SESSION_KEY]: true });
@@ -219,16 +248,7 @@ export class SyncScheduler {
       }
     }
 
-    // 3. Gate check for native alarms (Free or disconnected users must produce NO alarms)
-    const check = await this.canSync();
-    if (!check.eligible) {
-      if (check.locked) {
-        this.syncEngine.setLockedStatus?.();
-      }
-      return;
-    }
-
-    // 4. Create or reset native debounce alarm (0.5m)
+    // 3. Create or reset native debounce alarm (0.5m) immediately without waiting for readiness
     if (typeof chrome !== 'undefined' && chrome.alarms?.create) {
       try {
         await chrome.alarms.create(DEBOUNCE_ALARM_NAME, {
@@ -242,12 +262,14 @@ export class SyncScheduler {
 
   /**
    * Executes a debounced sync cycle triggered by in-memory timer or native alarm:
+   * - Awaits engine readiness before checking gates or executing cycles
    * - Only runs if dirty flag is true in session storage
    * - Clears dirty flag at START of cycle (anti-lost-update invariant)
    * - Clears debounce alarm and timer
    * - Re-sets dirty flag if cycle fails
    */
   async runDebouncedCycle(_source: 'timer' | 'alarm'): Promise<void> {
+    await this.syncEngine.ready;
     // 1. Verify dirty flag
     let isDirty = false;
     if (typeof chrome !== 'undefined' && chrome.storage?.session) {
@@ -315,6 +337,7 @@ export class SyncScheduler {
    * Executes a periodic sync cycle.
    */
   async runPeriodicCycle(): Promise<void> {
+    await this.syncEngine.ready;
     const check = await this.canSync();
     if (!check.eligible) {
       await this.recheckAlarms();
@@ -332,6 +355,7 @@ export class SyncScheduler {
    * Harmonizes periodic alarm schedule with current entitlement and sync state.
    */
   async recheckAlarms(): Promise<void> {
+    await this.syncEngine.ready;
     const check = await this.canSync();
     if (check.eligible) {
       if (typeof chrome !== 'undefined' && chrome.alarms?.create) {
