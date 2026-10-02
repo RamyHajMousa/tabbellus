@@ -113,6 +113,10 @@ export class SyncDispatcher {
   }
 
   private async dispatchAsync(message: SyncMessage): Promise<SyncResponse> {
+    if (message.type !== 'TABBELLUS_SYNC_MUTATION') {
+      await this.syncEngine.ready;
+    }
+
     switch (message.type) {
       case 'TABBELLUS_SYNC_GET_STATUS': {
         const status = await this.syncEngine.getStatus();

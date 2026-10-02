@@ -83,29 +83,49 @@ export class SyncEngine implements SyncProvider {
   private rateLimitResetAt = 0;
   private onLockOrDisconnectListeners = new Set<() => void>();
 
+  private isReady = false;
+  private readyPromise: Promise<void> | null = null;
+
   constructor() {
     // Constructor has NO side effects: no storage reads, no mutation subscriptions, no timers.
     // Lifecycle is explicitly managed via start() and stop() by background bootstrap.
   }
 
   /**
-   * Explicit lifecycle initialization: hydrates state from storage and mirrors initial status.
+   * Memoized readiness promise. Created by start(); calling start() multiple times
+   * returns the exact same promise.
    */
-  async start(): Promise<void> {
-    await this.initFromStorage();
+  get ready(): Promise<void> {
+    return this.start();
+  }
+
+  /**
+   * Explicit lifecycle initialization: hydrates state from storage and mirrors initial status.
+   * Calling start() multiple times returns the same memoized Promise.
+   */
+  start(): Promise<void> {
+    if (!this.readyPromise) {
+      this.readyPromise = this.initFromStorage().finally(() => {
+        this.isReady = true;
+      });
+    }
+    return this.readyPromise;
   }
 
   /**
    * Explicit lifecycle teardown: cleans up any active resources.
    */
   stop(): void {
+    this.readyPromise = null;
+    this.isReady = false;
     // Teardown / cleanup if needed
   }
 
   /**
    * Updates status to locked without performing any network operations.
    */
-  setLockedStatus(): void {
+  async setLockedStatus(): Promise<void> {
+    if (!this.isReady) await this.ready;
     this.updateStatus({ state: 'locked' });
   }
 
@@ -228,6 +248,7 @@ export class SyncEngine implements SyncProvider {
   // -------------------------------------------------------------------------
 
   async getStatus(): Promise<SyncStatus> {
+    if (!this.isReady) await this.ready;
     return {
       state: this.status.state,
       isConnected: this.status.isConnected,
@@ -239,6 +260,7 @@ export class SyncEngine implements SyncProvider {
    * Prompts the user for interactive Google OAuth2 consent and enables sync.
    */
   async connect(interactive = true): Promise<{ success: boolean; error?: string }> {
+    if (!this.isReady) await this.ready;
     try {
       const authResult = await googleAuthClient.getAuthToken(interactive);
 
@@ -291,6 +313,7 @@ export class SyncEngine implements SyncProvider {
    * Revokes the OAuth2 token and disables sync.
    */
   async disconnect(): Promise<void> {
+    if (!this.isReady) await this.ready;
     try {
       const tokenResult = await googleAuthClient.getAuthToken(false);
       if (tokenResult.success) {
@@ -343,6 +366,7 @@ export class SyncEngine implements SyncProvider {
    * uploads the current snapshot as an encrypted vault.
    */
   async setupEncryption(passphrase: string): Promise<void> {
+    if (!this.isReady) await this.ready;
     return this.withSyncLock(
       'setupEncryption',
       async () => {
@@ -381,6 +405,7 @@ export class SyncEngine implements SyncProvider {
    * 4. Uploads unified mergedSnapshot as unencrypted plaintext JSON.
    */
   async disableEncryption(): Promise<void> {
+    if (!this.isReady) await this.ready;
     return this.withSyncLock(
       'disableEncryption',
       async () => {
@@ -536,6 +561,7 @@ export class SyncEngine implements SyncProvider {
    * resetting storage state, and triggering a full unencrypted sync upload.
    */
   async resetCloudVault(): Promise<void> {
+    if (!this.isReady) await this.ready;
     return this.withSyncLock(
       'resetCloudVault',
       async () => {
@@ -575,6 +601,7 @@ export class SyncEngine implements SyncProvider {
    * Verifies against remote ciphertext if available, caches key, and resumes sync.
    */
   async unlockVault(passphrase: string): Promise<boolean> {
+    if (!this.isReady) await this.ready;
     let saltBase64 = (await this.loadStorageState()).vaultSalt;
     let remoteEncryptedPayload: VaultPayload | null = null;
 
@@ -660,6 +687,7 @@ export class SyncEngine implements SyncProvider {
    * Locks the active vault by wiping session keys and entering 'locked' state.
    */
   async lockVault(): Promise<void> {
+    if (!this.isReady) await this.ready;
     await sessionKeyStore.clearSession();
     this.updateStatus({
       state: 'locked',
@@ -806,6 +834,7 @@ export class SyncEngine implements SyncProvider {
    * Executes a full synchronization cycle.
    */
   async syncNow(options?: SyncOptions): Promise<SyncResult> {
+    if (!this.isReady) await this.ready;
     if (Date.now() < this.rateLimitResetAt) {
       const waitSeconds = Math.ceil((this.rateLimitResetAt - Date.now()) / 1000);
       return {
