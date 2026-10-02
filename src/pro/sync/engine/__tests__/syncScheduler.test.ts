@@ -113,6 +113,7 @@ describe('SyncScheduler (Commit A)', () => {
         telemetry: { pendingMutations: 0, encrypted: false },
       }),
       syncNow: vi.fn().mockResolvedValue({ success: true, timestamp: Date.now() }),
+      setLockedStatus: vi.fn(),
       updateStatus: vi.fn(),
     } as any;
 
@@ -314,9 +315,7 @@ describe('SyncScheduler (Commit A)', () => {
     // Zero syncNow calls
     expect(mockSyncEngine.syncNow).not.toHaveBeenCalled();
     // Sets status to locked
-    expect((mockSyncEngine as any).updateStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'locked' }),
-    );
+    expect((mockSyncEngine as any).setLockedStatus).toHaveBeenCalled();
 
     isUnlockedSpy.mockRestore();
     scheduler.dispose();

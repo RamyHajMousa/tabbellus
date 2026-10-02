@@ -27,7 +27,7 @@ import {
   DialogFooter,
 } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/Toaster';
-import { syncEngine } from '../engine/syncEngine';
+import { backgroundSyncClient } from '../client/backgroundSyncClient';
 import {
   calculatePassphraseStrength,
   validateSetupDraft,
@@ -79,7 +79,7 @@ export const EncryptionSetupModal: React.FC<EncryptionSetupModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      await syncEngine.setupEncryption(passphrase);
+      await backgroundSyncClient.setupEncryption(passphrase);
       toast('Cloud Vault Encrypted', {
         description: 'E2EE is now active. Spaces and tabs are encrypted client-side.',
       });

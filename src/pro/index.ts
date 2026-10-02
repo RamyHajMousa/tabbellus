@@ -11,7 +11,7 @@
 
 import { contractRegistry } from '@/core/contracts/registry';
 import { proLicensingEngine } from './licensing';
-import { syncEngine } from './sync';
+import { backgroundSyncClient } from './sync';
 import { rulesEngine } from './rules';
 
 // --- Licensing Provider Registration ---
@@ -19,8 +19,13 @@ import { rulesEngine } from './rules';
 contractRegistry.registerLicensingProvider(proLicensingEngine);
 
 // --- Sync Provider Registration ---
-// Replaces the NullSyncProvider with the real Pro Drive sync driver
-contractRegistry.registerSyncProvider(syncEngine);
+// Replaces the NullSyncProvider with the background sync client driver
+contractRegistry.registerSyncProvider(backgroundSyncClient);
+
+// Forward side-panel local mutations to background sync scheduler
+contractRegistry.subscribeLocalMutation(() => {
+  backgroundSyncClient.notifyMutation();
+});
 
 // --- Rules Provider Registration ---
 // Replaces the NullRulesEngine with the real Pro tab automation driver
@@ -48,6 +53,6 @@ contractRegistry.registerSlot({
   order: 5,
 });
 
-export { proLicensingEngine, syncEngine, rulesEngine };
+export { proLicensingEngine, backgroundSyncClient, rulesEngine };
 
 

@@ -30,7 +30,7 @@ import {
   DialogFooter,
 } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/Toaster';
-import { syncEngine } from '../engine/syncEngine';
+import { backgroundSyncClient } from '../client/backgroundSyncClient';
 import { validateUnlockDraft } from './unlockModalLogic';
 
 export interface VaultUnlockModalProps {
@@ -78,7 +78,7 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      const success = await syncEngine.unlockVault(passphrase);
+      const success = await backgroundSyncClient.unlockVault(passphrase);
       if (success) {
         toast('Vault Unlocked', {
           description: 'Cloud synchronization has resumed.',
@@ -104,7 +104,7 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
     // Double confirmation received
     setIsSubmitting(true);
     try {
-      await syncEngine.resetCloudVault();
+      await backgroundSyncClient.resetCloudVault();
       toast('Cloud Vault Reset: Encryption removed and local data synchronized.');
       onOpenChange(false);
       onResetVault?.();

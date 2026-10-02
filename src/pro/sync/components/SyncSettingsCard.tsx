@@ -14,7 +14,7 @@
  *
  * ZERO-CONTAMINATION BOUNDARY:
  * - Isolated Pro component.
- * - Consumes `useSyncStatus` from `@/core` and `syncEngine` from Pro sync engine.
+ * - Consumes `useSyncStatus` from `@/core` and `backgroundSyncClient` from Pro sync client.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -42,7 +42,7 @@ import {
   DialogFooter,
 } from '@/components/ui/Dialog';
 import { useSyncStatus } from '@/core/hooks/useSyncStatus';
-import { syncEngine } from '../engine/syncEngine';
+import { backgroundSyncClient } from '../client/backgroundSyncClient';
 import { useToast } from '@/components/ui/Toaster';
 import { TooltipSimple } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/dateUtils';
@@ -97,13 +97,13 @@ export const SyncSettingsCard: React.FC = () => {
     setIsConnecting(true);
 
     try {
-      const result = await syncEngine.connect();
+      const result = await backgroundSyncClient.connect();
       if (result.success) {
         toast('Google Drive connected!', {
           description: 'Ready to synchronize workspaces across devices.',
         });
         // Trigger an initial sync cycle right after connecting
-        await syncEngine.syncNow();
+        await backgroundSyncClient.syncNow();
       } else {
         toast('Failed to connect Google Drive', {
           description: result.error ?? 'Authentication was cancelled or rejected.',
@@ -119,12 +119,12 @@ export const SyncSettingsCard: React.FC = () => {
   }, [isConnecting, toast]);
 
   const handleSyncNow = useCallback(async () => {
-    await performManualSyncAction(() => syncEngine.syncNow(), toast, state);
+    await performManualSyncAction(() => backgroundSyncClient.syncNow(), toast, state);
   }, [state, toast]);
 
   const handleDisconnect = useCallback(async () => {
     try {
-      await syncEngine.disconnect();
+      await backgroundSyncClient.disconnect();
       toast('Google Drive sync disconnected', {
         description: 'Cloud synchronization has been disabled on this device.',
       });
@@ -137,7 +137,7 @@ export const SyncSettingsCard: React.FC = () => {
 
   const handleLockVault = useCallback(async () => {
     try {
-      await syncEngine.lockVault();
+      await backgroundSyncClient.lockVault();
       toast('Vault locked for this session', {
         description: 'Passphrase required to resume synchronization.',
       });
@@ -152,7 +152,7 @@ export const SyncSettingsCard: React.FC = () => {
     if (isDisabling) return;
     setIsDisabling(true);
     try {
-      await syncEngine.disableEncryption();
+      await backgroundSyncClient.disableEncryption();
       setDisableDialogOpen(false);
       toast('E2E Encryption Disabled: Cloud vault reverted to standard sync.');
     } catch (err: unknown) {

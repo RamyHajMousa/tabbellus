@@ -6,6 +6,7 @@ import { getReadLaterShortcutText } from '@/lib/platform';
 import { updateGlobalBadge } from './badgeService';
 import { runDiscardSweep } from './discardService';
 import { rulesDispatcher } from './rulesDispatcher';
+import { initSyncDispatcher } from './syncDispatcher';
 import { performSync, cancelPendingSync } from './tabSyncService';
 import { contractRegistry } from '@/core/contracts/registry';
 import { rulesEngine, syncEngine, syncScheduler, proLicensingEngine } from '@/pro/background';
@@ -46,6 +47,10 @@ syncEngine.start().then(() => syncScheduler.init()).catch((err) => {
 // synchronously at module evaluation so listeners survive service worker
 // wake cycles, consistent with the other chrome.tabs.on* bindings below.
 rulesDispatcher.init();
+
+// Bind message listener for UI sync requests. Registered synchronously
+// at module evaluation so listeners survive service worker wake cycles.
+initSyncDispatcher();
 
 const TAB_DISCARD_ALARM_NAME = 'tab-discard-sweep';
 
