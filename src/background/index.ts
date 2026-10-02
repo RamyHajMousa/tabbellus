@@ -8,20 +8,20 @@ import { runDiscardSweep } from './discardService';
 import { rulesDispatcher } from './rulesDispatcher';
 import { performSync, cancelPendingSync } from './tabSyncService';
 import { contractRegistry } from '@/core/contracts/registry';
-import { rulesEngine } from '@/pro/background';
+import { rulesEngine, syncEngine, syncScheduler, proLicensingEngine } from '@/pro/background';
 
 export { performSync, cancelPendingSync };
 
 console.log('TabBellus Service Worker Initialized');
 
-// Register the Pro tab automation rules engine.
+// Register the Pro background engines into the Core Contract Registry.
 //
 // NECESSARY, NARROW EXCEPTION to "zero static src/pro/ imports in
 // src/background/": dynamic `import()` is categorically disallowed inside
 // a ServiceWorkerGlobalScope per the HTML spec — confirmed via a live
 // runtime error: "TypeError: import() is disallowed on
 // ServiceWorkerGlobalScope by the HTML specification"
-// (https://github.com/w3c/ServiceWorkerIssues/1356). This is a hard
+// (https://github.com/w3c/ServiceWorker/issues/1356). This is a hard
 // platform wall, not a timing/bundler issue — an earlier fix that awaited
 // a dynamic import's promise before evaluating tabs still failed 100% of
 // the time, because the import itself always rejects in this context, not
@@ -31,11 +31,16 @@ console.log('TabBellus Service Worker Initialized');
 // registration time, is possible here.
 //
 // Scoped strictly to `@/pro/background` (`src/pro/background.ts`),
-// which exports only pure, DOM-free, React-free engines (rules engine
-// today; sync and licensing engines in Phase 2). In Phase 1, sync and
-// licensing engines remain excluded from this entry to avoid running
-// constructors with unisolated side effects (mutation listeners, timers).
+// which exports only pure, DOM-free, React-free engines (rules engine,
+// sync engine, licensing engine, and sync scheduler).
+contractRegistry.registerLicensingProvider(proLicensingEngine);
 contractRegistry.registerRulesProvider(rulesEngine);
+contractRegistry.registerSyncProvider(syncEngine);
+
+// Initialize sync engine and scheduler with explicit lifecycle
+syncEngine.start().then(() => syncScheduler.init()).catch((err) => {
+    console.warn('Background: Sync engine initialization notice:', err);
+});
 
 // Bind tab lifecycle listeners for the automation rules engine. Registered
 // synchronously at module evaluation so listeners survive service worker
@@ -369,7 +374,7 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 
     try {
         const activeSpaces = await chrome.storage.session.get('activeSpaces').then(res => res.activeSpaces || {});
-        
+
         // Find all space IDs mapped to the closed window
         const closingSpaceIds = Object.keys(activeSpaces)
             .filter(k => activeSpaces[parseInt(k, 10)] === windowId)

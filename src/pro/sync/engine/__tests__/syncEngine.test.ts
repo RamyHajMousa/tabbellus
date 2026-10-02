@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyncEngine, SyncBusyError, MAX_SYNC_LOCK_WAIT_MS } from '../syncEngine';
+import { SyncScheduler } from '../syncScheduler';
 import { resolveVaultFiles } from '../vaultResolver';
 import { contractRegistry } from '@/core/contracts/registry';
 import { googleAuthClient } from '../../api/googleAuthClient';
@@ -1433,11 +1434,21 @@ describe('SyncEngine', () => {
   // =========================================================================
 
   describe('Debounced Auto-Sync', () => {
-    beforeEach(() => {
+    let scheduler: SyncScheduler;
+
+    beforeEach(async () => {
       vi.useFakeTimers();
+      scheduler = new SyncScheduler({
+        syncEngine: engine,
+        licensingEngine: {
+          getEntitlement: vi.fn().mockResolvedValue({ isPro: true, tier: 'pro' }),
+        } as any,
+      });
+      await scheduler.init();
     });
 
     afterEach(() => {
+      scheduler.dispose();
       vi.useRealTimers();
     });
 
@@ -1500,8 +1511,8 @@ describe('SyncEngine', () => {
       expect(syncNowSpy).not.toHaveBeenCalled();
 
       // Reach 3000ms from the third mutation
-      await vi.advanceTimersByTimeAsync(500);
-      expect(syncNowSpy).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(500);
+      await vi.waitFor(() => expect(syncNowSpy).toHaveBeenCalledTimes(1));
       expect(syncNowSpy).toHaveBeenCalledWith({ silent: true });
     });
 

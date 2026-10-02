@@ -1,5 +1,6 @@
 import { db, type Tab } from '@/lib/db';
 import { normalizeTabUrl } from '@/lib/tabService';
+import { contractRegistry } from '@/core/contracts/registry';
 
 export const SYNC_DEBOUNCE_MS = 350;
 
@@ -194,8 +195,9 @@ async function executeSync(windowId: number, explicitSpaceId?: number): Promise<
             }
         });
 
-        // 7. Cross-process mutation bridge: notify sidepanel to debounce auto-sync
+        // 7. Cross-process mutation bridge: notify background bus and sidepanel to debounce auto-sync
         if (didWrite) {
+            contractRegistry.notifyLocalMutation();
             try {
                 if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
                     chrome.runtime.sendMessage({ type: 'TABBELLUS_LOCAL_MUTATION', source: 'tabSyncService' }).catch(() => {});

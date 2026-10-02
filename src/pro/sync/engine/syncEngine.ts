@@ -25,7 +25,6 @@ import type {
   SyncResult,
   SyncOptions,
 } from '@/core/contracts/sync';
-import { contractRegistry } from '@/core/contracts/registry';
 import { googleAuthClient } from '../api/googleAuthClient';
 import { googleDriveClient } from '../api/googleDriveClient';
 import type { VaultPayload } from '../api/types';
@@ -80,15 +79,34 @@ export class SyncEngine implements SyncProvider {
   private isSyncing = false;
   private inMemoryLock: Promise<void> = Promise.resolve();
   private activeLockCount = 0;
-  private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly AUTO_SYNC_DEBOUNCE_MS = 3000;
   private readonly MAX_CONFLICT_RETRIES = 3;
-  private mutationUnsubscribe: (() => void) | null = null;
   private rateLimitResetAt = 0;
+  private onLockOrDisconnectListeners = new Set<() => void>();
 
   constructor() {
-    this.initFromStorage();
-    this.mutationUnsubscribe = contractRegistry.subscribeLocalMutation(() => this.handleLocalMutation());
+    // Constructor has NO side effects: no storage reads, no mutation subscriptions, no timers.
+    // Lifecycle is explicitly managed via start() and stop() by background bootstrap.
+  }
+
+  /**
+   * Explicit lifecycle initialization: hydrates state from storage and mirrors initial status.
+   */
+  async start(): Promise<void> {
+    await this.initFromStorage();
+  }
+
+  /**
+   * Explicit lifecycle teardown: cleans up any active resources.
+   */
+  stop(): void {
+    // Teardown / cleanup if needed
+  }
+
+  /**
+   * Updates status to locked without performing any network operations.
+   */
+  setLockedStatus(): void {
+    this.updateStatus({ state: 'locked' });
   }
 
   /**
@@ -110,6 +128,7 @@ export class SyncEngine implements SyncProvider {
         }
       }
       this.notifyListeners();
+      this.mirrorStatusToSession();
     } catch {
       // Best-effort storage initialization
     }
@@ -166,6 +185,27 @@ export class SyncEngine implements SyncProvider {
       },
     };
     this.notifyListeners();
+    this.mirrorStatusToSession();
+  }
+
+  private mirrorStatusToSession(): void {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+        const sanitized: SyncStatus = {
+          state: this.status.state,
+          isConnected: Boolean(this.status.isConnected),
+          telemetry: {
+            lastSyncedAt: this.status.telemetry?.lastSyncedAt,
+            pendingMutations: this.status.telemetry?.pendingMutations ?? 0,
+            lastError: this.status.telemetry?.lastError,
+            encrypted: Boolean(this.status.telemetry?.encrypted),
+          },
+        };
+        chrome.storage.session.set({ tabbellus_sync_live_status: sanitized }).catch(() => {});
+      }
+    } catch {
+      // Best-effort session mirror
+    }
   }
 
   private notifyListeners(): void {
@@ -198,9 +238,9 @@ export class SyncEngine implements SyncProvider {
   /**
    * Prompts the user for interactive Google OAuth2 consent and enables sync.
    */
-  async connect(): Promise<{ success: boolean; error?: string }> {
+  async connect(interactive = true): Promise<{ success: boolean; error?: string }> {
     try {
-      const authResult = await googleAuthClient.getAuthToken(true);
+      const authResult = await googleAuthClient.getAuthToken(interactive);
 
       if (!authResult.success) {
         this.updateStatus({
@@ -260,11 +300,6 @@ export class SyncEngine implements SyncProvider {
       // Best-effort revocation
     }
 
-    if (this.autoSyncTimer) {
-      clearTimeout(this.autoSyncTimer);
-      this.autoSyncTimer = null;
-    }
-
     this.updateStatus({
       state: 'idle',
       isConnected: false,
@@ -278,20 +313,29 @@ export class SyncEngine implements SyncProvider {
       syncEnabled: false,
       lastError: undefined,
     });
+
+    this.notifyLockOrDisconnect();
   }
 
-  /**
-   * Disposes the sync engine, cancelling active timers and unregistering mutation listeners.
-   */
+  onLockOrDisconnect(callback: () => void): () => void {
+    this.onLockOrDisconnectListeners.add(callback);
+    return () => {
+      this.onLockOrDisconnectListeners.delete(callback);
+    };
+  }
+
+  private notifyLockOrDisconnect(): void {
+    this.onLockOrDisconnectListeners.forEach((cb) => {
+      try {
+        cb();
+      } catch {
+        // Prevent listener error from breaking notification loop
+      }
+    });
+  }
+
   dispose(): void {
-    if (this.autoSyncTimer) {
-      clearTimeout(this.autoSyncTimer);
-      this.autoSyncTimer = null;
-    }
-    if (this.mutationUnsubscribe) {
-      this.mutationUnsubscribe();
-      this.mutationUnsubscribe = null;
-    }
+    this.stop();
   }
 
   /**
@@ -616,10 +660,6 @@ export class SyncEngine implements SyncProvider {
    * Locks the active vault by wiping session keys and entering 'locked' state.
    */
   async lockVault(): Promise<void> {
-    if (this.autoSyncTimer) {
-      clearTimeout(this.autoSyncTimer);
-      this.autoSyncTimer = null;
-    }
     await sessionKeyStore.clearSession();
     this.updateStatus({
       state: 'locked',
@@ -628,6 +668,7 @@ export class SyncEngine implements SyncProvider {
         encrypted: true,
       },
     });
+    this.notifyLockOrDisconnect();
   }
 
   /**
@@ -760,36 +801,6 @@ export class SyncEngine implements SyncProvider {
     }
   }
 
-  /**
-   * Handles local domain mutations by debouncing an automatic synchronization cycle.
-   */
-  private handleLocalMutation(): void {
-    if (!this.status.isConnected || this.status.state === 'locked') {
-      return;
-    }
-
-    if (Date.now() < this.rateLimitResetAt) {
-      console.debug('[SyncEngine] Skipping debounced auto-sync: rate limit cooldown active');
-      return;
-    }
-
-    if (this.autoSyncTimer) {
-      clearTimeout(this.autoSyncTimer);
-      this.autoSyncTimer = null;
-    }
-
-    this.autoSyncTimer = setTimeout(async () => {
-      this.autoSyncTimer = null;
-      if (Date.now() < this.rateLimitResetAt) {
-        return;
-      }
-      try {
-        await this.syncNow({ silent: true });
-      } catch (err) {
-        console.debug('[SyncEngine] Background auto-sync skipped:', err);
-      }
-    }, this.AUTO_SYNC_DEBOUNCE_MS);
-  }
 
   /**
    * Executes a full synchronization cycle.

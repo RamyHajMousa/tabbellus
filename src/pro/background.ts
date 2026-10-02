@@ -11,5 +11,8 @@
 export { rulesEngine, RulesEngine } from './rules/engine/rulesEngine';
 export { RuleMatcher } from './rules/engine/matcher';
 export { RuleExecutor } from './rules/engine/executor';
+export { syncEngine, SyncEngine } from './sync/engine/syncEngine';
+export { syncScheduler, SyncScheduler } from './sync/engine/syncScheduler';
+export { proLicensingEngine, ProLicensingEngine } from './licensing';
 
 
