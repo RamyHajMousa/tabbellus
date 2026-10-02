@@ -585,6 +585,7 @@ describe('SnapshotSerializer', () => {
         },
         version: 3,
       };
+      useAppStore.persist.setOptions({ version: 3 });
       await chrome.storage.local.set({
         'tabbellus-settings': JSON.stringify(initialPersisted),
       });
@@ -632,6 +633,7 @@ describe('SnapshotSerializer', () => {
         // Anti-echo guard: notifyLocalMutation must NOT be called
         expect(mutationListener).not.toHaveBeenCalled();
       } finally {
+        useAppStore.persist.setOptions({ version: 0 });
         unsub();
       }
     });

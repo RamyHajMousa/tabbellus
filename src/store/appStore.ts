@@ -29,9 +29,6 @@ export const chromeStorageAdapter: StateStorage = {
                     } else if (typeof val === 'string') {
                         try { lastReadBlob = JSON.parse(val); } catch { lastReadBlob = null; }
                     }
-                    if (typeof lastReadBlob?.version === 'number' && useAppStore?.persist) {
-                        useAppStore.persist.setOptions({ version: lastReadBlob.version });
-                    }
                 }
                 if (val && typeof val === 'object') {
                     resolve(JSON.stringify(val));
@@ -51,9 +48,6 @@ export const chromeStorageAdapter: StateStorage = {
                             lastReadBlob = val;
                         } else if (typeof val === 'string') {
                             try { lastReadBlob = JSON.parse(val); } catch { lastReadBlob = null; }
-                        }
-                        if (typeof lastReadBlob?.version === 'number' && useAppStore?.persist) {
-                            useAppStore.persist.setOptions({ version: lastReadBlob.version });
                         }
                     }
                     if (val && typeof val === 'object') {
@@ -372,9 +366,6 @@ export function initSettingsStorageListener(force = false): void {
                         } catch {
                             // ignore parse error
                         }
-                    }
-                    if (typeof lastReadBlob?.version === 'number' && useAppStore?.persist) {
-                        useAppStore.persist.setOptions({ version: lastReadBlob.version });
                     }
                 }
                 // Skip rehydration if the change matches this context's own write

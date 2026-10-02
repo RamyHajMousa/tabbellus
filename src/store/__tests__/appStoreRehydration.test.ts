@@ -278,4 +278,43 @@ describe('useAppStore Rehydration & Concurrency Guards (T1–T6)', () => {
         const stored = JSON.parse(storageData['tabbellus-settings']);
         expect(stored.version).toBe(2);
     });
+
+    it('T7 (R5): store configured with version 2 hydrating version 1 invokes migrate via useAppStore and persists version 2', async () => {
+        const storedV1 = {
+            version: 1,
+            state: {
+                settings: { ...DEFAULT_SETTINGS, theme: 'light' },
+            },
+        };
+        storageData['tabbellus-settings'] = JSON.stringify(storedV1);
+
+        const migrateSpy = vi.fn((persistedState: any, _version: number) => {
+            return {
+                ...persistedState,
+                settings: {
+                    ...persistedState.settings,
+                    theme: 'dark',
+                },
+            };
+        });
+
+        useAppStore.persist.setOptions({
+            version: 2,
+            migrate: migrateSpy,
+        });
+
+        // Hydrate through useAppStore (not adapter alone)
+        await useAppStore.persist.rehydrate();
+
+        expect(migrateSpy).toHaveBeenCalledTimes(1);
+
+        // Store update writes back through useAppStore
+        useAppStore.getState().updateSettings({ autoDiscardInterval: 15 });
+
+        await new Promise((r) => setTimeout(r, 50));
+
+        const stored = JSON.parse(storageData['tabbellus-settings']);
+        expect(stored.version).toBe(2);
+        expect(useAppStore.persist.getOptions().version).toBe(2);
+    });
 });
